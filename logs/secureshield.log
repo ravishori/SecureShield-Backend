@@ -1,0 +1,120 @@
+2026-03-19 23:43:09 | INFO     | secureshield.app.main          | ============================================================
+2026-03-19 23:43:09 | INFO     | secureshield.app.main          | SecureShield AI API starting up...
+2026-03-19 23:43:09 | INFO     | secureshield.app.main          | Logging → file: logs/secureshield.log  |  DB: error_logs table
+2026-03-19 23:43:09 | INFO     | secureshield.app.main          | ============================================================
+2026-03-20 00:07:50 | INFO     | secureshield.app.main          | SecureShield AI API shutting down.
+2026-03-20 00:07:52 | INFO     | secureshield.app.main          | ============================================================
+2026-03-20 00:07:52 | INFO     | secureshield.app.main          | SecureShield AI API starting up...
+2026-03-20 00:07:52 | INFO     | secureshield.app.main          | Logging → file: logs/secureshield.log  |  DB: error_logs table
+2026-03-20 00:07:52 | INFO     | secureshield.app.main          | ============================================================
+2026-03-20 00:07:52 | INFO     | secureshield.app.main          | SecureShield AI API shutting down.
+2026-03-20 00:07:54 | INFO     | secureshield.app.main          | ============================================================
+2026-03-20 00:07:54 | INFO     | secureshield.app.main          | SecureShield AI API starting up...
+2026-03-20 00:07:54 | INFO     | secureshield.app.main          | Logging → file: logs/secureshield.log  |  DB: error_logs table
+2026-03-20 00:07:54 | INFO     | secureshield.app.main          | ============================================================
+2026-03-20 00:11:38 | INFO     | secureshield.app.main          | SecureShield AI API shutting down.
+2026-03-20 00:12:15 | INFO     | secureshield.app.main          | ============================================================
+2026-03-20 00:12:15 | INFO     | secureshield.app.main          | SecureShield AI API starting up...
+2026-03-20 00:12:15 | INFO     | secureshield.app.main          | Logging → file: logs/secureshield.log  |  DB: error_logs table
+2026-03-20 00:12:15 | INFO     | secureshield.app.main          | ============================================================
+2026-03-20 00:15:51 | ERROR    | secureshield.app.routers.auth  | Twilio SMS failed: 
+[31m[49mHTTP Error[0m [37m[49mYour request was:[0m
+
+[36m[49mPOST /Accounts/AC71b0fbdb1e4adfdac3533b1d8d0be1c2/Messages.json[0m
+
+[37m[49mTwilio returned the following information:[0m
+
+[34m[49mUnable to create record: Invalid From and To pair. From and To should be of the same channel[0m
+
+[37m[49mMore information may be available here:[0m
+
+[34m[49mhttps://www.twilio.com/docs/errors/21910[0m
+
+
+2026-03-20 00:15:51 | INFO     | secureshield.app.routers.auth  | [DEV] OTP for 998****916: 790005
+2026-03-20 00:17:47 | INFO     | secureshield.app.main          | SecureShield AI API shutting down.
+2026-03-20 00:38:15 | INFO     | secureshield.app.main          | ============================================================
+2026-03-20 00:38:15 | INFO     | secureshield.app.main          | SecureShield AI API starting up...
+2026-03-20 00:38:15 | INFO     | secureshield.app.main          | Logging → file: logs/secureshield.log  |  DB: error_logs table
+2026-03-20 00:38:15 | INFO     | secureshield.app.main          | Rate limiting: 100 req/min per IP
+2026-03-20 00:38:15 | INFO     | secureshield.app.main          | ============================================================
+2026-03-20 00:38:15 | INFO     | secureshield.app.main          | Startup cleanup: no error_log records older than 90 days found.
+2026-03-20 00:51:17 | ERROR    | secureshield.app.services.otp_service | Twilio SMS failed to 998****916: 
+[31m[49mHTTP Error[0m [37m[49mYour request was:[0m
+
+[36m[49mPOST /Accounts/AC71b0fbdb1e4adfdac3533b1d8d0be1c2/Messages.json[0m
+
+[37m[49mTwilio returned the following information:[0m
+
+[34m[49mUnable to create record: Invalid 'To' Phone Number: 998767XXXX[0m
+
+[37m[49mMore information may be available here:[0m
+
+[34m[49mhttps://www.twilio.com/docs/errors/21211[0m
+
+
+2026-03-20 00:51:17 | INFO     | secureshield.app.services.otp_service | SMS failed, trying WhatsApp for 998****916
+2026-03-20 00:51:18 | ERROR    | secureshield.app.services.otp_service | WhatsApp OTP failed to 998****916: 
+[31m[49mHTTP Error[0m [37m[49mYour request was:[0m
+
+[36m[49mPOST /Accounts/AC71b0fbdb1e4adfdac3533b1d8d0be1c2/Messages.json[0m
+
+[37m[49mTwilio returned the following information:[0m
+
+[34m[49mUnable to create record: Twilio could not find a Channel with the specified From address[0m
+
+[37m[49mMore information may be available here:[0m
+
+[34m[49mhttps://www.twilio.com/docs/errors/63007[0m
+
+
+2026-03-20 00:51:18 | INFO     | secureshield.app.services.otp_service | [DEV] OTP for 998****916: 385552 (delivery failed: sms+whatsapp)
+2026-03-20 00:51:18 | WARNING  | secureshield.app.routers.auth  | OTP delivery failed (method=console) for 998****916: 
+[31m[49mHTTP Error[0m [37m[49mYour request was:[0m
+
+[36m[49mPOST /Accounts/AC71b0fbdb1e4adfdac3533b1d8d0be1c2/Messages.json[0m
+
+[37m[49mTwilio returned the following information:[0m
+
+[34m[49mUnable to create record: Twilio could not find a Channel with the specified From address[0m
+
+[37m[49mMore information may be available here:[0m
+
+[34m[49mhttps://www.twilio.com/docs/errors/63007[0m
+
+ — fell back to console
+2026-03-20 00:54:37 | INFO     | secureshield.app.main          | SecureShield AI API shutting down.
+2026-03-20 00:54:39 | INFO     | secureshield.app.main          | ============================================================
+2026-03-20 00:54:39 | INFO     | secureshield.app.main          | SecureShield AI API starting up...
+2026-03-20 00:54:39 | INFO     | secureshield.app.main          | Logging → file: logs/secureshield.log  |  DB: error_logs table
+2026-03-20 00:54:39 | INFO     | secureshield.app.main          | Rate limiting: 100 req/min per IP
+2026-03-20 00:54:39 | INFO     | secureshield.app.main          | ============================================================
+2026-03-20 00:54:39 | INFO     | secureshield.app.main          | Startup cleanup: no error_log records older than 90 days found.
+2026-03-20 00:54:39 | INFO     | secureshield.app.main          | SecureShield AI API shutting down.
+2026-03-20 00:54:41 | INFO     | secureshield.app.main          | ============================================================
+2026-03-20 00:54:41 | INFO     | secureshield.app.main          | SecureShield AI API starting up...
+2026-03-20 00:54:41 | INFO     | secureshield.app.main          | Logging → file: logs/secureshield.log  |  DB: error_logs table
+2026-03-20 00:54:41 | INFO     | secureshield.app.main          | Rate limiting: 100 req/min per IP
+2026-03-20 00:54:41 | INFO     | secureshield.app.main          | ============================================================
+2026-03-20 00:54:41 | INFO     | secureshield.app.main          | Startup cleanup: no error_log records older than 90 days found.
+2026-03-20 00:55:11 | INFO     | secureshield.app.main          | SecureShield AI API shutting down.
+2026-03-20 00:55:13 | INFO     | secureshield.app.main          | ============================================================
+2026-03-20 00:55:13 | INFO     | secureshield.app.main          | SecureShield AI API starting up...
+2026-03-20 00:55:13 | INFO     | secureshield.app.main          | Logging → file: logs/secureshield.log  |  DB: error_logs table
+2026-03-20 00:55:13 | INFO     | secureshield.app.main          | Rate limiting: 100 req/min per IP
+2026-03-20 00:55:13 | INFO     | secureshield.app.main          | ============================================================
+2026-03-20 00:55:13 | INFO     | secureshield.app.main          | Startup cleanup: no error_log records older than 90 days found.
+2026-03-20 00:55:13 | INFO     | secureshield.app.main          | SecureShield AI API shutting down.
+2026-03-20 00:55:14 | INFO     | secureshield.app.main          | ============================================================
+2026-03-20 00:55:14 | INFO     | secureshield.app.main          | SecureShield AI API starting up...
+2026-03-20 00:55:14 | INFO     | secureshield.app.main          | Logging → file: logs/secureshield.log  |  DB: error_logs table
+2026-03-20 00:55:14 | INFO     | secureshield.app.main          | Rate limiting: 100 req/min per IP
+2026-03-20 00:55:14 | INFO     | secureshield.app.main          | ============================================================
+2026-03-20 00:55:15 | INFO     | secureshield.app.main          | Startup cleanup: no error_log records older than 90 days found.
+2026-03-20 00:55:45 | INFO     | secureshield.app.main          | SecureShield AI API shutting down.
+2026-03-20 00:55:46 | INFO     | secureshield.app.main          | ============================================================
+2026-03-20 00:55:46 | INFO     | secureshield.app.main          | SecureShield AI API starting up...
+2026-03-20 00:55:46 | INFO     | secureshield.app.main          | Logging → file: logs/secureshield.log  |  DB: error_logs table
+2026-03-20 00:55:46 | INFO     | secureshield.app.main          | Rate limiting: 100 req/min per IP
+2026-03-20 00:55:46 | INFO     | secureshield.app.main          | ============================================================
+2026-03-20 00:55:47 | INFO     | secureshield.app.main          | Startup cleanup: no error_log records older than 90 days found.
