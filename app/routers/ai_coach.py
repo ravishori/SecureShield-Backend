@@ -98,5 +98,8 @@ async def generate_email(
         evidence_summary=request.evidence_summary,
         suspect_info=request.suspect_info,
         user_name=user_name,
+        bank_name=request.bank_name,
+        amount=request.amount,
+        incident_date=request.incident_date,
     )
     return ComplaintEmailResponse(**result)

@@ -35,6 +35,9 @@ async def add_member(
         nickname=request.nickname,
         can_view_alerts=request.can_view_alerts,
         can_trigger_panic=request.can_trigger_panic,
+        is_child_profile=getattr(request, 'is_child_profile', False),
+        content_filter_enabled=getattr(request, 'content_filter_enabled', False),
+        cyberbullying_alerts=getattr(request, 'cyberbullying_alerts', False),
     )
     db.add(member)
     await db.commit()

@@ -32,6 +32,9 @@ class ConversationMessageResponse(BaseModel):
 class ComplaintEmailRequest(BaseModel):
     incident_type: str
     description: str
+    bank_name: Optional[str] = None
+    amount: Optional[str] = None
+    incident_date: Optional[str] = None
     evidence_summary: Optional[str] = None
     suspect_info: Optional[str] = None
 
@@ -39,4 +42,5 @@ class ComplaintEmailRequest(BaseModel):
 class ComplaintEmailResponse(BaseModel):
     subject: str
     body: str
+    email: str          # same as body — for Flutter compatibility
     to_addresses: List[str]

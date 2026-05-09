@@ -32,7 +32,7 @@ PERMISSION_RISK_SCORES = {
     "android.permission.READ_PHONE_STATE": 15,
 }
 
-# Known malicious package name patterns
+# Known malicious package name patterns (includes spyware patterns)
 MALICIOUS_PATTERNS = [
     r".*spyware.*",
     r".*keylog.*",
@@ -40,6 +40,28 @@ MALICIOUS_PATTERNS = [
     r".*malware.*",
     r".*rat\d*\.",
     r".*hack.*tool.*",
+    r".*spy\..*",
+    r".*stalker.*",
+    r".*monitor.*child.*",
+    r".*track.*phone.*",
+    r".*hidden.*camera.*",
+    r".*stealth.*",
+    r".*sms.*interceptor.*",
+    r".*call.*recorder.*hidden.*",
+]
+
+# Known spyware package signatures
+SPYWARE_PACKAGES = [
+    "com.hoverwatch",
+    "com.mspy",
+    "com.flexispy",
+    "com.spyzie",
+    "com.highster",
+    "com.spybubble",
+    "com.ikeymonitor",
+    "com.familytime",
+    "com.umobix",
+    "com.thetruthspy",
 ]
 
 # Phishing domain patterns
@@ -69,6 +91,42 @@ SCAM_DOMAINS = [
     "icici-kyc.com",
 ]
 
+# Fake job offer keywords
+FAKE_JOB_KEYWORDS = [
+    "work from home earn", "guaranteed income", "no experience required earn",
+    "daily payment", "weekly salary guaranteed", "upfront registration fee",
+    "pay to apply", "training fee required", "part time earn lakhs",
+    "data entry earn per day", "typing job earn", "earn from mobile",
+    "whatsapp job", "telegram earning", "youtube subscriber job",
+    "like and subscribe earn", "investment required job",
+]
+
+# Scam message patterns
+SCAM_MESSAGE_PATTERNS = [
+    r"congratulations.*won.*prize",
+    r"your.*account.*blocked.*click",
+    r"urgent.*kyc.*update.*link",
+    r"otp.*share.*immediately",
+    r"bank.*suspended.*verify.*now",
+    r"free.*recharge.*click.*link",
+    r"emi.*due.*pay.*now.*link",
+    r"income.*tax.*notice.*call",
+    r"reward.*points.*expire.*redeem",
+    r"suspicious.*activity.*account.*verify",
+    r"aadhar.*link.*bank.*required",
+    r"pan.*kyc.*expired.*update",
+    r"loan.*approved.*click.*here",
+    r"electricity.*cut.*pay.*immediately",
+]
+
+# Cyberbullying indicator patterns
+BULLYING_PATTERNS = [
+    r"\byou.*stupid\b", r"\byou.*idiot\b", r"\bkill.*yourself\b",
+    r"\bnobody.*likes.*you\b", r"\byou.*ugly\b", r"\byou.*loser\b",
+    r"\bgo.*die\b", r"\bi.*hate.*you\b", r"\byou.*worthless\b",
+    r"\bstupid.*kid\b", r"\bbig.*fat\b", r"\byou.*fat\b",
+]
+
 
 def analyze_app_risk(package_name: str, permissions: List[str], is_system_app: bool) -> Tuple[float, str, bool, List[str]]:
     """
@@ -81,13 +139,20 @@ def analyze_app_risk(package_name: str, permissions: List[str], is_system_app: b
     if is_system_app:
         return 0.0, "safe", False, []
 
+    # Check known spyware packages
+    if package_name.lower() in SPYWARE_PACKAGES:
+        is_malicious = True
+        threat_tags.append("known_spyware")
+        risk_score += 90
+
     # Check malicious package patterns
-    for pattern in MALICIOUS_PATTERNS:
-        if re.match(pattern, package_name.lower()):
-            is_malicious = True
-            threat_tags.append("known_malware_pattern")
-            risk_score += 80
-            break
+    if not is_malicious:
+        for pattern in MALICIOUS_PATTERNS:
+            if re.match(pattern, package_name.lower()):
+                is_malicious = True
+                threat_tags.append("known_malware_pattern")
+                risk_score += 80
+                break
 
     # Score based on permissions
     for perm in permissions:
@@ -101,6 +166,8 @@ def analyze_app_risk(package_name: str, permissions: List[str], is_system_app: b
     has_camera = any("CAMERA" in p or "RECORD_AUDIO" in p for p in permissions)
     has_location = any("LOCATION" in p for p in permissions)
     has_accessibility = any("ACCESSIBILITY" in p for p in permissions)
+    has_device_admin = any("DEVICE_ADMIN" in p for p in permissions)
+    has_install = any("INSTALL_PACKAGES" in p for p in permissions)
 
     if has_sms and has_call_log and has_contacts:
         threat_tags.append("data_harvesting")
@@ -117,6 +184,14 @@ def analyze_app_risk(package_name: str, permissions: List[str], is_system_app: b
     if has_camera and has_sms:
         threat_tags.append("potential_spyware")
         risk_score += 10
+
+    if has_device_admin and has_sms:
+        threat_tags.append("admin_sms_combo")
+        risk_score += 25
+
+    if has_install and has_accessibility:
+        threat_tags.append("auto_install_risk")
+        risk_score += 20
 
     # Cap at 100
     risk_score = min(risk_score, 100.0)
@@ -137,6 +212,23 @@ def analyze_app_risk(package_name: str, permissions: List[str], is_system_app: b
         threat_tags.append("elevated_permissions")
 
     return risk_score, risk_level, is_malicious, threat_tags
+
+
+def get_removal_reason(risk_level: str, threat_tags: List[str], is_malicious: bool) -> str | None:
+    """Returns a human-readable removal recommendation."""
+    if is_malicious or "known_spyware" in threat_tags:
+        return "This app is identified as spyware or malware. Uninstall immediately and run a device scan."
+    if risk_level == "critical":
+        return "Critically risky permissions detected. Strongly consider uninstalling this app."
+    if "data_harvesting" in threat_tags:
+        return "This app harvests SMS, call logs, and contacts together — a common data theft pattern."
+    if "admin_sms_combo" in threat_tags:
+        return "Device admin + SMS access is an extreme risk. Remove device admin rights and uninstall."
+    if "accessibility_abuse_risk" in threat_tags:
+        return "Accessibility service abuse can allow hidden screen reading. Review if this app needs this permission."
+    if risk_level == "high":
+        return "High-risk permissions detected. Only keep this app if you fully trust it."
+    return None
 
 
 def analyze_url(url: str) -> Tuple[bool, bool, float, str]:
@@ -183,7 +275,6 @@ def analyze_url(url: str) -> Tuple[bool, bool, float, str]:
     if re.search(r"https?://\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}", url_lower):
         risk_score += 30
         threat_category = "ip_based_url"
-        is_suspicious = True
 
     # Multiple subdomains
     try:
@@ -284,3 +375,144 @@ def analyze_scam_call(caller_number: str, duration_seconds: int, audio_features:
     detection_reason = "; ".join(reasons) if reasons else "No suspicious patterns detected"
 
     return risk_score, detection_reason
+
+
+def analyze_message_content(text: str) -> Tuple[float, str, List[str]]:
+    """
+    Analyzes SMS/message text for scam/phishing content.
+    Returns (risk_score, threat_category, detected_patterns)
+    """
+    text_lower = text.lower()
+    risk_score = 0.0
+    detected_patterns = []
+    threat_category = "safe"
+
+    # Check scam message patterns
+    for pattern in SCAM_MESSAGE_PATTERNS:
+        if re.search(pattern, text_lower):
+            risk_score += 25
+            detected_patterns.append(pattern)
+
+    # Check for fake job keywords
+    for keyword in FAKE_JOB_KEYWORDS:
+        if keyword in text_lower:
+            risk_score += 20
+            if "fake_job" not in detected_patterns:
+                detected_patterns.append("fake_job_offer")
+
+    # Check for suspicious links in message
+    urls_in_text = re.findall(r'https?://\S+', text)
+    for url in urls_in_text:
+        _, is_malicious, url_score, _ = analyze_url(url)
+        if is_malicious or url_score > 40:
+            risk_score += 30
+            detected_patterns.append("malicious_link_in_message")
+            break
+
+    # Urgency keywords
+    urgency_words = ["urgent", "immediately", "now", "expire", "suspended", "blocked", "action required"]
+    urgency_count = sum(1 for w in urgency_words if w in text_lower)
+    if urgency_count >= 2:
+        risk_score += urgency_count * 5
+        detected_patterns.append("high_urgency_language")
+
+    # Financial bait
+    financial_bait = ["won", "prize", "reward", "cashback", "refund", "lottery", "lucky draw"]
+    if any(w in text_lower for w in financial_bait):
+        risk_score += 15
+        detected_patterns.append("financial_bait")
+
+    risk_score = min(risk_score, 100.0)
+
+    if risk_score >= 70:
+        threat_category = "high_risk_scam"
+    elif risk_score >= 40:
+        threat_category = "suspicious_message"
+    elif risk_score >= 20:
+        threat_category = "potentially_suspicious"
+    else:
+        threat_category = "safe"
+
+    return risk_score, threat_category, detected_patterns
+
+
+def analyze_job_offer(text: str) -> Tuple[float, bool, List[str]]:
+    """
+    Analyzes if a job offer text is fraudulent.
+    Returns (risk_score, is_fake, red_flags)
+    """
+    text_lower = text.lower()
+    risk_score = 0.0
+    red_flags = []
+
+    # Direct fake job indicators
+    for keyword in FAKE_JOB_KEYWORDS:
+        if keyword in text_lower:
+            risk_score += 20
+            red_flags.append(f"Suspicious phrase: '{keyword}'")
+
+    # Fee-based red flags
+    if any(w in text_lower for w in ["registration fee", "training fee", "deposit", "pay first", "advance payment"]):
+        risk_score += 35
+        red_flags.append("Legitimate jobs never ask for payment upfront")
+
+    # Unrealistic income claims
+    income_pattern = re.search(r"earn.*?(\d+[,\d]*)\s*(rs|rupees|₹|per day|daily)", text_lower)
+    if income_pattern:
+        risk_score += 20
+        red_flags.append("Unrealistic income claim detected")
+
+    # Contact via WhatsApp/Telegram (not professional)
+    if any(w in text_lower for w in ["whatsapp", "telegram", "signal"]) and "apply" in text_lower:
+        risk_score += 15
+        red_flags.append("Legitimate companies use official email, not WhatsApp/Telegram for hiring")
+
+    # No company name or vague employer
+    if not any(w in text_lower for w in ["company", "organization", "pvt ltd", "limited", "inc", "llp"]):
+        risk_score += 10
+        red_flags.append("No company name mentioned")
+
+    # Urgency in job posting
+    if any(w in text_lower for w in ["urgent hiring", "immediate joining", "today only", "limited seats"]):
+        risk_score += 15
+        red_flags.append("Artificial urgency — common fake job tactic")
+
+    risk_score = min(risk_score, 100.0)
+    is_fake = risk_score >= 50
+
+    return risk_score, is_fake, red_flags
+
+
+def detect_cyberbullying(text: str) -> Tuple[float, bool, List[str]]:
+    """
+    Detects cyberbullying in message text.
+    Returns (confidence_score, is_bullying, detected_indicators)
+    """
+    text_lower = text.lower()
+    score = 0.0
+    indicators = []
+
+    for pattern in BULLYING_PATTERNS:
+        if re.search(pattern, text_lower):
+            score += 30
+            indicators.append("Harmful language detected")
+
+    # Threats
+    if any(w in text_lower for w in ["i will hurt you", "i know where you live", "you'll regret", "watch your back"]):
+        score += 40
+        indicators.append("Threat detected")
+
+    # Exclusion/isolation language
+    if any(w in text_lower for w in ["nobody wants you", "everyone hates you", "you have no friends"]):
+        score += 35
+        indicators.append("Social exclusion language detected")
+
+    # Repeated targeting
+    if text_lower.count("you") > 5:
+        score += 10
+        indicators.append("Repeated targeting of individual")
+
+    score = min(score, 100.0)
+    is_bullying = score >= 40
+
+    return score, is_bullying, indicators

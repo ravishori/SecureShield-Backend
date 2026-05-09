@@ -20,12 +20,10 @@ class SendOtpRequest(BaseModel):
         if not v:
             raise ValueError("Phone number or email address is required.")
         if "@" in v:
-            # Basic email format check
             parts = v.split("@")
             if len(parts) != 2 or not parts[0] or "." not in parts[1]:
                 raise ValueError("Invalid email address format.")
         else:
-            # Basic phone check — digits, optional leading +
             digits = v.lstrip("+").replace(" ", "").replace("-", "")
             if not digits.isdigit() or len(digits) < 7:
                 raise ValueError("Invalid phone number format.")
@@ -77,9 +75,20 @@ class UserResponse(BaseModel):
     phone: Optional[str]
     email: Optional[str]
     full_name: Optional[str]
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    alt_phone: Optional[str] = None
     subscription_tier: SubscriptionTier
     is_active: bool
     senior_mode: bool
+    # Address fields
+    flat_no: Optional[str] = None
+    building: Optional[str] = None
+    street: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    country: Optional[str] = None
+    pin_code: Optional[str] = None
     created_at: datetime
 
     class Config:
@@ -89,4 +98,84 @@ class UserResponse(BaseModel):
 class UpdateProfileRequest(BaseModel):
     email: Optional[str] = None
     full_name: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    alt_phone: Optional[str] = None
     senior_mode: Optional[bool] = None
+    # Address fields
+    flat_no: Optional[str] = None
+    building: Optional[str] = None
+    street: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    country: Optional[str] = None
+    pin_code: Optional[str] = None
+
+
+# ── Registration ─────────────────────────────────────────────────────────────
+
+class RegisterRequest(BaseModel):
+    """Full profile registration — creates user + sends OTP in one step."""
+    first_name: str
+    last_name: Optional[str] = None
+    email: str
+    phone: Optional[str] = None     # optional; with country code e.g. +919987671916
+    # Address (all optional at registration time)
+    flat_no: Optional[str] = None
+    building: Optional[str] = None
+    street: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    country: Optional[str] = "India"
+    pin_code: Optional[str] = None
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, v: str) -> str:
+        v = v.strip().lower()
+        parts = v.split("@")
+        if len(parts) != 2 or not parts[0] or "." not in parts[1]:
+            raise ValueError("Invalid email address format.")
+        return v
+
+    @field_validator("first_name")
+    @classmethod
+    def validate_first_name(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("First name is required.")
+        if len(v) < 2:
+            raise ValueError("First name must be at least 2 characters.")
+        return v
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        v = v.strip()
+        if not v:
+            return None
+        digits = v.lstrip("+").replace(" ", "").replace("-", "")
+        if not digits.isdigit() or len(digits) < 7:
+            raise ValueError("Invalid phone number format.")
+        return v
+
+    @field_validator("pin_code")
+    @classmethod
+    def validate_pin_code(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        v = v.strip()
+        if not v:
+            return None
+        if not v.isdigit() or len(v) != 6:
+            raise ValueError("PIN code must be exactly 6 digits.")
+        return v
+
+
+class RegisterResponse(BaseModel):
+    message: str
+    identifier: str          # masked primary identifier (email)
+    masked_email: str        # r****@gmail.com
+    masked_phone: Optional[str] = None  # +91*****1916 or None

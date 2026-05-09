@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List, Any
 import uuid
 from datetime import datetime
 
@@ -17,6 +17,7 @@ class LinkScanResponse(BaseModel):
     risk_score: float
     threat_category: Optional[str]
     scan_provider: str
+    gsb_threats: Optional[List[Any]] = None
     scanned_at: datetime
 
     class Config:

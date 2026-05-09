@@ -16,4 +16,7 @@ class FamilyMember(Base):
     nickname: Mapped[str | None] = mapped_column(String(100), nullable=True)
     can_view_alerts: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     can_trigger_panic: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_child_profile: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    content_filter_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    cyberbullying_alerts: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)

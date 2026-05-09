@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import String, Boolean, DateTime, ForeignKey, Float, Enum as SAEnum
+from sqlalchemy import String, Boolean, DateTime, Float, Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from app.database import Base
@@ -19,7 +19,7 @@ class AppScan(Base):
     __tablename__ = "app_scans"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    device_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("devices.id"), nullable=False, index=True)
+    device_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)
     package_name: Mapped[str] = mapped_column(String(255), nullable=False)
     app_name: Mapped[str] = mapped_column(String(255), nullable=False)
     version_name: Mapped[str | None] = mapped_column(String(100), nullable=True)

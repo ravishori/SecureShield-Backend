@@ -5,7 +5,7 @@ from datetime import datetime
 
 
 class WifiScanRequest(BaseModel):
-    device_id: uuid.UUID
+    device_id: Optional[uuid.UUID] = None
     ssid: Optional[str] = None
     bssid: Optional[str] = None
     signal_strength: Optional[int] = None
@@ -14,7 +14,7 @@ class WifiScanRequest(BaseModel):
 
 class WifiScanResponse(BaseModel):
     id: uuid.UUID
-    device_id: uuid.UUID
+    device_id: Optional[uuid.UUID]
     ssid: Optional[str]
     bssid: Optional[str]
     signal_strength: Optional[int]

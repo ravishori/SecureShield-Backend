@@ -31,6 +31,8 @@ from app.models.wifi_scan import WifiScan
 from app.models.ai_conversation import AiConversation
 from app.models.network_activity import NetworkActivity
 from app.models.error_log import ErrorLog  # noqa: F401  — keeps Alembic aware
+from app.models.recording import Recording  # noqa: F401
+from app.models.sms_sender_registry import TspCode, LsaCode, SmsSenderRegistry  # noqa: F401
 
 target_metadata = Base.metadata
 

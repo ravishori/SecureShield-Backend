@@ -1,0 +1,48 @@
+INFO:     Will watch for changes in these directories: ['D:\\ravishori\\SecureShieldApp\\backend']
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process [11232] using WatchFiles
+INFO:     Started server process [11660]
+INFO:     Waiting for application startup.
+2026-05-06 12:32:38 | INFO     | secureshield.app.main          | ============================================================
+2026-05-06 12:32:38 | INFO     | secureshield.app.main          | SecureShield AI API starting up...
+2026-05-06 12:32:38 | INFO     | secureshield.app.main          | Logging \u2192 file: logs/secureshield.log  |  DB: error_logs table
+2026-05-06 12:32:38 | INFO     | secureshield.app.main          | Rate limiting: 100 req/min per IP
+2026-05-06 12:32:38 | INFO     | secureshield.app.main          | ============================================================
+2026-05-06 12:32:38 | INFO     | secureshield.app.main          | Startup cleanup: no error_log records older than 90 days found.
+INFO:     Application startup complete.
+INFO:     192.168.1.11:59157 - "GET /health HTTP/1.1" 200 OK
+INFO:     192.168.1.11:44198 - "POST /api/v1/auth/check-user HTTP/1.1" 405 Method Not Allowed
+2026-05-06 12:33:49 | WARNING  | secureshield./api/v1/auth/register | Validation error: [{'type': 'missing', 'loc': ('body', 'first_name'), 'msg': 'Field required', 'input': {'full_name': 'Test User', 'email': 'connectivity_test_27114@example.com', 'phone': '+919999999999'}}]
+INFO:     192.168.1.11:44208 - "POST /api/v1/auth/register HTTP/1.1" 422 Unprocessable Entity
+INFO:     192.168.1.7:46626 - "GET /api/v1/auth/check-user?identifier=%2B918898051888 HTTP/1.1" 200 OK
+2026-05-06 12:41:32 | INFO     | secureshield.app.services.otp_service | Twilio SMS sent to +91*******888 | SID: SMc88600b5ffaab52df2acc26afbab3ee3
+2026-05-06 12:41:32 | INFO     | secureshield.app.routers.auth  | OTP delivered via sms to +91*******888
+2026-05-06 12:41:36 | INFO     | secureshield.app.services.otp_service | OTP email sent to s*****i@gmail.com
+2026-05-06 12:41:36 | INFO     | secureshield.app.routers.auth  | OTP also delivered via email to secondary channel s*****i@gmail.com
+INFO:     192.168.1.7:46626 - "POST /api/v1/auth/send-otp HTTP/1.1" 200 OK
+2026-05-06 12:42:21 | INFO     | secureshield.app.routers.auth  | User authenticated: 17983653-1d3d-4e8c-96ed-56c74dabb484 via +91*******888
+2026-05-06 12:42:21 | INFO     | secureshield.app.services.device_service | Device updated: user=17983653-1d3d-4e8c-96ed-56c74dabb484 token=0c015804db6a*** name='Redmi 22111317I'
+INFO:     192.168.1.7:48046 - "POST /api/v1/auth/verify-otp HTTP/1.1" 200 OK
+INFO:     192.168.1.7:42224 - "GET /api/v1/auth/me HTTP/1.1" 200 OK
+INFO:     192.168.1.7:46446 - "GET /api/v1/emergency-contacts HTTP/1.1" 200 OK
+INFO:     192.168.1.7:42360 - "GET /api/v1/reports/daily HTTP/1.1" 200 OK
+INFO:     192.168.1.7:42360 - "GET /api/v1/alerts?page=1&page_size=5 HTTP/1.1" 307 Temporary Redirect
+INFO:     192.168.1.7:42360 - "GET /api/v1/alerts/?page=1&page_size=5 HTTP/1.1" 200 OK
+INFO:     192.168.1.7:42360 - "GET /api/v1/auth/me HTTP/1.1" 200 OK
+2026-05-06 12:43:14 | CRITICAL | secureshield./api/v1/app-monitor/summary | Unhandled exception in request cycle — (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedTableError'>: relation "app_install_events" does not exist
+[SQL: SELECT count(*) AS count_1 
+FROM app_install_events 
+WHERE app_install_events.user_id = $1::UUID]
+[parameters: (UUID('17983653-1d3d-4e8c-96ed-56c74dabb484'),)]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+INFO:     192.168.1.7:46736 - "GET /api/v1/app-monitor/summary HTTP/1.1" 500 Internal Server Error
+2026-05-06 12:43:18 | INFO     | secureshield                   | Error alert email sent \u2192 ravishori@gmail.com
+2026-05-06 12:43:26 | CRITICAL | secureshield./api/v1/clone-detection/history | Unhandled exception in request cycle — (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedTableError'>: relation "clone_reports" does not exist
+[SQL: SELECT count(*) AS count_1 
+FROM (SELECT clone_reports.id AS id, clone_reports.user_id AS user_id, clone_reports.package_name AS package_name, clone_reports.app_name AS app_name, clone_reports.target_package AS target_package, clone_reports.target_name AS target_name, clone_reports.name_similarity AS name_similarity, clone_reports.package_similarity AS package_similarity, clone_reports.icon_hash_match AS icon_hash_match, clone_reports.cert_hash_match AS cert_hash_match, clone_reports.overall_score AS overall_score, clone_reports.verdict AS verdict, clone_reports.signals AS signals, clone_reports.action_taken AS action_taken, clone_reports.user_confirmed AS user_confirmed, clone_reports.created_at AS created_at 
+FROM clone_reports 
+WHERE clone_reports.user_id = $1::UUID ORDER BY clone_reports.created_at DESC) AS anon_1]
+[parameters: (UUID('17983653-1d3d-4e8c-96ed-56c74dabb484'),)]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+INFO:     192.168.1.7:45996 - "GET /api/v1/clone-detection/history HTTP/1.1" 500 Internal Server Error
+2026-05-06 12:43:29 | INFO     | secureshield                   | Error alert email sent \u2192 ravishori@gmail.com

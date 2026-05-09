@@ -26,6 +26,21 @@ class User(Base):
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     senior_mode: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    # Extended profile fields (added for profile completeness feature)
+    first_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    last_name:  Mapped[str | None] = mapped_column(String(100), nullable=True)
+    alt_phone:  Mapped[str | None] = mapped_column(String(20),  nullable=True)
+
+    # Address fields
+    flat_no:   Mapped[str | None] = mapped_column(String(50),  nullable=True)
+    building:  Mapped[str | None] = mapped_column(String(255), nullable=True)
+    street:    Mapped[str | None] = mapped_column(String(255), nullable=True)
+    city:      Mapped[str | None] = mapped_column(String(100), nullable=True)
+    state:     Mapped[str | None] = mapped_column(String(100), nullable=True)
+    country:   Mapped[str | None] = mapped_column(String(100), nullable=True, default="India")
+    pin_code:  Mapped[str | None] = mapped_column(String(10),  nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 

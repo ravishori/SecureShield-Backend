@@ -14,13 +14,13 @@ class AppInfo(BaseModel):
 
 
 class AppScanRequest(BaseModel):
-    device_id: uuid.UUID
+    device_id: Optional[uuid.UUID] = None
     apps: List[AppInfo]
 
 
 class AppScanResult(BaseModel):
     id: uuid.UUID
-    device_id: uuid.UUID
+    device_id: Optional[uuid.UUID]
     package_name: str
     app_name: str
     version_name: Optional[str]

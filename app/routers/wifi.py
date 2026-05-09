@@ -26,7 +26,7 @@ async def scan_wifi(
     )
 
     scan = WifiScan(
-        device_id=request.device_id,
+        device_id=None,           # device_id is optional — not required for wifi scans
         ssid=request.ssid,
         bssid=request.bssid,
         signal_strength=request.signal_strength,
@@ -41,7 +41,7 @@ async def scan_wifi(
     if is_suspicious or risk_level in ("high", "medium"):
         alert = Alert(
             user_id=current_user.id,
-            device_id=request.device_id,
+            device_id=None,       # device_id optional on alerts too
             alert_type=AlertType.wifi_unsafe,
             title=f"Unsafe Wi-Fi: {request.ssid or 'Unknown'}",
             message=f"The Wi-Fi network '{request.ssid}' may be unsafe. Reasons: {', '.join(risk_reasons)}",

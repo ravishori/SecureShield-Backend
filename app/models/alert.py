@@ -17,6 +17,13 @@ class AlertType(str, enum.Enum):
     data_leak = "data_leak"
     banking = "banking"
     panic = "panic"
+    community_scam = "community_scam"
+    identity_breach = "identity_breach"
+    sim_swap = "sim_swap"
+    job_fraud = "job_fraud"
+    suspicious_message = "suspicious_message"
+    cyberbullying = "cyberbullying"
+    dark_web_leak = "dark_web_leak"
 
 
 class AlertSeverity(str, enum.Enum):

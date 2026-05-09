@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from sqlalchemy import String, Boolean, DateTime, ForeignKey, Float, Text
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from app.database import Base
 
 
@@ -17,4 +17,5 @@ class LinkScan(Base):
     risk_score: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     threat_category: Mapped[str | None] = mapped_column(String(100), nullable=True)
     scan_provider: Mapped[str] = mapped_column(String(100), default="internal", nullable=False)
+    gsb_threats: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     scanned_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
