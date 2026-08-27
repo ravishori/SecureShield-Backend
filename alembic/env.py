@@ -17,28 +17,52 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.database import Base
-from app.models.user import User, OTP
-from app.models.device import Device
-from app.models.app_scan import AppScan
-from app.models.otp_vault import OtpVaultEntry
-from app.models.link_scan import LinkScan
-from app.models.alert import Alert
-from app.models.scam_call import ScamCall
-from app.models.evidence import Evidence
-from app.models.family import FamilyMember
-from app.models.security_report import SecurityReport
-from app.models.wifi_scan import WifiScan
-from app.models.ai_conversation import AiConversation
-from app.models.network_activity import NetworkActivity
-from app.models.error_log import ErrorLog  # noqa: F401  — keeps Alembic aware
+
+# Import every model so Alembic's autogenerate can see them. Models without
+# a corresponding file are guarded by try/except so a missing module never
+# breaks the migration runner.
+from app.models.user import User, OTP  # noqa: F401
+from app.models.device import Device  # noqa: F401
+from app.models.app_scan import AppScan  # noqa: F401
+from app.models.link_scan import LinkScan  # noqa: F401
+from app.models.alert import Alert  # noqa: F401
+from app.models.scam_call import ScamCall  # noqa: F401
+from app.models.evidence import Evidence  # noqa: F401
+from app.models.family import FamilyMember  # noqa: F401
+from app.models.security_report import SecurityReport  # noqa: F401
+from app.models.wifi_scan import WifiScan  # noqa: F401
+from app.models.ai_conversation import AiConversation  # noqa: F401
+from app.models.network_activity import NetworkActivity  # noqa: F401
+from app.models.error_log import ErrorLog  # noqa: F401
 from app.models.recording import Recording  # noqa: F401
 from app.models.sms_sender_registry import TspCode, LsaCode, SmsSenderRegistry  # noqa: F401
+from app.models.app_install_event import AppInstallEvent  # noqa: F401
+from app.models.clone_report import CloneReport  # noqa: F401
+from app.models.elderly_config import ElderlyConfig  # noqa: F401
+from app.models.emergency_contact import EmergencyContact  # noqa: F401
+
+# Optional models — present only on some branches. Don't fail migrations if missing.
+try:
+    from app.models.otp_vault import OtpVaultEntry  # noqa: F401
+except ModuleNotFoundError:
+    pass
+try:
+    from app.models.community_scam import CommunityScamReport  # noqa: F401
+except ModuleNotFoundError:
+    pass
+try:
+    from app.models.behavior_event import BehaviorEvent  # noqa: F401
+except ModuleNotFoundError:
+    pass
 
 target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:
-    url = config.get_main_option("sqlalchemy.url")
+    # Prefer migrator URL from Settings; never rely on credentials in alembic.ini.
+    from app.config import settings
+
+    url = settings.MIGRATOR_DATABASE_URL
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -56,10 +80,10 @@ def do_run_migrations(connection: Connection) -> None:
 
 
 async def run_async_migrations() -> None:
-    # Use async URL from environment for the engine
+    # Alembic must use secureshield_migrator (MIGRATOR_DATABASE_URL), never the app role.
     from app.config import settings
     configuration = config.get_section(config.config_ini_section) or {}
-    configuration["sqlalchemy.url"] = settings.DATABASE_URL
+    configuration["sqlalchemy.url"] = settings.MIGRATOR_DATABASE_URL
 
     connectable = async_engine_from_config(
         configuration,

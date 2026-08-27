@@ -323,15 +323,27 @@ async def send_otp(
         else:
             logger.warning(f"Primary OTP delivery failed to {_mask(request.identifier)}: {primary_result.error}")
 
-        # Secondary channel delivery (fire-and-forget on failure)
+        secondary_ok = False
         if other_phone:
             secondary = await deliver_otp(other_phone, code)
+            secondary_ok = secondary.success
             if secondary.success:
                 logger.info(f"OTP also delivered via SMS to secondary channel {_mask_phone(other_phone)}")
+            else:
+                logger.warning(f"Secondary SMS delivery failed for {_mask_phone(other_phone)}: {secondary.error}")
         elif other_email:
             secondary = await deliver_otp(other_email, code)
+            secondary_ok = secondary.success
             if secondary.success:
                 logger.info(f"OTP also delivered via email to secondary channel {_mask_email(other_email)}")
+            else:
+                logger.warning(f"Secondary email delivery failed for {_mask_email(other_email)}: {secondary.error}")
+
+        if not primary_result.success and not secondary_ok:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Could not send the verification code. Please try again later.",
+            )
 
         return SendOtpResponse(
             message="OTP sent successfully",

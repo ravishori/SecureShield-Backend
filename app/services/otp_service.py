@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
-from app.config import settings
+from app.config import load_settings
 from app.services.logger_service import get_logger
 
 logger = get_logger(__name__)
@@ -91,14 +91,44 @@ def _mask_email(email: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Twilio error mapping (keep raw Twilio HTML/ANSI out of logs)
+# ---------------------------------------------------------------------------
+def _twilio_error_message(exc: Exception) -> str:
+    try:
+        from twilio.base.exceptions import TwilioRestException  # type: ignore
+    except ImportError:
+        return str(exc).strip()
+
+    if isinstance(exc, TwilioRestException):
+        hints = {
+            20003: "authentication failed — check TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN",
+            21211: "invalid destination phone number",
+            21408: "SMS to this country is not enabled on the Twilio account",
+            21608: "trial accounts can only SMS verified numbers",
+            21610: "recipient has unsubscribed from this sender",
+            21910: "SMS/WhatsApp channel mismatch on From/To numbers",
+            30003: "destination handset unreachable",
+            30007: "message filtered by carrier",
+            30034: "US A2P 10DLC registration required",
+            63007: "WhatsApp sender is not configured on this Twilio account",
+            63015: "recipient has not joined the Twilio WhatsApp sandbox",
+        }
+        hint = hints.get(exc.code, (exc.msg or str(exc)).strip())
+        return f"Twilio error {exc.code}: {hint}"
+    return str(exc).strip()
+
+
+# ---------------------------------------------------------------------------
 # Internal: Twilio SMS
 # ---------------------------------------------------------------------------
 def _send_sms(phone: str, code: str) -> DeliveryResult:
     """Try Twilio SMS using plain E.164 number (TWILIO_SMS_NUMBER)."""
-    sid = settings.TWILIO_ACCOUNT_SID
-    token = settings.TWILIO_AUTH_TOKEN
+    settings = load_settings()
+    sid = (settings.TWILIO_ACCOUNT_SID or "").strip()
+    token = (settings.TWILIO_AUTH_TOKEN or "").strip()
+    from_number = (settings.TWILIO_SMS_NUMBER or "").strip()
 
-    if not sid or not token or not sid.startswith("AC"):
+    if not sid or not token or not sid.startswith("AC") or not from_number:
         return DeliveryResult(success=False, method="sms", error="Twilio not configured")
 
     try:
@@ -107,17 +137,17 @@ def _send_sms(phone: str, code: str) -> DeliveryResult:
         client = Client(sid, token)
         msg = client.messages.create(
             body=f"Your SecureShield AI verification code is: {code}  Valid for 10 minutes. Do not share.",
-            from_=settings.TWILIO_SMS_NUMBER,
+            from_=from_number,
             to=e164_phone,
         )
-        logger.info(f"Twilio SMS sent to {_mask_phone(phone)} | SID: {msg.sid}")
+        logger.info(f"Twilio SMS sent to {_mask_phone(e164_phone)} | SID: {msg.sid}")
         return DeliveryResult(success=True, method="sms")
     except ImportError:
         err = "twilio package not installed — pip install twilio"
         logger.warning(err)
         return DeliveryResult(success=False, method="sms", error=err)
     except Exception as exc:
-        err = str(exc)
+        err = _twilio_error_message(exc)
         logger.error(f"Twilio SMS failed to {_mask_phone(phone)}: {err}")
         return DeliveryResult(success=False, method="sms", error=err)
 
@@ -127,10 +157,14 @@ def _send_sms(phone: str, code: str) -> DeliveryResult:
 # ---------------------------------------------------------------------------
 def _send_whatsapp(phone: str, code: str) -> DeliveryResult:
     """Fallback: send OTP via WhatsApp sandbox."""
-    sid = settings.TWILIO_ACCOUNT_SID
-    token = settings.TWILIO_AUTH_TOKEN
+    settings = load_settings()
+    sid = (settings.TWILIO_ACCOUNT_SID or "").strip()
+    token = (settings.TWILIO_AUTH_TOKEN or "").strip()
+    from_number = (settings.TWILIO_WHATSAPP_NUMBER or "").strip()
+    if from_number and not from_number.startswith("whatsapp:"):
+        from_number = f"whatsapp:{from_number}"
 
-    if not sid or not token or not sid.startswith("AC"):
+    if not sid or not token or not sid.startswith("AC") or not from_number:
         return DeliveryResult(success=False, method="whatsapp", error="Twilio not configured")
 
     try:
@@ -141,17 +175,17 @@ def _send_whatsapp(phone: str, code: str) -> DeliveryResult:
         client = Client(sid, token)
         msg = client.messages.create(
             body=f"Your SecureShield AI verification code is: {code}  Valid for 10 minutes. Do not share.",
-            from_=settings.TWILIO_WHATSAPP_NUMBER,
+            from_=from_number,
             to=f"whatsapp:{e164_phone}",
         )
-        logger.info(f"WhatsApp OTP sent to {_mask_phone(phone)} | SID: {msg.sid}")
+        logger.info(f"WhatsApp OTP sent to {_mask_phone(e164_phone)} | SID: {msg.sid}")
         return DeliveryResult(success=True, method="whatsapp")
     except ImportError:
         err = "twilio package not installed"
         logger.warning(err)
         return DeliveryResult(success=False, method="whatsapp", error=err)
     except Exception as exc:
-        err = str(exc)
+        err = _twilio_error_message(exc)
         logger.error(f"WhatsApp OTP failed to {_mask_phone(phone)}: {err}")
         return DeliveryResult(success=False, method="whatsapp", error=err)
 
@@ -161,6 +195,7 @@ def _send_whatsapp(phone: str, code: str) -> DeliveryResult:
 # ---------------------------------------------------------------------------
 def _send_email(email: str, code: str) -> DeliveryResult:
     """Send OTP via SMTP with a branded dark-themed HTML email."""
+    settings = load_settings()
     try:
         html = f"""
         <html>
@@ -246,8 +281,8 @@ def _send_email(email: str, code: str) -> DeliveryResult:
         with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=15) as srv:
             srv.ehlo()
             srv.starttls()
-            srv.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
-            srv.sendmail(settings.SMTP_FROM_EMAIL, email, msg.as_string())
+            srv.login(settings.SMTP_USER, settings.SMTP_PASSWORD.strip())
+            srv.sendmail(settings.SMTP_USER, email, msg.as_string())
 
         logger.info(f"OTP email sent to {_mask_email(email)}")
         return DeliveryResult(success=True, method="email")

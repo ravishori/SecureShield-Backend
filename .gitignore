@@ -1,0 +1,34 @@
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+*Copy.env
+*- Copy.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Logs / local dumps (not schema SQL)
+logs/
+*.log
+*.dump
+*.backup
+
+# Local test / scratch artifacts
+test_azure_db.py
+test_azure_db.py.txt
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
