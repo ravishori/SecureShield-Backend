@@ -1,6 +1,5 @@
 from pathlib import Path
 
-from pydantic import model_validator
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
 _BACKEND_DIR = Path(__file__).resolve().parent.parent
@@ -16,8 +15,11 @@ class Settings(BaseSettings):
     # ============================================================
     # Database
     # ============================================================
+    # DATABASE_URL          → secureshield_app (FastAPI runtime only)
+    # MIGRATOR_DATABASE_URL → secureshield_migrator (Alembic only)
+    # Both required — no fallback between roles.
     DATABASE_URL: str
-    MIGRATOR_DATABASE_URL: str = ""
+    MIGRATOR_DATABASE_URL: str
 
     # ============================================================
     # Auth
@@ -73,6 +75,13 @@ class Settings(BaseSettings):
     ADMIN_TOKEN: str = ""
     SQL_ECHO: bool = False
 
+    # ============================================================
+    # CORS (browser clients only; native Android does not need CORS)
+    # ============================================================
+    # Comma-separated origins, e.g. "https://admin.example.com,http://localhost:3000"
+    # Empty = local/dev mode (reflect any origin without credentials pairing).
+    CORS_ALLOWED_ORIGINS: str = ""
+
     model_config = SettingsConfigDict(
         env_file=_resolve_env_files() or (str(_PROJECT_ROOT / ".env"),),
         env_file_encoding="utf-8",
@@ -93,12 +102,16 @@ class Settings(BaseSettings):
         # updates apply without restarting the terminal session.
         return (init_settings, dotenv_settings, env_settings, file_secret_settings)
 
-    @model_validator(mode="after")
-    def _default_migrator_url(self) -> "Settings":
-        if not self.MIGRATOR_DATABASE_URL:
-            sync_url = self.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://", 1)
-            object.__setattr__(self, "MIGRATOR_DATABASE_URL", sync_url)
-        return self
+    def cors_allow_origins(self) -> list[str]:
+        raw = (self.CORS_ALLOWED_ORIGINS or "").strip()
+        if not raw:
+            return ["*"]
+        return [origin.strip() for origin in raw.split(",") if origin.strip()]
+
+    def cors_allow_credentials(self) -> bool:
+        # Never pair allow_origins=["*"] with credentials=True.
+        origins = self.cors_allow_origins()
+        return origins != ["*"]
 
 
 settings = Settings()

@@ -17,8 +17,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import psycopg2
 from psycopg2.extras import execute_values
 
+from app.config import settings
+
 # ── Connection ─────────────────────────────────────────────────────────────────
-DSN = "postgresql://postgres:London2026@localhost:5432/SecureShieldDB"
+# Seed data is DML (INSERT) into existing tables, not DDL. Use the FastAPI
+# runtime role (DATABASE_URL / secureshield_app), not the migrator or admin.
+# Convert SQLAlchemy asyncpg URL to a libpq DSN for psycopg2.
+DSN = settings.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://", 1)
 
 # ── TSP Codes (from TRAI PDF) ─────────────────────────────────────────────────
 TSP_CODES = [
