@@ -136,6 +136,10 @@ class Settings(BaseSettings):
     # Per-user cap on AI endpoints (each call costs money and seconds of model time).
     AI_REQUESTS_PER_MINUTE: int = 10
 
+    # Upload size caps (MB). Uploads are streamed to disk and rejected with 413 beyond these.
+    MAX_EVIDENCE_MB: int = 50
+    MAX_RECORDING_MB: int = 200
+
     # ============================================================
     # CORS (browser clients only; native Android does not need CORS)
     # ============================================================

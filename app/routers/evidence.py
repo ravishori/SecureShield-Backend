@@ -1,15 +1,24 @@
 import os
-import uuid
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
 from typing import List, Optional
 
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.config import settings
 from app.database import get_db
-from app.models.user import User
 from app.models.evidence import Evidence, FileType
-from app.schemas.evidence import EvidenceResponse
+from app.models.user import User
 from app.routers.auth import get_current_user
+from app.schemas.evidence import EvidenceResponse
+from app.services.upload_safety import (
+    display_name,
+    guess_media_type,
+    parse_uuid_or_404,
+    resolve_inside,
+    save_upload,
+)
 
 router = APIRouter(prefix="/evidence", tags=["evidence"])
 
@@ -29,39 +38,46 @@ def get_file_type(filename: str) -> FileType:
         return FileType.document
 
 
+async def _owned(db: AsyncSession, user: User, evidence_id: str) -> Evidence:
+    result = await db.execute(
+        select(Evidence).where(Evidence.id == parse_uuid_or_404(evidence_id, "Evidence"), Evidence.user_id == user.id)
+    )
+    evidence = result.scalar_one_or_none()
+    if not evidence:
+        raise HTTPException(status_code=404, detail="Evidence not found")
+    return evidence
+
+
 @router.post("/upload", response_model=EvidenceResponse)
 async def upload_evidence(
-    title: str = Form(...),
-    description: Optional[str] = Form(None),
-    case_id: Optional[str] = Form(None),
+    title: str = Form(..., min_length=1, max_length=200),
+    description: Optional[str] = Form(None, max_length=2000),
+    case_id: Optional[str] = Form(None, max_length=64),
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    content = await file.read()
-    file_size = len(content)
-    file_id = str(uuid.uuid4())
-    safe_name = f"{file_id}_{file.filename}"
-    file_path = os.path.join(UPLOAD_DIR, safe_name)
-
-    with open(file_path, "wb") as f:
-        f.write(content)
-
-    file_type = get_file_type(file.filename or "")
-
+    file_path, file_size = await save_upload(
+        file, UPLOAD_DIR, default_name="evidence", max_bytes=settings.MAX_EVIDENCE_MB * 1024 * 1024
+    )
     evidence = Evidence(
         user_id=current_user.id,
-        title=title,
+        title=title.strip(),
         description=description,
         file_path=file_path,
-        file_type=file_type,
+        file_type=get_file_type(file.filename or ""),
         file_size_bytes=file_size,
         case_id=case_id,
     )
     db.add(evidence)
-    await db.commit()
+    try:
+        await db.commit()
+    except BaseException:
+        if os.path.exists(file_path):
+            os.remove(file_path)  # no orphan file when the row could not be saved
+        raise
     await db.refresh(evidence)
-    return evidence
+    return EvidenceResponse.from_evidence(evidence)
 
 
 @router.get("/", response_model=List[EvidenceResponse])
@@ -70,11 +86,9 @@ async def list_evidence(
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
-        select(Evidence)
-        .where(Evidence.user_id == current_user.id)
-        .order_by(Evidence.created_at.desc())
+        select(Evidence).where(Evidence.user_id == current_user.id).order_by(Evidence.created_at.desc())
     )
-    return result.scalars().all()
+    return [EvidenceResponse.from_evidence(e) for e in result.scalars().all()]
 
 
 @router.get("/{evidence_id}", response_model=EvidenceResponse)
@@ -83,16 +97,28 @@ async def get_evidence(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(Evidence).where(
-            Evidence.id == uuid.UUID(evidence_id),
-            Evidence.user_id == current_user.id,
-        )
+    return EvidenceResponse.from_evidence(await _owned(db, current_user, evidence_id))
+
+
+@router.get("/{evidence_id}/download")
+async def download_evidence(
+    evidence_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Owner-only file download (attachment, never rendered inline by the browser)."""
+    evidence = await _owned(db, current_user, evidence_id)
+    path = resolve_inside(UPLOAD_DIR, evidence.file_path)
+    if path is None:
+        raise HTTPException(status_code=404, detail="File not found on server")
+    name = display_name(path)
+    return FileResponse(
+        path,
+        media_type=guess_media_type(name),
+        filename=name,
+        headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "no-store"},
+        content_disposition_type="attachment",
     )
-    evidence = result.scalar_one_or_none()
-    if not evidence:
-        raise HTTPException(status_code=404, detail="Evidence not found")
-    return evidence
 
 
 @router.delete("/{evidence_id}")
@@ -101,19 +127,10 @@ async def delete_evidence(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(Evidence).where(
-            Evidence.id == uuid.UUID(evidence_id),
-            Evidence.user_id == current_user.id,
-        )
-    )
-    evidence = result.scalar_one_or_none()
-    if not evidence:
-        raise HTTPException(status_code=404, detail="Evidence not found")
-
-    if os.path.exists(evidence.file_path):
-        os.remove(evidence.file_path)
-
+    evidence = await _owned(db, current_user, evidence_id)
+    path = resolve_inside(UPLOAD_DIR, evidence.file_path)
     await db.delete(evidence)
     await db.commit()
+    if path:
+        os.remove(path)
     return {"message": "Evidence deleted"}

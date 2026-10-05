@@ -1,17 +1,23 @@
+import logging
+import json
 import uuid
 from datetime import datetime
 from fastapi import APIRouter, Depends
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 
 from app.database import get_db
 from app.models.user import User
 from app.models.evidence import Evidence, FileType
 from app.routers.auth import get_current_user
-from app.services.ai_service import generate_fir_draft
+from app.services.ai_limits import check_ai_rate
+from app.services.upload_safety import save_text
+from app.services.ai_service import generate_fir_draft, stream_fir_draft
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/video-call", tags=["video-call"])
 
 
@@ -30,15 +36,16 @@ class RoomResponse(BaseModel):
 
 
 class FirDraftRequest(BaseModel):
-    incident_type: str
-    description: str
-    incident_date: str
-    incident_location: str
-    suspect_info: Optional[str] = None
-    evidence_summary: Optional[str] = None
-    complainant_name: str
-    complainant_phone: str
-    amount_lost: Optional[str] = None
+    incident_type: str = Field(..., min_length=1, max_length=100)
+    description: str = Field(..., min_length=1, max_length=4000)
+    incident_date: str = Field(..., min_length=1, max_length=50)
+    incident_location: str = Field(..., min_length=1, max_length=200)
+    suspect_info: Optional[str] = Field(None, max_length=1000)
+    evidence_summary: Optional[str] = Field(None, max_length=2000)
+    complainant_name: str = Field(..., min_length=1, max_length=150)
+    complainant_phone: str = Field(..., min_length=3, max_length=30)
+    amount_lost: Optional[str] = Field(None, max_length=50)
+    language: Optional[str] = Field("en", max_length=8, pattern=r"^[A-Za-z]{2,3}(-[A-Za-z]{2,4})?$")
 
 
 @router.post("/create-room", response_model=RoomResponse)
@@ -95,6 +102,7 @@ async def generate_fir(
     db: AsyncSession = Depends(get_db),
 ):
     """Generate an AI-drafted FIR (First Information Report) for cybercrime."""
+    check_ai_rate(current_user)
     result = await generate_fir_draft(
         incident_type=request.incident_type,
         description=request.description,
@@ -105,16 +113,21 @@ async def generate_fir(
         complainant_name=request.complainant_name,
         complainant_phone=request.complainant_phone,
         amount_lost=request.amount_lost,
+        language=request.language or "en",
     )
 
     # Save FIR draft as evidence
+    # The draft is stored as a real file (it used to be a row pointing at a file that never existed).
+    from app.routers.evidence import UPLOAD_DIR as EVIDENCE_DIR
+
+    fir_path, fir_size = save_text(EVIDENCE_DIR, result["fir_draft"], name="fir_draft.txt")
     evidence = Evidence(
         user_id=current_user.id,
         title=f"FIR Draft - {request.incident_type}",
         description=f"AI-generated FIR draft for {request.incident_type} incident on {request.incident_date}",
-        file_path=f"fir_drafts/{uuid.uuid4().hex}.txt",
+        file_path=fir_path,
         file_type=FileType.document,
-        file_size_bytes=len(result["fir_draft"].encode()),
+        file_size_bytes=fir_size,
         is_encrypted=False,
         case_id=f"FIR-{datetime.utcnow().strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}",
     )
@@ -131,6 +144,125 @@ async def generate_fir(
         ],
         "helpline": "1930",
     }
+
+
+@router.post("/generate-fir-stream")
+async def generate_fir_streaming(
+    request: FirDraftRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Stream a FIR draft as Server-Sent Events.
+
+    The response is `text/event-stream`. Each event has the form:
+
+        data: {"delta": "<chunk of FIR text>"}\\n\\n
+        data: {"delta": "<chunk>"}\\n\\n
+        ...
+        data: {"done": true, "case_id": "FIR-...", "evidence_id": "uuid",
+               "fir_draft": "<full text>"}\\n\\n
+
+    On unrecoverable failure the final event includes "error": "<reason>"
+    alongside a locally-generated fallback FIR (so the UI always has
+    something to render).
+    """
+    # Build a stable case_id + evidence row UP FRONT so the client can
+    # display them as soon as the first chunk arrives. The evidence row
+    # is committed only after the stream finishes successfully.
+    check_ai_rate(current_user)
+    case_id = f"FIR-{datetime.utcnow().strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
+
+    async def event_stream():
+        full_text_parts: list[str] = []
+        had_error = False
+        last_note = "This is a draft. Review with a legal expert before filing at police station."
+
+        # First event: tell the client the case_id so it can render the
+        # header immediately, before any FIR text arrives.
+        yield (
+            "data: " + json.dumps({"case_id": case_id, "started": True}) + "\n\n"
+        )
+
+        try:
+            async for event in stream_fir_draft(
+                incident_type      = request.incident_type,
+                description        = request.description,
+                incident_date      = request.incident_date,
+                incident_location  = request.incident_location,
+                suspect_info       = request.suspect_info,
+                evidence_summary   = request.evidence_summary,
+                complainant_name   = request.complainant_name,
+                complainant_phone  = request.complainant_phone,
+                amount_lost        = request.amount_lost,
+                language           = request.language or "en",
+            ):
+                # Forward delta + done events verbatim
+                if "delta" in event:
+                    full_text_parts.append(event["delta"])
+                if "error" in event:
+                    had_error = True
+                if "note" in event:
+                    last_note = event["note"]
+                # Use a heartbeat-friendly small frame
+                yield "data: " + json.dumps(event) + "\n\n"
+
+        except Exception as e:
+            had_error = True
+            # Exception text is NOT sent to the client (it can carry internals/URLs/keys); the type
+            # is logged for operators.
+            logger.error("[FIR-stream] failed: %s", type(e).__name__)
+            yield "data: " + json.dumps({
+                "error": "stream_failed",
+                "done":  True,
+                "fir_draft": "".join(full_text_parts) or "(no content)",
+                "note": "The draft could not be completed. Review what was generated and add any missing details.",
+            }) + "\n\n"
+
+        # Persist evidence row (best effort — never let DB write break the
+        # stream after the user has already received content).
+        full_text = "".join(full_text_parts) or "(empty)"
+        try:
+            from app.routers.evidence import UPLOAD_DIR as EVIDENCE_DIR
+
+            fir_path, fir_size = save_text(EVIDENCE_DIR, full_text, name="fir_draft.txt")
+            evidence = Evidence(
+                user_id          = current_user.id,
+                title            = f"FIR Draft - {request.incident_type}",
+                description      = f"AI-generated FIR draft for {request.incident_type} incident on {request.incident_date}",
+                file_path        = fir_path,
+                file_type        = FileType.document,
+                file_size_bytes  = fir_size,
+                is_encrypted     = False,
+                case_id          = case_id,
+            )
+            db.add(evidence)
+            await db.commit()
+            evidence_id = str(evidence.id)
+        except Exception as e:
+            # Logged but not fatal — client already has the FIR text.
+            evidence_id = None
+            logger.error("[FIR-stream] evidence save failed: %s", type(e).__name__)
+            last_note = f"{last_note} (Note: the draft could not be saved to your Evidence Locker.)"
+
+        # Final summary event with the persisted IDs.
+        yield "data: " + json.dumps({
+            "complete":    True,
+            "case_id":     case_id,
+            "evidence_id": evidence_id,
+            "note":        last_note,
+            "had_error":   had_error,
+        }) + "\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            # Disable proxy/CDN buffering so chunks reach the client instantly.
+            "Cache-Control":     "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+            "Connection":        "keep-alive",
+        },
+    )
 
 
 @router.get("/police-contacts")
