@@ -11,6 +11,7 @@ regexes = [
   '''sig-SENTINEL-AUTH''',
   '''sk-ant-api03-ABCDEFGHIJKLMNOP''',
   '''sk-ant-api03-LEAKYLEAKYLEAKY1234''',
+  '''disabled-by-e2e-harness''',
   '''SMTP_PASSWORD: preserve\(\)''',
   '''ACabcdef0123456789abcdef0123456789''',
   '''k9-F2Jx7mZ\.LpQw3-RVnTbU6Yx8Ag4Bc5De1Hi2JkMo7PqRs''',
