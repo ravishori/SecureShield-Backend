@@ -1,7 +1,9 @@
 # SecureShield Feature Gaps and Errors
 
 Authoritative backlog of unresolved staging/production issues. **No secret values appear in this
-document.** Evidence was gathered on 2026-10-05 against the Railway *staging* environment
+document.** The consolidated, ID-based register is in section 17; sections 1-16 give the detail.
+Last updated after the hardening cycle of 2026-10-05 (token separation, account erasure, log scrubbing,
+staging cleanup, reference-data seed, emulator test). Evidence was gathered on 2026-10-05 against the Railway *staging* environment
 (project `secureshield-staging`, service `secureshield-api`) and the candidate commit set.
 
 ## Status legend
@@ -34,11 +36,12 @@ candidate and the staging deployment contain.
 | 1.2 | SMS OTP fails: Twilio error 20003 (authentication failed) | OPEN | **BLOCKER** | Yes |
 | 1.3 | No working OTP transport at all (consequence of 1.1 + 1.2) | OPEN | **BLOCKER** | Yes |
 | 1.4 | OTP plaintext logging | RESOLVED | was HIGH | No |
-| 1.5 | Refresh token accepted as a bearer access token | OPEN | **HIGH** | Recommended |
+| 1.5 | Refresh token accepted as a bearer access token | **RESOLVED** | was HIGH | No |
 | 1.6 | OTP generated with `random.randint` (not a CSPRNG) | OPEN | MEDIUM | No |
 | 1.7 | OTP stored in plaintext in `otps.code` | OPEN | MEDIUM | No |
 | 1.8 | Rate limiter is in-memory, per process | OPEN | MEDIUM | Single replica only |
-| 1.9 | `/auth/refresh` does not re-check the user is active | OPEN | LOW | No |
+| 1.9 | `/auth/refresh` does not re-check the user is active | **RESOLVED** | was LOW | No |
+| 1.11 | No server-side refresh-token rotation / revocation (a used refresh token stays valid until expiry) | OPEN | MEDIUM | No |
 | 1.10 | OTP generation / verification / expiry / reuse / refresh | RESOLVED (verified) | — | No |
 
 **1.1 SMTP.** Evidence: Railway documents outbound SMTP as available only on Pro and above; from the
@@ -61,14 +64,22 @@ identifier to stdout and the logger when every channel failed. Replaced by `_log
 `tests/integration/test_otp_logging_api.py` (2) fail against the old code (mutation-checked).
 Staging after redeploy: deployed logs contain no `DEV OTP`, no OTP value, only failure metadata.
 
-**1.5 Refresh token as access token.** Evidence (staging, 2026-10-05): `GET /auth/me` with the
-*refresh* token as bearer returns HTTP 200. Cause: access tokens carry no `type` claim and
-`get_current_user` never checks one; `/auth/refresh` does require `type=refresh` (an access token is
-correctly rejected with 400). Impact: a stolen refresh token (30-day lifetime) is a full 30-day
-access token, which defeats the 1-hour access-token hardening. Fix: put `type: "access"` in access
-tokens and reject anything else in `get_current_user` (migration: tokens issued before the change
-lack the claim - accept missing-type for one access TTL or force re-login). Not changed here because
-it alters client-visible behaviour and needs a decision on existing sessions.
+**1.5 Refresh token as access token - RESOLVED.** Found on staging (a refresh token returned HTTP 200 on
+`/auth/me`): access tokens had no `type` claim and `get_current_user` never checked one. Fix: access
+tokens now carry `type=access`; `get_current_user` accepts only that (tokens without a type claim, refresh
+tokens, tampered or foreign-signed tokens and non-UUID subjects are all 401, never 500); `/auth/refresh`
+still requires `type=refresh` and rejects access tokens (400). Tests: `tests/integration/test_token_types_api.py`
+(17; 11 fail against the old code). Verified on the redeployed staging API and from the real app on an emulator.
+Deployment note: tokens issued before this change lack the claim and stop working (one forced re-login;
+no production users exist yet).
+
+**1.9 - RESOLVED.** `/auth/refresh` now loads the user and returns 401 for a missing/inactive account, so a
+deleted account cannot mint tokens (tested, including after `DELETE /auth/me`).
+
+**1.11 Refresh-token rotation.** There is no `jti` store: refreshing returns a new pair but the old refresh
+token stays valid until it expires (30 days), and a stolen refresh token cannot be revoked short of
+deactivating the user. A test pins this behaviour so adding rotation is a conscious change. Fix: store a
+token family/`jti`, rotate on use, reject reuse, revoke on logout/password change.
 
 **1.6/1.7.** `app/routers/auth.py` uses `random.randint(100000, 999999)`; use `secrets`. The code is
 compared by equality against `otps.code`; store a hash (HMAC with a server key) instead.
@@ -114,9 +125,9 @@ Local leftovers to clean after rotation: stale env backups, temp files holding l
 | Query-string values | **RESOLVED** (this cycle) | was MEDIUM | `extra.query` stored `str(request.query_params)` (e.g. `check-user?identifier=<email/phone>`). Now only parameter *names* are stored (`query_params`). Test + staging verified. | `error_handler.py` | done | No |
 | Path parameters / share tokens | **RESOLVED** (this cycle) | was MEDIUM | `endpoint` stored the concrete path, so a 404/500 on `/recordings/share/{token}` stored the share token; `/scam-calls/block/{number}` stored a phone number. Now the matched route *template* is stored. A real-route test failed before the fix. | `error_handler.py` | done | No |
 | Bound SQL parameters in DB error text | **RESOLVED** (this cycle) | was MEDIUM | SQLAlchemy appends `[parameters: (...)]` to DB errors (would include a submitted OTP, email, phone) into messages, tracebacks, `error_logs` and e-mails. Engine now created with `hide_parameters=True` (unit-tested, mutation-checked). | `app/database.py` | done | No |
-| Driver-level messages in tracebacks/exception text | **OPEN** | MEDIUM | asyncpg error `DETAIL` text can contain values (e.g. `Key (email)=(...) already exists`); pydantic `ValidationError` `str()` includes `input_value`. `logger_service.log_error` stores `str(exc)` and the full traceback and e-mails them. | `logger_service` (UNREVIEWED - not modified) | Review `logger_service`; scrub/shorten exception text before persisting and e-mailing; reduce e-mail body to type + endpoint + ID | No (but treat `error_logs` as sensitive) | Next hardening phase |
+| Exception text, tracebacks and context (driver DETAIL lines, pydantic input echoes, URLs with API keys, tokens) | **RESOLVED** (heuristic scrubber; residual risk noted) | was MEDIUM | Measured with real exceptions through the real `log_error`: a unique-violation DETAIL line stored the user's e-mail, a pydantic error echoed its input, an httpx status error embedded the request URL including the API key. `app/services/log_scrubber.py` now scrubs message, traceback and `extra` once in `log_error` (before the file log, the DB row and the alert e-mail): JWTs, Bearer/Basic values, `key=`/`token=`/`password=`/`otp=` pairs, known API-key shapes, URL passwords, driver `Key (col)=(value)`, pydantic `input_value`, e-mails (masked), phone numbers (masked), OTP-like numbers; output is length-bounded and the regexes are linear-time (ReDoS-tested; worst case 49 ms on adversarial input). 24 unit + 8 integration tests (real PostgreSQL rows and alert e-mail payloads). | `logger_service.log_error` (committed version) + new `log_scrubber.py` | Residual: heuristic matching cannot catch every value (a bare name or free text inside an exception); `error_logs` must still be treated as sensitive. | No |
 | Which sensitive items *can* appear in `error_logs` today | — | — | **Email/phone**: possibly via driver `DETAIL` or pydantic exception text. **OTP**: no longer via parameters or logs; only if embedded in a driver message. **JWT/access/refresh token**: not captured (headers allowlisted, bodies not read). **Share token**: no (route template). **Password**: no passwords exist in the auth flow. **API credentials**: only if an exception message embeds one (e.g. a provider error echoing a key) - unverified. | | | | |
-| `error_logs` retention | **OPEN** | MEDIUM | Startup cleanup deletes rows older than `LOG_RETENTION_DAYS` (default 90); no policy for personal data, no export/erasure path; account deletion does not purge `error_logs.user_id` rows | `main.py`, models | Define retention (e.g. 30 days), purge on account deletion | No | Decision needed |
+| `error_logs` retention | **OPEN** (account erasure now anonymises `user_id`; no age/size policy beyond the 90-day startup purge) | MEDIUM | Startup cleanup deletes rows older than `LOG_RETENTION_DAYS` (default 90); no policy for personal data, no export/erasure path; account deletion does not purge `error_logs.user_id` rows | `main.py`, models | Define retention (e.g. 30 days), purge on account deletion | No | Decision needed |
 | Admin endpoint compares token with `!=` | OPEN | LOW | `admin_errors._check_admin` is not constant-time; no throttling beyond the global limiter | `admin_errors.py` | `hmac.compare_digest` + tighter rate limit | No | — |
 | Pre-existing logging side effects (UNREVIEWED) | UNREVIEWED | ? | `logger_service` (working tree) adds SQLAlchemy event listeners, e-mail dedupe and hard-coded personal e-mail addresses; `error_handler` v2 adds body capture and unverified JWT decoding for `user_id` | | Review before any inclusion | Yes, if included | Excluded |
 
@@ -125,9 +136,10 @@ Local leftovers to clean after rotation: stale env backups, temp files holding l
 | Item | Status | Severity | Note |
 |---|---|---|---|
 | `/ready` returns database and user names | OPEN | LOW | Minor information disclosure on a public URL |
-| Staging smoke data | OPEN | MEDIUM | Staging DB holds throw-away smoke-test users (example.com addresses), one **admin profile created by the assistant during smoke testing**, one rejected application, evidence/recording files. See section 5. Owner decides on cleanup. |
+| Staging smoke data | **RESOLVED** | was MEDIUM | Inventoried read-only, then removed (section 14). Staging currently holds no users, no admin, no uploaded files. |
+| Local credential file uploaded to Railway (incident) | OPEN | LOW-MEDIUM | During the 2026-10-05 candidate deploy a `ci_env.sh` helper containing the **local test-database URL (localhost, `postgres` role)** was in the uploaded source folder. It is not in the image (the Dockerfile copies only `app/`, `alembic/` and a few files) and an immediate clean redeploy removed it from the live deployment, but Railway keeps the earlier source archive in the (private) project. Impact: a localhost-only credential reached a third-party store. Fix: change the local `postgres` password (already on the deferred rotation list; it equals the old Azure password) and always deploy from a `git archive` export. |
 | Staging API is public | OPEN | LOW | `secureshield-api-production-73ea.up.railway.app` (environment is named `production` inside the staging project; confusing, not an actual production environment) |
-| Account deletion is PARTIAL but reports "permanently deleted" | OPEN | **HIGH** (privacy) | `DELETE /auth/me` (`auth.py::delete_account`) nulls the user's profile fields, sets `is_active=false` and deletes Cyber Warrior rows only. It does **not** remove evidence/recording rows or their files on the volume, OTP rows (email/phone), devices, family members, emergency contacts, scam reports, scan history, alerts or `error_logs`, and the response/docstring claim full deletion (and that deactivation blocks refresh - `/auth/refresh` does not check `is_active`; tokens minted that way are rejected on use). Fix: delete or anonymise every user-linked table and delete the files, add a test per table; correct the message. Production-blocking for privacy compliance (DPDP). |
+| Account deletion was PARTIAL but claimed full deletion | **RESOLVED** | was HIGH (privacy) | `DELETE /auth/me` now erases every user-linked table and the uploaded files, anonymises `error_logs`, and keeps only an inert tombstone plus the append-only warrior audit trail; the response states what is retained. 7 integration tests (all tables, physical files, share tokens, OTPs, devices, family links, bystander isolation, repeat deletion, post-deletion access, path-traversal guard, atomic rollback) and a live staging run (files on the volume 1+1 -> 0+0). See section 15. |
 | Elderly guardian alert logs guardian PII and delivers nothing | OPEN | MEDIUM | `elderly_protection.py` `_deliver_guardian_alert` is a TODO stub: it writes the guardian's full phone/e-mail and 120 characters of the alert to the INFO log and sends nothing. Fix: implement delivery through the chosen OTP/e-mail/SMS transports, log only masked identifiers. |
 | Hard-coded personal e-mail in alert path | UNREVIEWED | LOW | Appears in unreviewed `logger_service`/`error_handler` v2 |
 
@@ -146,7 +158,7 @@ Local leftovers to clean after rotation: stale env backups, temp files holding l
 | Role creation is not in the repo | OPEN, MEDIUM | Roles and default privileges were created by hand on the Railway superuser; documented in `docs/RAILWAY_DEPLOYMENT.md` but not scripted | Recommendation: add an idempotent SQL bootstrap script |
 | `otp_vault_entries` | LOW | Orphan table with no ORM model (the OTP Vault feature was removed from the app; the initial migration still creates it). Drop in a future migration. |
 | Data migration from Azure | N/A | The Azure server no longer exists; Railway is a fresh database; no data was migrated |
-| Reference-data seed | OPEN | See section 4 |
+| Reference-data seed | **RESOLVED on staging** | 11 / 22 / 23,192 rows loaded 2026-10-05; see section 4 |
 | Backups | **NOT IMPLEMENTED**, HIGH | No backup/restore policy or test has been defined for Railway Postgres. Production-blocking until defined. |
 
 ---
@@ -160,8 +172,8 @@ Local leftovers to clean after rotation: stale env backups, temp files holding l
 | Seed script | RESOLVED | Uses the migrator URL (TRUNCATE needs ownership); `--dry-run`; `--xlsx`; refuses to run on populated tables unless `--replace`; translates `ssl`->`sslmode` for psycopg2. Needs `pip install -r requirements-seed.txt` |
 | Dry run | RESOLVED | `DRY RUN: would seed 11 TSP codes, 22 LSA codes, 23,192 SMS headers. No database contact.` |
 | Safety guard | RESOLVED (verified on a scratch DB) | seed -> 11/22/23192; second run aborts with exit 2 and leaves data untouched; `--replace` is the only wiping path |
-| **Railway staging seed status** | **EMPTY - NOT SEEDED** | `tsp_codes=0, lsa_codes=0, sms_sender_registry=0` (SELECT-only check, 2026-10-05) |
-| Impact | MEDIUM | Sender-header validation (`/message/validate-sender`) has no registry to match against on staging |
+| **Railway staging seed status** | **SEEDED** | Before: 0 / 0 / 0 (SELECT-only). Dry run: 11 / 22 / 23,192. After: `tsp_codes=11`, `lsa_codes=22`, `sms_sender_registry=23,192` (23,190 distinct headers = the 2 duplicates in the source file). Integrity: no duplicate TSP/LSA codes, no null/empty rows, unique primary keys, no FK constraints on these tables. Idempotency: a second run aborted (`exit 2`, tables already populated) and changed nothing. Executed through a temporary Railway TCP proxy (now deleted) with the migrator role; credentials were taken from the service variables inside the shell and never printed or written to the repository. |
+| Impact | RESOLVED | Sender-header validation has its registry on staging |
 
 **Exact command (not executed).** Needs a temporary Railway TCP proxy on the `Postgres` service (the
 private network is unreachable from a laptop; delete the proxy afterwards):
@@ -184,14 +196,14 @@ service `secureshield-api`, session forced read-only (a write attempt raised
 **Inventory:** users 2 (active 2, inactive 0) at audit start; warrior profiles 1; applications 1 (rejected);
 audit log rows 2 (`application_submitted`, `application_rejected`).
 
-**Admin existence: one active admin EXISTS in Railway staging** (masked: email `s***@example.com`,
+**Admin existence (at audit time, before cleanup): one active admin EXISTED in Railway staging** (masked: email `s***@example.com`,
 user `9eef…e2`, profile `db88…ce`, role `admin`, created 2026-10-05 06:48 UTC, last activity same day).
 It is **not** a real person: it is the throw-away "Smoke Admin" the assistant inserted by direct SQL
 during the earlier smoke test to exercise the admin routes. Consequences: (a) the statement "no admin
 exists" is false; (b) `python -m app.cli.bootstrap_admin` would correctly **refuse** to run (one-admin
 rule); (c) its mailbox is not reachable, so nobody can log in as it, but it is a privileged row on a
 public staging API. Recommendation: before any real use, the owner decides whether to remove the smoke
-admin (and smoke users/files) so the bootstrap can create the real first admin. Nothing was changed.
+admin (and smoke users/files) so the bootstrap can create the real first admin. It has since been removed together with all smoke data (section 14). **Current state: no admin user exists in Railway staging.** The bootstrap CLI is therefore usable; the real first admin has not been created (awaiting approval).
 
 ### RBAC implementation (read from code, not inferred)
 
@@ -251,8 +263,7 @@ railway ssh -s secureshield-api -- python -m app.cli.bootstrap_admin --email <EM
 ```
 
 Rollback implications: the audit row is append-only and the profile can only be removed by SQL
-(`DELETE` on `warrior_profiles`; leave the audit row). **Currently it would refuse** because the smoke
-admin exists (see above). **Awaiting explicit approval; no admin is created automatically.**
+(`DELETE` on `warrior_profiles`; leave the audit row). It will now accept a registered user because no admin exists. **Awaiting explicit approval; no admin is created automatically.**
 
 ---
 
@@ -348,7 +359,7 @@ are UNREVIEWED.
 | `flutter pub get` | PASS | `pubspec.lock` was already modified before this work |
 | `flutter analyze` | **639 issues, 0 errors**, 21 warnings, 618 infos (469 `deprecated_member_use` - mostly `withOpacity`; 97 `prefer_const_constructors`) | exit code 1 because infos count |
 | `flutter test` | PASS: **19/19** (similarity metrics suite ran for the first time; `widget_test.dart` is a placeholder) | |
-| Device / emulator verification | **NOT DONE** - no device in this environment | MEDIUM |
+| Emulator verification (Pixel_5 AVD, debug APK built from the working tree) | **PARTIAL - done** | Against the staging API, from the real app: cold start with the HTTPS override logs `Using manual override: https://...` (the probe fix works on device); **registration** (`POST /auth/register` 200); **OTP verification and login** (`POST /auth/verify-otp` 200; the OTP was read from the DB because delivery is blocked, then typed into the app); authenticated screens; **My Profile** (`GET /auth/me` 200, real user data shown); **logout** (returns to the logged-out home). Not exercised on the device: the token-refresh path (needs an expired access token), evidence/recording upload (camera/file picker), Cyber Warrior (no client), account deletion (no UI path assessed). Evidence, recordings, refresh and refresh-token rejection were verified over HTTP against the same staging API (34/34 checks). |
 | Client coverage of backend features | Cyber Warriors, admin: no client. Auth/profile/evidence/recordings/scanners: modules exist, not exercised against staging from the app. The backend flows the app uses were verified over HTTP. | |
 | Cleartext/TLS config | not reviewed | LOW |
 
@@ -366,7 +377,7 @@ are UNREVIEWED.
 | Pre-deploy migration | `alembic upgrade head` (no-op at head) | failure blocks the deploy |
 | Git deployment | **NOT CONNECTED** | Branch `staging/railway-snapshot` is local only; nothing pushed; Railway service has no Git source. Target: repo `ravishori/SecureShield-Backend` (private), root `/`, Dockerfile, `railway.toml` |
 | `railway.toml` deprecation | OPEN, LOW | Railway's config-as-code is deprecated; keeps working until 2026-12-01. Migration: `railway config migrate --service secureshield-api` (dry-run), `railway config plan`, then `--apply`. `restartPolicy*` is not carried over. Deferred until Git deployment exists. |
-| CI | **NOT RUN ON GITHUB** | Workflow reproduced locally with the CI environment: ruff, `alembic upgrade head`, pytest. Do not claim it passes until it runs on GitHub. |
+| CI | **NOT RUN ON GITHUB** (reproduced locally with the workflow's own environment block: ruff, `alembic upgrade head`, pytest 300 passed) | Workflow reproduced locally with the CI environment: ruff, `alembic upgrade head`, pytest. Do not claim it passes until it runs on GitHub. |
 | Production env requirements | NOTE | `ENVIRONMENT=production` requires `TRUST_PROXY_TLS=true`, non-placeholder `SECRET_KEY` and `ADMIN_TOKEN`, and an explicit `CORS_ALLOWED_ORIGINS`, otherwise startup fails (by design). Staging runs `ENVIRONMENT=staging`. |
 | Environment naming | LOW | Railway's default environment inside `secureshield-staging` is called `production` |
 | Single replica | known | in-memory rate limiter, local-disk uploads |
@@ -382,21 +393,179 @@ are UNREVIEWED.
 | OTP delivery (e-mail) | BLOCKED | **Yes** | HTTPS e-mail provider (Option A) or Railway Pro (Option B) |
 | OTP delivery (SMS) | BLOCKED | **Yes** | Valid Twilio credentials (+ DLT registration for India) |
 | Credential rotation / Git-history secrets | DEFERRED | **Yes** (production refuses placeholder `SECRET_KEY`/`ADMIN_TOKEN`; exposed keys must be rotated) | Rotation phase, then history decision |
-| Refresh token usable as access token | OPEN | Recommended | Add token `type` claim + enforcement |
-| First admin | OPEN | **Yes** (nobody can administer warriors) | Owner decision on smoke admin, then bootstrap CLI |
-| Reference data on target DB | EMPTY | Yes for sender validation | Run seed (section 4) |
+| Refresh token usable as access token | RESOLVED | No | `type` claim enforced; tests + staging + device |
+| First admin | OPEN | **Yes** (nobody can administer warriors) | Smoke admin removed; run the bootstrap CLI after approval |
+| Reference data on target DB | RESOLVED on staging | No | Repeat on any new database (section 4) |
 | Backups / DR | NOT IMPLEMENTED | **Yes** | Define + test restore |
 | Git-based deployment + CI on GitHub | NOT DONE | Yes (reproducible deploys) | Push after approval, connect Railway, run CI |
-| Error-log traceback/exception text, retention | OPEN | No | Review `logger_service`; retention policy |
+| Error-log exception text | RESOLVED (heuristic) | No | `log_scrubber` |
+| `error_logs` retention policy | OPEN | No | Decide retention + purge |
+| Account deletion completeness | RESOLVED | No | Section 15 |
+| Staging smoke data | RESOLVED | No | Section 14 |
+| Refresh-token rotation / revocation | OPEN | No (recommended) | `jti` store |
 | Unreviewed code (11 files + v2 pieces) | UNREVIEWED | Only if included | Review per group |
 | Admin tooling / UI | NOT IMPLEMENTED | No (API only) | Build admin UI later |
 | Flutter on device | UNVERIFIED | Yes for release | Run on device against staging |
 | Automated tests for scanners/AI/threat intel | NOT IMPLEMENTED | No | Add |
-| Header/query/param/path leakage in error logs | RESOLVED | No | - |
+| Header/query/param/path/exception-text leakage in error logs | RESOLVED | No | - |
 | OTP logging | RESOLVED | No | - |
 | Database, volume, healthchecks, migrations | RESOLVED | No | - |
 
 **Current production readiness: RED.**
+
+---
+
+## 14. Staging smoke-test cleanup record (2026-10-05)
+
+**Method.** Read-only inventory first (session forced read-only, SELECT only), captured, then a guarded
+deletion inside one transaction through the runtime role. Guards: abort unless every user is a recognised
+test identity (e-mail pattern `smoke-*@example.com`, `e2e-user-*@example.com`, `device-test-*@example.com`, or an
+inert deletion tombstone), abort unless every evidence/recording row and every file belongs to those
+identities, abort on any file path outside `/app/uploads`.
+
+**Inventory before the first cleanup** (all of it belonged to the three smoke/e2e identities):
+
+| Item | Count |
+|---|---|
+| users (all matched the smoke patterns; none other existed) | 3 |
+| warrior profiles (1 was the **assistant-created smoke admin**) | 1 |
+| warrior applications / audit-log rows | 2 / 3 |
+| evidence rows + files, recording rows + files (2 recordings had share tokens) | 2 + 2, 2 + 2 |
+| OTP rows | 4 |
+| devices, family, emergency contacts, alerts, scans | 0 |
+| files on the volume | 4 (all referenced by those rows; no orphans, none belonging to other data) |
+| `error_logs` rows | 14 (tied to no user; verified free of credentials) |
+
+**Removed:** exactly those rows and the 4 files (counts equal to the inventory). `error_logs` was left in place
+(diagnostics, no personal data).
+
+**Verified afterwards:** 0 users, 0 warrior profiles/applications/audit rows, 0 admins, 0 evidence/recordings,
+0 OTPs, 0 files on the volume; tables and the volume themselves untouched. No replacement admin was created.
+
+**Second cleanup (end of the same cycle).** The final end-to-end run, the emulator test and the live
+account-deletion test created more throw-away data (one emulator user + its device row and OTP, one e2e user
+turned into a deletion tombstone with one audit row). They were removed with the same guarded procedure
+(extended to device-linked tables). Final state: **0 users, 0 admins, 0 uploaded files**, reference data intact
+(11 / 22 / 23,192), `error_logs` 29 rows retained.
+
+## 15. Account deletion and retention policy (`DELETE /auth/me`)
+
+Implemented in `app/services/account_erasure.py`; the endpoint requires `{"confirm": "DELETE"}`.
+
+| Data | Action | Why |
+|---|---|---|
+| User profile fields (e-mail, phone, alt phone, names, address, password hash) | **cleared** | identity removal |
+| `users` row | **kept as an inert tombstone** (`id`, `created_at`; `is_active=false`; all personal columns NULL) | the append-only audit trail references it by foreign key; e-mail/phone are NULL so the person can register again as a new account |
+| Evidence and recordings (rows, share tokens, **uploaded files**) | **deleted** (files removed after the DB commit; only inside the configured upload directories) | user content; a share link dies with the row |
+| OTP rows for the user's e-mail/phone | **deleted** | credentials/identifiers |
+| Devices and everything on them (alerts, network activity, app scans, Wi-Fi scans) | **deleted** | device data |
+| AI conversations, link scans, scam calls, security reports, behaviour events, clone reports, app-install events, community scam reports | **deleted** | user activity |
+| Emergency contacts, elderly/guardian configuration, family members | **deleted** | third-party personal data entered by the user; other users' family entries that pointed at this account are **unlinked, not deleted** |
+| Cyber Warrior profile and application | **deleted** | volunteer PII (name, DOB, phone, e-mail, motivation) |
+| `error_logs` | **anonymised** (`user_id` -> NULL), rows kept | diagnostics without the link to a person |
+| `warrior_audit_logs` | **retained** (append-only moderation/security trail: ids, action, timestamps, structured context, reviewer's free-text reason) | accountability; reviewers must not put personal details in notes |
+| Legacy `otp_vault_entries` | **deleted** | removed feature |
+
+Properties: one transaction (a failure rolls everything back and the account stays active - tested); files
+are removed only after a successful commit and a failure to remove a file is logged as an error; repeated
+deletion, any API call and `/auth/refresh` with previously issued tokens all return 401 afterwards. The
+response (`message` + `retained`) no longer claims "permanent" deletion. Open policy decisions for the
+owner: audit-log retention period, whether reviewer notes need scrubbing, backup retention of deleted data
+(no backups exist yet, see FG-052).
+
+## 16. Review of the unreviewed backend files (decisions)
+
+None of these was committed. Decision vocabulary: COMMIT (ready), FIX-THEN-COMMIT, DEFER (needs tests/review),
+DO NOT COMMIT. "Needed for staging" means needed for the validated staging scope.
+
+| File | Purpose | Production relevance | Security risks found | Data/privacy | Tested | Needed for staging | Decision |
+|---|---|---|---|---|---|---|---|
+| `services/logger_service.py` (+374/-119) | Error logging v2: DB + file + e-mail with dedupe/rate limit, process-wide `sys.excepthook`/asyncio handlers, SQLAlchemy event listeners writing slow/failed SQL to `secureshield.sql.log`, `safe_background` | High (alerting) | Global hooks change process behaviour; SQL text (<=500 chars, no bound values) goes to a second on-disk log; alert e-mails use SMTP (blocked on Railway); personal address appears in a docstring (recipient itself comes from `ERROR_NOTIFY_EMAIL`). The committed version gets the same `log_scrubber` hook (committed), so exception text is scrubbed in both. | scrubbed by `log_scrubber`; SQL log needs review | scrubber only; hooks untested | No (committed version suffices) | **DEFER** - review hooks, add tests, then commit |
+| `services/gsb_service.py` (+218/-49) | Google Safe Browsing client with 5-min in-memory cache, error classification, startup key verification | Medium | API key is sent as `?key=` in the URL (visible in any httpx error text; the committed scrubber now masks it; prefer the header form); scanned URLs (possibly with tokens) are sent to Google and cached in memory | URL egress to a third party | none | No | **DEFER** - move key to header, add mocked-httpx tests |
+| `services/urlhaus_service.py` (new, 164) | abuse.ch URLhaus lookup, written as "no API key required" | Medium | **Broken as written: abuse.ch returns HTTP 401 `Unauthorized` without an Auth-Key (verified 2026-10-05)**, so every lookup degrades to an error status; needs a credential (owner action); URLs sent to a third party | URL egress | none | No | **DO NOT COMMIT** until an Auth-Key exists or the feature is dropped |
+| `routers/link_scanner.py` (+127/-35) | Orchestrates GSB then URLhaus then internal rules; adds `GET /link-scanner/providers/status` | Medium | Depends on gsb v2 + urlhaus; status endpoint exposes provider configuration to any logged-in user | URLs | none | No | **DEFER** (with the threat-intel group) |
+| `services/ai_service.py` (+479/-47) | Multilingual coach prompts, streaming FIR draft, AI error classification, more Anthropic calls | High | `language` is allow-listed (no prompt injection through it); **operational hints are returned to end users** ("check ANTHROPIC_API_KEY in .env", "add credits at console.anthropic.com"); user chat text is sent to a third party | user content to Anthropic (needs a privacy notice) | none | No | **DEFER** - replace hints with generic messages, add mocked-client tests |
+| `routers/ai_coach.py` (+7/-1) and `schemas/ai_conversation.py` (+5) | Pass `language` through to the coach/e-mail generator | Low | none beyond ai_service | - | none | No | **DEFER** (coupled to `ai_service`; commit together) |
+| `routers/video_call.py` (+118/-1) | SSE streaming FIR draft (`POST /video-call/generate-fir-stream`) | Medium | On failure the stream sends `Streaming failed: {exception text}` to the client (information disclosure; the committed scrubber does not cover client responses); unauthenticated-stream abuse is limited by JWT | FIR text may contain victim PII (stored as evidence) | none | No | **DEFER** - generic client error, tests |
+| `routers/community_scam.py` (+219/-1) | `GET /community-scams/news-feed`: weekly aggregation + editorial advisories with sample phone numbers/URLs from user reports | Medium | Exposes unmoderated, user-submitted phone numbers/URLs to every logged-in user (defamation/abuse risk); `ilike` on a user-supplied city | third-party phone numbers | none | No | **DEFER** - moderation/verification and tests |
+| `routers/emergency_contacts.py` (+55/-3) and `schemas/emergency_contact.py` (+8) | `PATCH /emergency-contacts/{id}` partial update; safer UUID parsing | Low-medium | Authorization is correct (owner-scoped query, field set restricted to name/relationship/phone/email, no mass assignment); **no length limits or e-mail validation** (a long value would 500 on the column size) | third-party PII | none | No | **FIX-THEN-COMMIT** (closest to ready: add length/format validation + 5-6 tests) |
+| `app/middleware/error_handler.py` v2 parts and `app/main.py` hooks (pre-existing hunks) | request-id header, body capture (<=8 KB), unverified JWT decode for `user_id`, `install_process_handlers`, SQL listeners, threat-intel startup verifier | High | body capture would store OTPs/PII; unverified JWT decode lets a forged token write arbitrary `user_id` into logs | high | none | No | **DO NOT COMMIT** body capture/JWT decode; request-id and startup hooks may come later |
+| `start.bat` | Local dev launcher | none | no secrets; hard-coded LAN IP and `--reload` | - | n/a | No | **DO NOT COMMIT** (developer-machine specific); leave untracked |
+| `migrations/create_recordings_table.sql` (pending deletion) | Raw SQL for the recordings table | none | superseded by Alembic revision `a1b2c3d4e5f6_add_recordings_table` (and its DDL differs: `ON DELETE CASCADE` vs the real FK) | - | n/a | No | **COMMIT the deletion** (safe) |
+
+## 17. Master register (authoritative)
+
+Columns: ID, category, feature/problem, status, severity, evidence, component, current behaviour, required fix,
+tested?, production-blocking?, decision, follow-up. "n/a" = not applicable. "s2" in the evidence column means
+section 2 of this document, "s16" section 16, and so on.
+
+| ID | Category | Feature / problem | Status | Severity | Evidence | Component | Current behaviour | Required fix | Tested? | Prod-blocking? | Decision | Follow-up |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| FG-001 | Auth/OTP | E-mail OTP cannot be delivered from Railway | BLOCKED | BLOCKER | Railway docs: SMTP Pro-only; measured IPv4 587/465 timeouts, IPv6 unreachable (s1) | `otp_service._send_email` | send fails, failure logged (masked), API returns 503 on login | HTTPS e-mail provider (Option A, recommended) or Railway Pro (Option B) | failure path tested | Yes | Decision deferred until Git staging is stable | owner: choose provider, verify domain, supply key |
+| FG-002 | Auth/OTP | SMS OTP fails: Twilio 20003 | BLOCKED | BLOCKER | startup log + send path (s1) | `otp_service._send_sms` | auth failure | valid Twilio credentials (+ DLT registration for India) | failure path tested | Yes | Credential work is DEFERRED | owner: credentials |
+| FG-003 | Auth/OTP | No working OTP transport | BLOCKED | BLOCKER | FG-001 + FG-002 | auth flow | users cannot receive codes (tests/e2e read them from the DB) | resolve FG-001/002 | e2e with DB-read OTP | Yes | - | - |
+| FG-004 | Auth/OTP | OTP plaintext logging | RESOLVED | was HIGH | mutation-checked tests; staging logs clean (s1.4) | `otp_service` | metadata only | - | Yes (7) | No | closed | - |
+| FG-005 | Auth | Refresh token accepted as access token | RESOLVED | was HIGH | staging 200 before; 401 after; 17 tests; device test (s1.5) | `routers/auth.py` | typed tokens enforced | - | Yes | No | closed | - |
+| FG-006 | Auth | `/auth/refresh` ignored inactive/deleted users | RESOLVED | was LOW | tests (s1.9) | `routers/auth.py` | 401 | - | Yes | No | closed | - |
+| FG-007 | Auth | No refresh rotation/revocation | OPEN | MEDIUM | pinned by test (s1.11) | `routers/auth.py` | used refresh token stays valid 30 days | `jti` family store, rotate + reuse detection | pinned only | No | next auth phase | schedule |
+| FG-008 | Auth/OTP | OTP generated with `random.randint` | OPEN | MEDIUM | code (s1.6) | `routers/auth.py` | non-cryptographic PRNG | `secrets.randbelow` | no | No | next auth phase | - |
+| FG-009 | Auth/OTP | OTP stored in plaintext | OPEN | MEDIUM | model `otps.code` (s1.7) | `models/user.py` | equality compare | store HMAC, compare constant-time | no | No | next auth phase | - |
+| FG-010 | Auth | Rate limiter is in-memory | OPEN | MEDIUM | code (s1.8) | `middleware/rate_limiter.py` | per-process, resets on restart | Redis backend | factory tested | single replica only | keep 1 replica | - |
+| FG-020 | Security | Secrets in Git history | DEFERRED | HIGH | s2 | git history | exposed (repo now private) | rotate first, then history decision | gitleaks | **Yes** | deferred by owner | rotation phase |
+| FG-021 | Security | `SECRET_KEY` rotation | DEFERRED | HIGH | s2 | `config.py` | placeholder in history; staging uses its own | new random key | startup check | **Yes** (prod refuses placeholder) | deferred | rotation phase |
+| FG-022 | Security | `ADMIN_TOKEN` rotation | DEFERRED | HIGH | s2 | `admin_errors.py` | placeholder locally | new random value | startup check | **Yes** | deferred | rotation phase |
+| FG-023 | Security | Anthropic key rotation | DEFERRED | HIGH | s2 | `ai_service` | in public history | revoke + reissue | n/a | Yes | deferred | rotation phase |
+| FG-024 | Security | Twilio credential rotation/replacement | DEFERRED | MEDIUM | s2 | `otp_service` | invalid (FG-002) | rotate | n/a | Yes | deferred | rotation phase |
+| FG-025 | Security | Gmail SMTP credential rotation | DEFERRED | MEDIUM | s2 | `otp_service`, `logger_service` | on disk only | revoke | n/a | Yes | deferred | rotation phase |
+| FG-026 | Security | Safe Browsing key rotation | DEFERRED | MEDIUM | s2 | `gsb_service` | on disk only | regenerate + restrict | n/a | No | deferred | rotation phase |
+| FG-027 | Security | Translator key rotation | DEFERRED | MEDIUM | echoed once in a transcript | dev machine | exposed locally | regenerate | n/a | No | deferred | rotation phase |
+| FG-028 | Security | Azure PostgreSQL credentials | DEFERRED | LOW | server no longer exists | local files | stale copies | delete stale env files later | n/a | No | deferred | cleanup |
+| FG-029 | Security | Local `postgres` password (reused, in history, and in an uploaded helper file, FG-036) | DEFERRED | MEDIUM | s2 | local DB | unchanged | change | n/a | No | deferred; recommended soon | owner |
+| FG-030 | Security | JWT/Cookie/admin-token header capture in `error_logs` | RESOLVED | was HIGH | 8 tests, staging 0 matches (s2) | `error_handler.py` | allowlist | - | Yes | No | closed | - |
+| FG-031 | Security | Request-body capture | RESOLVED / NOT PRESENT | - | no body reads in candidate; test (s2) | `error_handler.py` | not captured | keep v2 excluded | Yes | No | closed | - |
+| FG-032 | Security | Query values, path params, share tokens, SQL params in logs | RESOLVED | was MEDIUM | tests, real 404 on share route (s2) | `error_handler.py`, `database.py` | names/templates only; `hide_parameters` | - | Yes | No | closed | - |
+| FG-033 | Security | Exception text / tracebacks may carry secrets/PII | RESOLVED (heuristic) | was MEDIUM | 3 real leaks reproduced then fixed (s2) | `log_scrubber.py`, `logger_service` | scrubbed + bounded | review residual patterns over time | Yes (32) | No | closed with residual risk | periodic review |
+| FG-034 | Security | `error_logs` retention | OPEN | MEDIUM | s2 | `main.py` startup purge | 90 days, no PII policy | define retention/export | no | No | decision needed | owner |
+| FG-035 | Security | Admin token compared with `!=` | OPEN | LOW | s2 | `admin_errors.py` | not constant-time | `hmac.compare_digest` | no | No | later | - |
+| FG-036 | Security | Local DB URL file uploaded to Railway source archive (incident) | OPEN | LOW-MEDIUM | s2 | deploy process | removed from live deployment; old archive remains | change local password; deploy only `git archive` exports | n/a | No | recommended soon | owner |
+| FG-037 | Security | `/ready` returns database and role names | OPEN | LOW | code | `main.py` | minor disclosure | return only status | no | No | later | - |
+| FG-038 | Security | AI errors expose config hints to users | UNREVIEWED | MEDIUM | `ai_service` (s16) | unreviewed file | hints in chat reply | generic messages | no | No | deferred | with AI group |
+| FG-040 | Privacy | Account deletion incomplete / false claim | RESOLVED | was HIGH | 7 tests + live volume test (s15) | `account_erasure.py` | full erasure, explicit retention | owner decisions on audit retention | Yes | No | closed | retention decisions |
+| FG-041 | Privacy | Elderly guardian alert is a stub that logs guardian phone/e-mail | OPEN | MEDIUM | code (s2) | `elderly_protection.py` | logs PII, sends nothing | implement delivery, mask logs | no | No | later | after OTP transport |
+| FG-042 | Privacy | Community feed exposes user-submitted numbers | UNREVIEWED | MEDIUM | s16 | unreviewed `community_scam` | not deployed | moderation | no | No | deferred | - |
+| FG-050 | Database | Railway PostgreSQL | IMPLEMENTED | - | s3 | Railway | operational | - | Yes | No | - | - |
+| FG-051 | Database | DB roles and default privileges created by hand | OPEN | MEDIUM | s3 | ops | not scripted | idempotent SQL bootstrap script | n/a | No | later | - |
+| FG-052 | Database | No backups / restore test | NOT IMPLEMENTED | HIGH | s3 | Railway | none defined | backup policy + tested restore | no | **Yes** | needed before production | owner |
+| FG-053 | Database | Orphan `otp_vault_entries` table | OPEN | LOW | s3 | migration 1 | unused | drop migration | n/a | No | later | - |
+| FG-054 | Database | Reference data (TSP/LSA/SMS headers) | RESOLVED | was MEDIUM | s4 | seed script | seeded on staging | repeat per new DB | scratch DB + staging | No | closed | - |
+| FG-060 | Admin | First admin | OPEN | HIGH | s5 | `app/cli/bootstrap_admin.py` | none exists; CLI ready, not executed | run after approval | 9 tests + subprocess run | **Yes** | awaiting approval | owner |
+| FG-061 | Admin | Admin APIs limited to error logs + warrior applications | PARTIAL | MEDIUM | s5 | routers | 7 endpoints | add as needed | partly | No | later | - |
+| FG-062 | Admin | No admin UI (Flutter or web) | NOT IMPLEMENTED | MEDIUM | s6 | frontend | none | build | n/a | No | later | - |
+| FG-063 | Admin | No user management / audit viewer / dashboards | NOT IMPLEMENTED | MEDIUM | s5 | backend | none | build | n/a | No | later | - |
+| FG-070 | Files | No evidence download route | NOT IMPLEMENTED | LOW | s7 | `evidence.py` | metadata only | add if needed | n/a | No | later | - |
+| FG-071 | Files | Upload validation (type/size/AV) not assessed | OPEN | MEDIUM | s7 | evidence/recordings | unknown | review | no | No | next phase | - |
+| FG-072 | Files | Single volume, single replica | OPEN | LOW | s7 | Railway | cannot scale out | object storage later | n/a | No | known | - |
+| FG-080 | Cyber Warriors | Admin profile management, promotion/suspension | NOT IMPLEMENTED | MEDIUM | s8 | router | audit actions exist, no writers | build | n/a | No | later | - |
+| FG-081 | Cyber Warriors | Flutter client | NOT IMPLEMENTED | MEDIUM | s11 | frontend | none | build | n/a | No | later | - |
+| FG-090 | Unreviewed | `logger_service` v2 | UNREVIEWED | MEDIUM | s16 | file | not committed | review + tests | no | No | DEFER | - |
+| FG-091 | Unreviewed | `error_handler` v2 (body capture, unverified JWT decode) | UNREVIEWED | HIGH if shipped | s16 | file | not committed | do not ship as is | no | If included | DO NOT COMMIT | - |
+| FG-092 | Unreviewed | `gsb_service` v2 | UNREVIEWED | MEDIUM | s16 | file | not committed | key to header, tests | no | No | DEFER | - |
+| FG-093 | Unreviewed | `urlhaus_service` (HTTP 401 without Auth-Key) | UNREVIEWED / BROKEN | MEDIUM | verified 401 | file | not committed | key or drop | no | No | DO NOT COMMIT | owner |
+| FG-094 | Unreviewed | `link_scanner` v2 | UNREVIEWED | MEDIUM | s16 | file | not committed | with threat-intel group | no | No | DEFER | - |
+| FG-095 | Unreviewed | `ai_service`, `ai_coach`, `ai_conversation` | UNREVIEWED | MEDIUM | s16 | files | not committed | generic errors, tests | no | No | DEFER | - |
+| FG-096 | Unreviewed | `video_call` streaming | UNREVIEWED | MEDIUM | s16 | file | not committed | generic client error | no | No | DEFER | - |
+| FG-097 | Unreviewed | `community_scam` news feed | UNREVIEWED | MEDIUM | s16 | file | not committed | moderation | no | No | DEFER | - |
+| FG-098 | Unreviewed | `emergency_contacts` PATCH + schema | UNREVIEWED | LOW | s16 | files | not committed | validation + tests | no | No | FIX-THEN-COMMIT | next |
+| FG-099 | Hygiene | `start.bat` | n/a | LOW | s16 | local file | untracked | - | n/a | No | do not commit | - |
+| FG-100 | Hygiene | `migrations/create_recordings_table.sql` deletion | RESOLVED (committed) | LOW | s16 | repo | superseded by Alembic | - | n/a | No | committed | - |
+| FG-110 | Flutter | HTTPS probe fix | RESOLVED | was MEDIUM | script + emulator log (s11) | `app_config.dart` | https override survives restart | - | Yes (device) | No | closed | commit by hunk in the Flutter repo |
+| FG-111 | Flutter | SDK corruption | RESOLVED | was MEDIUM | s11 | local SDK | repaired; leftovers on disk | delete `dart-sdk.broken`, `dart-sdk.old1`, `*.stamp.bak` later | n/a | No | closed | owner cleanup |
+| FG-112 | Flutter | analyze 639 issues (0 errors) | OPEN | LOW | s11 | app code | infos/warnings | clean up | analyze | No | later | - |
+| FG-113 | Flutter | Device verification partial | PARTIAL | MEDIUM | s11 | app | register/login/profile/logout done | refresh path, uploads, deletion UI | partly | Yes for release | continue | - |
+| FG-120 | Deploy | Git-based deployment | NOT IMPLEMENTED | HIGH | s12 | Railway | CLI uploads only | push branch, connect Railway | n/a | **Yes** | awaiting approval | owner |
+| FG-121 | Deploy | CI on GitHub | NOT IMPLEMENTED | MEDIUM | local reproduction only | workflow | not run | push, observe | local Yes | Yes (reproducibility) | awaiting push | - |
+| FG-122 | Deploy | `railway.toml` deprecation | DEFERRED | LOW | cutoff 2026-12-01 | repo | works | `railway config migrate --service secureshield-api` | n/a | No | after Git deploy | - |
+| FG-123 | Deploy | Railway environment named `production` inside the staging project | OPEN | LOW | s12 | Railway | confusing | rename | n/a | No | later | - |
 
 ---
 
