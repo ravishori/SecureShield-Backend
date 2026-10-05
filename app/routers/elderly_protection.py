@@ -11,7 +11,9 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, BackgroundTasks
+import re
+
+from fastapi import APIRouter, Depends, BackgroundTasks, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,7 +25,9 @@ from app.schemas.elderly_protection import (
     ElderlyConfigResponse,
     GuardianAlertRequest,
 )
+from app.middleware.rate_limiter import rate_limiter
 from app.routers.auth import get_current_user
+from app.services import notifications
 from app.services.logger_service import get_logger
 
 router = APIRouter(prefix="/elderly", tags=["elderly-protection"])
@@ -90,6 +94,19 @@ async def send_guardian_alert(
     if not (cfg.guardian_phone or cfg.guardian_email):
         return {"status": "skipped", "reason": "no guardian contact configured"}
 
+    if request.risk_score < cfg.alert_threshold:
+        return {"status": "skipped", "reason": "risk below the alert threshold"}
+
+    # SMS/e-mail cost money and can harass the guardian: cap per user.
+    if not rate_limiter.is_allowed(
+        f"guardian_alert:{current_user.id}", max_hits=10, window_seconds=3600
+    ):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many guardian alerts. Please try again later.",
+            headers={"Retry-After": "3600"},
+        )
+
     background_tasks.add_task(
         _deliver_guardian_alert,
         user_name=current_user.full_name or current_user.phone or "Unknown",
@@ -119,6 +136,11 @@ async def _get_or_create(user_id, db: AsyncSession) -> ElderlyConfig:
     return cfg
 
 
+def _clean(text: str, limit: int) -> str:
+    """Single line, no control characters (these values end up in an SMS / e-mail)."""
+    return re.sub(r"[\x00-\x1f\x7f]+", " ", text).strip()[:limit]
+
+
 async def _deliver_guardian_alert(
     user_name: str,
     guardian_name: str | None,
@@ -129,36 +151,55 @@ async def _deliver_guardian_alert(
     risk_level: str,
     risk_tags: list,
     clone_verdict: str | None,
-):
-    """
-    Deliver alert to guardian via SMS / email.
-    Wire up your SMS provider (Twilio / MSG91) and email (SMTP) here.
-    Currently logs to console for development.
-    """
-    greeting = f"Dear {guardian_name}," if guardian_name else "Guardian Alert:"
+) -> dict:
+    """Deliver the alert to the guardian by SMS and/or e-mail. Returns per-channel results."""
+    greeting = (
+        f"Dear {_clean(guardian_name, 100)}," if guardian_name else "Guardian Alert:"
+    )
     tags_text = (
-        "; ".join(risk_tags[:3]) if risk_tags else "multiple risk signals detected"
+        "; ".join(_clean(t, 100) for t in risk_tags[:3])
+        if risk_tags
+        else "multiple risk signals detected"
     )
-
-    message = (
-        f"{greeting}\n\n"
-        f"⚠️ SecureShield Alert\n\n"
-        f"{user_name} just installed a {risk_level.upper()} risk app: '{app_name}'\n"
-        f"Risk score: {risk_score}/100\n"
-        f"Reason: {tags_text}\n"
-        + (
-            f"Verdict: {clone_verdict.replace('_', ' ').title()}\n"
-            if clone_verdict
-            else ""
-        )
-        + "\nPlease check their device and help them remove it if it looks suspicious.\n"
-        "– SecureShield AI"
-    )
-
+    lines = [
+        greeting,
+        "",
+        "SecureShield Alert",
+        "",
+        f"{_clean(user_name, 100)} just installed a {risk_level.upper()} risk app: "
+        f"'{_clean(app_name, 100)}'",
+        f"Risk score: {risk_score}/100",
+        f"Reason: {tags_text}",
+    ]
+    if clone_verdict:
+        verdict = _clean(clone_verdict, 50).replace("_", " ").title()
+        lines.append(f"Verdict: {verdict}")
+    lines += [
+        "",
+        "Please check their device and help them remove it if it looks suspicious.",
+        "- SecureShield AI",
+    ]
+    message = "\n".join(lines)
+    results = {}
+    channels = []
     if guardian_phone:
-        logger.info(f"[ELDERLY] SMS to {guardian_phone}: {message[:120]}…")
-        # TODO: twilio_client.messages.create(to=guardian_phone, body=message, from_=settings.TWILIO_FROM)
-
+        channels.append(("sms", notifications.send_sms(guardian_phone, message)))
     if guardian_email:
-        logger.info(f"[ELDERLY] Email to {guardian_email}: {message[:120]}…")
-        # TODO: send_email(to=guardian_email, subject="SecureShield Guardian Alert", body=message)
+        channels.append(
+            (
+                "email",
+                notifications.send_email(
+                    guardian_email, "SecureShield Guardian Alert", message
+                ),
+            )
+        )
+    for name, coro in channels:
+        # One failing channel must not stop the other (or surface as a server error).
+        try:
+            results[name] = bool(await coro)
+        except Exception as exc:
+            logger.error(f"[ELDERLY] {name} delivery raised {type(exc).__name__}")
+            results[name] = False
+    if not any(results.values()):
+        logger.error("[ELDERLY] guardian alert could not be delivered on any channel")
+    return results

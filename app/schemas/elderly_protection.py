@@ -2,7 +2,13 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, Field
+import re
+
+from pydantic import BaseModel, Field, field_validator
+
+
+_PHONE = re.compile(r"^\+?[0-9][0-9\s\-()]{5,18}$")
+_EMAIL = re.compile(r"^[^@\s]{1,64}@[^@\s]{1,190}\.[^@\s]{2,}$")
 
 
 class ElderlyConfigRequest(BaseModel):
@@ -16,6 +22,28 @@ class ElderlyConfigRequest(BaseModel):
     require_approval: bool = False
     simplified_ui: bool = True
     large_text: bool = True
+
+    @field_validator("guardian_name", "guardian_phone", "guardian_email", mode="before")
+    @classmethod
+    def _blank_to_none(cls, v):
+        if isinstance(v, str):
+            v = v.strip()
+            return v or None
+        return v
+
+    @field_validator("guardian_phone")
+    @classmethod
+    def _phone(cls, v):
+        if v is not None and not _PHONE.match(v):
+            raise ValueError("guardian_phone is not a valid phone number")
+        return v
+
+    @field_validator("guardian_email")
+    @classmethod
+    def _email(cls, v):
+        if v is not None and not _EMAIL.match(v):
+            raise ValueError("guardian_email is not a valid e-mail address")
+        return v.lower() if v else v
 
 
 class ElderlyConfigResponse(BaseModel):
@@ -42,9 +70,14 @@ class GuardianAlertRequest(BaseModel):
     and auto_alert_guardian is true.  Backend delivers SMS / email.
     """
 
-    package_name: str
-    app_name: str
-    risk_score: int
-    risk_level: str
-    risk_tags: list[str] = Field(default_factory=list)
-    clone_verdict: Optional[str] = None
+    package_name: str = Field(..., min_length=1, max_length=255)
+    app_name: str = Field(..., min_length=1, max_length=100)
+    risk_score: int = Field(..., ge=0, le=100)
+    risk_level: str = Field(..., pattern=r"^(low|medium|high|critical)$")
+    risk_tags: list[str] = Field(default_factory=list, max_length=10)
+    clone_verdict: Optional[str] = Field(None, max_length=50)
+
+    @field_validator("risk_tags")
+    @classmethod
+    def _tags(cls, v):
+        return [t[:100] for t in v]
