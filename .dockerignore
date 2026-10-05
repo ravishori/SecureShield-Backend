@@ -69,3 +69,8 @@ scripts
 pytest.ini
 .gitleaks.toml
 requirements-seed.txt
+
+.railway
+node_modules
+package.json
+package-lock.json
