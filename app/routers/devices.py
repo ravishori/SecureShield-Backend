@@ -29,6 +29,13 @@ async def register_device(
     )
     device = result.scalar_one_or_none()
 
+    if device and device.user_id != current_user.id:
+        # Never hand another account's device record to this caller (or let them touch it).
+        raise HTTPException(
+            status_code=409,
+            detail="This device is already registered to another account",
+        )
+
     if device:
         device.last_seen = datetime.utcnow()
         device.is_active = True
@@ -75,9 +82,13 @@ async def update_device(
 ):
     import uuid
 
+    try:
+        device_uuid = uuid.UUID(device_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Device not found")
     result = await db.execute(
         select(Device).where(
-            Device.id == uuid.UUID(device_id), Device.user_id == current_user.id
+            Device.id == device_uuid, Device.user_id == current_user.id
         )
     )
     device = result.scalar_one_or_none()

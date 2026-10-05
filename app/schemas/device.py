@@ -1,15 +1,15 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 import uuid
 from datetime import datetime
 
 
 class DeviceRegisterRequest(BaseModel):
-    device_token: str
-    device_name: Optional[str] = None
-    platform: Optional[str] = "android"
-    os_version: Optional[str] = None
-    app_version: Optional[str] = None
+    device_token: str = Field(..., min_length=8, max_length=512)
+    device_name: Optional[str] = Field(None, max_length=255)
+    platform: Optional[str] = Field("android", max_length=50)
+    os_version: Optional[str] = Field(None, max_length=100)
+    app_version: Optional[str] = Field(None, max_length=50)
 
 
 class DeviceResponse(BaseModel):
@@ -29,6 +29,6 @@ class DeviceResponse(BaseModel):
 
 
 class DeviceUpdateRequest(BaseModel):
-    device_name: Optional[str] = None
-    os_version: Optional[str] = None
-    app_version: Optional[str] = None
+    device_name: Optional[str] = Field(None, max_length=255)
+    os_version: Optional[str] = Field(None, max_length=100)
+    app_version: Optional[str] = Field(None, max_length=50)

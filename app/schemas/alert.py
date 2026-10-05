@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List
 import uuid
 from datetime import datetime
@@ -30,6 +30,6 @@ class AlertListResponse(BaseModel):
 
 
 class PanicAlertRequest(BaseModel):
-    latitude: Optional[float] = None
-    longitude: Optional[float] = None
-    message: Optional[str] = "Emergency! I need help!"
+    latitude: Optional[float] = Field(None, ge=-90, le=90)
+    longitude: Optional[float] = Field(None, ge=-180, le=180)
+    message: Optional[str] = Field("Emergency! I need help!", max_length=500)
