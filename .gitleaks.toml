@@ -32,7 +32,7 @@ keywords = ["twilio"]
 [[rules]]
 id = "smtp-password-assignment"
 description = "SMTP password assigned in config/env"
-regex = '''(?i)smtp[_-]?password["']?\s*[:=]\s*["']?[^\s"'#]{8,}'''
+regex = '''(?i)smtp[_-]?password["']?[ \t]*[:=][ \t]*["']?[^\s"'#]{8,}'''
 keywords = ["smtp"]
 
 [[rules]]

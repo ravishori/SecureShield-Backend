@@ -382,7 +382,7 @@ are UNREVIEWED.
 | Environment naming | LOW | Railway's default environment inside `secureshield-staging` is called `production` |
 | Single replica | known | in-memory rate limiter, local-disk uploads |
 | Backups / disaster recovery | **NOT IMPLEMENTED** | see section 3 |
-| Secret scanning in CI | PARTIAL | project gitleaks rules + allowlist prepared in `.gitleaks.toml`; default gitleaks rules miss Anthropic keys (custom rule added) |
+| Secret scanning in CI | IMPLEMENTED (current tree) / history scan PENDING | The workflow runs a pinned, checksum-verified gitleaks 8.21.2 with `--no-git` and the project rules in `.gitleaks.toml` (default rules miss Anthropic keys; custom rules added, canary-tested; an SMTP rule bug that read the next line as a value was fixed). History is not scanned in CI because it still contains secrets committed before rotation (FG-020). Not yet run on GitHub. |
 
 ---
 
