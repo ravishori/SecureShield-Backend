@@ -3,13 +3,19 @@ title = "SecureShield gitleaks config (default rules + project rules)"
 useDefault = true
 
 [allowlist]
-description = "Vendored env, and test/CI files that contain deliberately fake credentials (sentinels, placeholders)."
+description = "Exact deliberate fake values only (test fixtures / CI placeholders). NO path allowlist for app/, scripts/, tests/, .github/ or deployment files: any other secret there is still reported."
+regexes = [
+  '''ci-placeholder''',
+  '''YOUR_[A-Z0-9_]+''',
+  '''test-password''',
+  '''sig-SENTINEL-AUTH''',
+  '''sk-ant-api03-ABCDEFGHIJKLMNOP''',
+  '''ACabcdef0123456789abcdef0123456789''',
+  '''k9-F2Jx7mZ\.LpQw3-RVnTbU6Yx8Ag4Bc5De1Hi2JkMo7PqRs''',
+]
 paths = [
   '''(^|[^A-Za-z0-9_.])\.venv([^A-Za-z0-9_.]|$)''',
-  '''(^|[^A-Za-z0-9_.])tests[^A-Za-z0-9_.].*\.py$''',
-  '''(^|[^A-Za-z0-9_.])\.github[^A-Za-z0-9_.]workflows[^A-Za-z0-9_.]backend-ci\.yml$''',
 ]
-
 
 [[rules]]
 id = "anthropic-api-key"

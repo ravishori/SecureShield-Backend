@@ -36,3 +36,16 @@ test_azure_db.py.txt
 *.swp
 .DS_Store
 Thumbs.db
+
+# Credential-bearing helper files and key material (a ci_env.sh helper once ended up in a
+# Railway source upload). Never track or upload these; deploy from `git archive` exports.
+ci_env*
+*_env.sh
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+id_rsa*
+id_ed25519*

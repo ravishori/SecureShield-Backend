@@ -39,3 +39,33 @@ uploads
 *.md
 Dockerfile
 .dockerignore
+
+# Explicit deny-list for anything credential-bearing, at ANY depth (Docker patterns without
+# **/ only match the context root). The image only COPYs app/, alembic/, alembic.ini and
+# requirements.txt, but the whole context is uploaded to the builder, so keep it clean.
+**/.env
+**/.env.*
+!.env.example
+**/ci_env*
+**/*_env.sh
+**/*.sh
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
+**/*.jks
+**/*.keystore
+**/id_rsa*
+**/id_ed25519*
+**/*.log
+**/*.dump
+**/*.sql
+**/__pycache__
+# Not needed in the image
+tests
+.github
+docs
+scripts
+pytest.ini
+.gitleaks.toml
+requirements-seed.txt
