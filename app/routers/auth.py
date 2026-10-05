@@ -88,8 +88,11 @@ def create_tokens(user_id: str, identifier: str) -> dict:
     else:
         payload["email"] = identifier
 
+    # Access and refresh tokens are signed with the same key, so the ``type`` claim
+    # is what keeps them from being interchangeable (see get_current_user / refresh).
     access_token = create_token(
-        payload, timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        {**payload, "type": "access"},
+        timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
     )
     refresh_token = create_token(
         {**payload, "type": "refresh"},
@@ -112,10 +115,15 @@ async def get_current_user(
         user_id: str = payload.get("sub")
         if not user_id:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
-    except JWTError:
+        # Only ACCESS tokens authenticate API calls. A refresh token (30-day lifetime) must
+        # never work as a bearer token, and tokens without a type claim are rejected.
+        if payload.get("type") != "access":
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token type")
+        user_uuid = uuid.UUID(user_id)
+    except (JWTError, ValueError):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token")
 
-    result = await db.execute(select(User).where(User.id == uuid.UUID(user_id)))
+    result = await db.execute(select(User).where(User.id == user_uuid))
     user = result.scalar_one_or_none()
     if not user or not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive")
@@ -520,6 +528,14 @@ async def refresh_token(
         if payload.get("type") != "refresh":
             raise HTTPException(status_code=400, detail="Invalid refresh token")
         user_id = payload.get("sub")
+        try:
+            user_uuid = uuid.UUID(str(user_id))
+        except ValueError:
+            raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
+        # A deleted/deactivated account must not be able to keep minting tokens.
+        user = (await db.execute(select(User).where(User.id == user_uuid))).scalar_one_or_none()
+        if user is None or not user.is_active:
+            raise HTTPException(status_code=401, detail="User not found or inactive")
         identifier = payload.get("identifier") or payload.get("email") or payload.get("phone") or ""
         return create_tokens(user_id, identifier)
 
