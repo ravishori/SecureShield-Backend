@@ -16,7 +16,14 @@ class FamilyMember(Base):
         UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True
     )
     member_user_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id"), nullable=True
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True
+    )
+    # Consent: 'pending' (invited) | 'accepted' | 'declined'. Alert visibility requires 'accepted'.
+    consent_status: Mapped[str] = mapped_column(
+        String(16), default="pending", server_default="pending", nullable=False
+    )
+    invited_phone: Mapped[str | None] = mapped_column(
+        String(20), nullable=True, index=True
     )
     relationship: Mapped[str | None] = mapped_column(String(100), nullable=True)
     nickname: Mapped[str | None] = mapped_column(String(100), nullable=True)

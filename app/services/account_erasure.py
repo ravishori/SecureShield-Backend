@@ -153,7 +153,7 @@ async def erase_user_data(
         "family_links_cleared",
         update(FamilyMember)
         .where(FamilyMember.member_user_id == uid)
-        .values(member_user_id=None),
+        .values(member_user_id=None, consent_status="declined", invited_phone=None),
         result,
     )
 
