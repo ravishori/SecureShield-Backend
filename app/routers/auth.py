@@ -28,6 +28,7 @@ from app.middleware.rate_limiter import (
 )
 from app.models.user import OTP, User
 from app.schemas.auth import (
+    GoogleLoginRequest,
     DeleteAccountRequest,
     DeleteAccountResponse,
     RefreshTokenRequest,
@@ -43,6 +44,11 @@ from app.schemas.auth import (
 from app.services.account_erasure import RETAINED, erase_user_data, remove_files
 from app.services.device_service import register_and_check_device, send_new_device_alert
 from app.services.logger_service import get_logger, log_error
+from app.services.google_auth import (
+    GoogleAuthError,
+    GoogleNotConfigured,
+    verify_google_id_token,
+)
 from app.services.otp_service import deliver_otp, _normalize_phone
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -546,6 +552,77 @@ async def verify_otp(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Verification failed. Please try again.",
         )
+
+
+@router.post("/google", response_model=TokenResponse)
+async def google_login(
+    request: GoogleLoginRequest,
+    http_request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Sign in (or sign up) with a Google ID token verified server-side."""
+    client_ip = http_request.client.host if http_request.client else None
+    if not rate_limiter.is_allowed(
+        f"google_login_ip:{client_ip}", max_hits=20, window_seconds=60
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many sign-in attempts. Please wait a minute.",
+            headers={"Retry-After": "60"},
+        )
+    try:
+        identity = await verify_google_id_token(request.id_token)
+    except GoogleNotConfigured:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Google Sign-In is not available right now.",
+        )
+    except GoogleAuthError as exc:
+        logger.warning(f"Google sign-in rejected: {exc.reason}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Google sign-in could not be verified.",
+        )
+
+    user = (
+        await db.execute(select(User).where(User.email == identity.email))
+    ).scalar_one_or_none()
+    if user is None:
+        user = User(email=identity.email, full_name=identity.name)
+        db.add(user)
+    elif not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Account is disabled."
+        )
+    elif not user.full_name and identity.name:
+        user.full_name = identity.name
+    await db.commit()
+    await db.refresh(user)
+    logger.info(f"User authenticated: {user.id} via google ({_mask(identity.email)})")
+
+    if request.device_token:
+        try:
+            _device, is_new_device = await register_and_check_device(
+                db=db,
+                user=user,
+                device_token=request.device_token,
+                device_name=request.device_name,
+                platform=request.platform,
+                os_version=request.os_version,
+                app_version=request.app_version,
+                client_ip=client_ip,
+            )
+            if is_new_device:
+                await send_new_device_alert(
+                    user=user,
+                    device_name=request.device_name,
+                    platform=request.platform,
+                    client_ip=client_ip,
+                )
+        except Exception as dev_exc:
+            logger.error(f"Device registration failed for user {user.id}: {dev_exc}")
+
+    return create_tokens(str(user.id), user.email)
 
 
 @router.post("/refresh", response_model=TokenResponse)

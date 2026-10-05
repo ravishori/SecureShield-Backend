@@ -108,6 +108,9 @@ class Settings(BaseSettings):
     # HTTPS email provider (preferred where outbound SMTP is blocked, e.g. Railway)
     RESEND_API_KEY: str = ""
     RESEND_FROM_EMAIL: str = ""
+
+    # Google Sign-In: comma-separated OAuth client IDs whose ID tokens are accepted (web + Android)
+    GOOGLE_CLIENT_IDS: str = ""
     ERROR_NOTIFY_EMAIL: str
 
     # ============================================================

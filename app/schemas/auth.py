@@ -1,4 +1,4 @@
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional
 import uuid
 from datetime import datetime
@@ -58,6 +58,17 @@ class VerifyOtpRequest(BaseModel):
     @property
     def is_email(self) -> bool:
         return "@" in self.identifier
+
+
+class GoogleLoginRequest(BaseModel):
+    id_token: str = Field(..., min_length=20, max_length=4096)
+
+    # Optional device registration fields (same as verify-otp)
+    device_token: Optional[str] = None
+    device_name: Optional[str] = None
+    platform: Optional[str] = None
+    os_version: Optional[str] = None
+    app_version: Optional[str] = None
 
 
 class TokenResponse(BaseModel):
