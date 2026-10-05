@@ -3,13 +3,14 @@ import json
 from datetime import datetime
 from fastapi import APIRouter, Depends, File, UploadFile, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional, Any, Dict
 
 from app.database import get_db
 from app.models.user import User
 from app.models.alert import Alert, AlertType, AlertSeverity
 from app.routers.auth import get_current_user
+from app.services.ai_limits import check_ai_rate
 from app.services.threat_analyzer import (
     analyze_message_content,
     analyze_job_offer,
@@ -18,7 +19,7 @@ from app.services.threat_analyzer import (
 from app.services.ai_service import (
     analyze_message_safety,
     analyze_job_offer_ai,
-    get_client,
+    _create_message,
 )
 from app.services.sms_header_validator import validate_sender
 
@@ -27,24 +28,41 @@ router = APIRouter(prefix="/message", tags=["message-analyzer"])
 _ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 _MAX_IMAGE_BYTES = 5 * 1024 * 1024  # 5 MB
 
+_MAGIC = {
+    "image/jpeg": (b"\xff\xd8\xff",),
+    "image/png": (b"\x89PNG\r\n\x1a\n",),
+    "image/gif": (b"GIF87a", b"GIF89a"),
+}
+
+
+def _looks_like(media_type: str, data: bytes) -> bool:
+    """The declared content type must match the file's real signature."""
+    if media_type == "image/webp":
+        return data[:4] == b"RIFF" and data[8:12] == b"WEBP"
+    return any(data.startswith(sig) for sig in _MAGIC.get(media_type, ()))
+
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
 
 
 class MessageAnalyzeRequest(BaseModel):
-    message_text: str
-    sender: Optional[str] = None
+    message_text: str = Field(..., min_length=1, max_length=5000)
+    sender: Optional[str] = Field(None, max_length=50)
     use_ai: bool = True
 
 
 class JobOfferRequest(BaseModel):
-    job_text: str
+    job_text: str = Field(..., min_length=1, max_length=8000)
     use_ai: bool = True
 
 
 class BullyingCheckRequest(BaseModel):
-    message_text: str
-    reporter_note: Optional[str] = None
+    message_text: str = Field(..., min_length=1, max_length=5000)
+    reporter_note: Optional[str] = Field(None, max_length=500)
+
+
+class ValidateSenderRequest(BaseModel):
+    sender: str = Field(..., min_length=1, max_length=50)
 
 
 class SenderValidation(BaseModel):
@@ -115,10 +133,10 @@ async def _extract_sms_from_image(
 ) -> Dict[str, Any]:
     """Use Claude Vision to OCR an SMS screenshot and extract sender + message."""
     try:
-        client = get_client()
         image_b64 = base64.standard_b64encode(image_bytes).decode("utf-8")
 
-        response = client.messages.create(
+        # Async + timeout (the sync SDK call used here before blocked the whole event loop).
+        response = await _create_message(
             model="claude-sonnet-4-6",
             max_tokens=600,
             messages=[
@@ -180,13 +198,13 @@ async def _extract_sms_from_image(
             "timestamp": None,
             "extraction_note": "Could not parse extracted data. Please type the message manually.",
         }
-    except Exception as e:
+    except Exception:
         return {
             "sender": None,
             "message_text": None,
             "phone_number": None,
             "timestamp": None,
-            "extraction_note": f"Screenshot analysis unavailable: {str(e)[:80]}",
+            "extraction_note": "Screenshot analysis is unavailable right now. Please type the message manually.",
         }
 
 
@@ -215,6 +233,7 @@ async def analyze_message(
     }
 
     if request.use_ai:
+        check_ai_rate(current_user)
         ai_result = await analyze_message_safety(request.message_text)
 
     combined_risk = max(
@@ -295,13 +314,20 @@ async def extract_from_screenshot(
             detail=f"Unsupported file type '{content_type}'. Use JPEG, PNG, or WEBP.",
         )
 
-    image_bytes = await file.read()
+    # Read at most one byte past the cap so an oversized upload is never held in memory.
+    image_bytes = await file.read(_MAX_IMAGE_BYTES + 1)
     if len(image_bytes) > _MAX_IMAGE_BYTES:
         raise HTTPException(
             status_code=400, detail="Image too large. Maximum size is 5 MB."
         )
     if len(image_bytes) == 0:
         raise HTTPException(status_code=400, detail="Empty file uploaded.")
+    if not _looks_like(content_type, image_bytes):
+        raise HTTPException(
+            status_code=400,
+            detail="The file is not a valid image of the declared type.",
+        )
+    check_ai_rate(current_user)
 
     result = await _extract_sms_from_image(image_bytes, content_type)
     return ScreenshotExtractResponse(**result)
@@ -309,12 +335,12 @@ async def extract_from_screenshot(
 
 @router.post("/validate-sender")
 async def validate_sender_id(
-    body: dict,
+    body: ValidateSenderRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Validate a single SMS sender ID against the TRAI registry."""
-    sender = body.get("sender", "").strip()
+    sender = body.sender.strip()
     if not sender:
         raise HTTPException(status_code=400, detail="sender field is required")
     result = await validate_sender(sender, db)
@@ -339,6 +365,7 @@ async def check_job_offer(
     }
 
     if request.use_ai:
+        check_ai_rate(current_user)
         ai_result = await analyze_job_offer_ai(request.job_text)
 
     combined_risk = max(risk_score, float(ai_result.get("confidence", 0)))
