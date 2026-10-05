@@ -46,16 +46,24 @@ def mailer(monkeypatch):
     import app.services.logger_service as ls
 
     sent: list[tuple[str, str]] = []
-    monkeypatch.setattr(ls, "_send_email_sync", lambda subject, html, to: sent.append((subject, html)))
+    monkeypatch.setattr(
+        ls, "_send_email_sync", lambda subject, html, to: sent.append((subject, html))
+    )
     return sent
 
 
 async def _rows(db):
     return (
-        await db.execute(
-            text("select level, endpoint, method, exception_type, extra, t::text as raw from error_logs t")
+        (
+            await db.execute(
+                text(
+                    "select level, endpoint, method, exception_type, extra, t::text as raw from error_logs t"
+                )
+            )
         )
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
 
 
 def _wait_for(predicate, timeout=3.0):
@@ -67,7 +75,9 @@ def _wait_for(predicate, timeout=3.0):
     return predicate()
 
 
-async def test_500_persists_metadata_but_never_credentials(client, db, boom_route, mailer):
+async def test_500_persists_metadata_but_never_credentials(
+    client, db, boom_route, mailer
+):
     r = await client.get(
         QUERY_PATH,
         headers={
@@ -104,15 +114,26 @@ async def test_500_persists_metadata_but_never_credentials(client, db, boom_rout
     assert headers["x-request-id"] == "req-abc123"
 
     # ...and no credential header exists at all, by name or by value
-    assert not {"authorization", "cookie", "x-admin-token", "proxy-authorization"} & set(headers)
+    assert not {
+        "authorization",
+        "cookie",
+        "x-admin-token",
+        "proxy-authorization",
+    } & set(headers)
     for secret in (*SECRETS, "SENTINEL-PROXY"):
         assert secret not in row["raw"], f"{secret!r} was persisted to error_logs"
 
 
-async def test_alert_email_is_sent_without_any_credentials(client, db, boom_route, mailer):
+async def test_alert_email_is_sent_without_any_credentials(
+    client, db, boom_route, mailer
+):
     await client.get(
         QUERY_PATH,
-        headers={"Authorization": f"Bearer {JWT}", "Cookie": COOKIE, "X-Admin-Token": ADMIN},
+        headers={
+            "Authorization": f"Bearer {JWT}",
+            "Cookie": COOKIE,
+            "X-Admin-Token": ADMIN,
+        },
     )
     assert _wait_for(lambda: len(mailer) == 1), "alert e-mail was not generated"
     subject, html = mailer[0]
@@ -133,6 +154,12 @@ async def test_request_body_is_not_captured(client, db, boom_route, mailer):
 
 async def test_unlisted_headers_are_dropped_even_if_new(client, db, boom_route, mailer):
     """Allowlist, not denylist: a header nobody anticipated is never stored."""
-    await client.get(QUERY_PATH, headers={"X-Brand-New-Secret": "SENTINEL-NEW", "Referer": "https://x/?t=SENTINEL-REF"})
+    await client.get(
+        QUERY_PATH,
+        headers={
+            "X-Brand-New-Secret": "SENTINEL-NEW",
+            "Referer": "https://x/?t=SENTINEL-REF",
+        },
+    )
     row = (await _rows(db))[0]
     assert "SENTINEL-NEW" not in row["raw"] and "SENTINEL-REF" not in row["raw"]

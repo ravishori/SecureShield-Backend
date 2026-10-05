@@ -10,8 +10,16 @@ from app.database import get_db
 from app.models.user import User
 from app.models.alert import Alert, AlertType, AlertSeverity
 from app.routers.auth import get_current_user
-from app.services.threat_analyzer import analyze_message_content, analyze_job_offer, detect_cyberbullying
-from app.services.ai_service import analyze_message_safety, analyze_job_offer_ai, get_client
+from app.services.threat_analyzer import (
+    analyze_message_content,
+    analyze_job_offer,
+    detect_cyberbullying,
+)
+from app.services.ai_service import (
+    analyze_message_safety,
+    analyze_job_offer_ai,
+    get_client,
+)
 from app.services.sms_header_validator import validate_sender
 
 router = APIRouter(prefix="/message", tags=["message-analyzer"])
@@ -21,6 +29,7 @@ _MAX_IMAGE_BYTES = 5 * 1024 * 1024  # 5 MB
 
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
+
 
 class MessageAnalyzeRequest(BaseModel):
     message_text: str
@@ -40,7 +49,7 @@ class BullyingCheckRequest(BaseModel):
 
 class SenderValidation(BaseModel):
     is_registered: Optional[bool]
-    verdict: str                       # REGISTERED | UNREGISTERED | PHONE_NUMBER | UNKNOWN
+    verdict: str  # REGISTERED | UNREGISTERED | PHONE_NUMBER | UNKNOWN
     verdict_detail: str
     header: Optional[str]
     sender_id: Optional[str]
@@ -85,16 +94,25 @@ class ScreenshotExtractResponse(BaseModel):
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+
 def _risk_level_to_score(risk_level: str) -> float:
     mapping = {
-        "safe": 0, "low": 20, "medium": 45, "high": 70,
-        "critical": 90, "high_risk_scam": 90, "unknown": 30,
-        "suspicious_message": 60, "potentially_suspicious": 40,
+        "safe": 0,
+        "low": 20,
+        "medium": 45,
+        "high": 70,
+        "critical": 90,
+        "high_risk_scam": 90,
+        "unknown": 30,
+        "suspicious_message": 60,
+        "potentially_suspicious": 40,
     }
     return float(mapping.get(risk_level, 0))
 
 
-async def _extract_sms_from_image(image_bytes: bytes, media_type: str) -> Dict[str, Any]:
+async def _extract_sms_from_image(
+    image_bytes: bytes, media_type: str
+) -> Dict[str, Any]:
     """Use Claude Vision to OCR an SMS screenshot and extract sender + message."""
     try:
         client = get_client()
@@ -103,37 +121,39 @@ async def _extract_sms_from_image(image_bytes: bytes, media_type: str) -> Dict[s
         response = client.messages.create(
             model="claude-sonnet-4-6",
             max_tokens=600,
-            messages=[{
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": media_type,
-                            "data": image_b64,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": media_type,
+                                "data": image_b64,
+                            },
                         },
-                    },
-                    {
-                        "type": "text",
-                        "text": (
-                            "This is a screenshot of an SMS or text message. "
-                            "Extract the following fields as JSON:\n"
-                            "{\n"
-                            '  "sender": "the sender ID or header shown at top (e.g. VK-SBIBNK, AD-HDFCBK, +91 98765 43210)",\n'
-                            '  "message_text": "the full visible message body text",\n'
-                            '  "phone_number": "any phone number mentioned inside the message body (if any, else null)",\n'
-                            '  "timestamp": "date/time shown on the message if visible (else null)"\n'
-                            "}\n\n"
-                            "Rules:\n"
-                            "- For sender, look at the very top of the chat screen — it may show an alphanumeric ID like VK-SBIBNK or a phone number.\n"
-                            "- Extract the FULL message body text exactly as shown.\n"
-                            "- If any field is not visible, use null.\n"
-                            "Return ONLY valid JSON, no markdown fences, no extra text."
-                        ),
-                    },
-                ],
-            }],
+                        {
+                            "type": "text",
+                            "text": (
+                                "This is a screenshot of an SMS or text message. "
+                                "Extract the following fields as JSON:\n"
+                                "{\n"
+                                '  "sender": "the sender ID or header shown at top (e.g. VK-SBIBNK, AD-HDFCBK, +91 98765 43210)",\n'
+                                '  "message_text": "the full visible message body text",\n'
+                                '  "phone_number": "any phone number mentioned inside the message body (if any, else null)",\n'
+                                '  "timestamp": "date/time shown on the message if visible (else null)"\n'
+                                "}\n\n"
+                                "Rules:\n"
+                                "- For sender, look at the very top of the chat screen — it may show an alphanumeric ID like VK-SBIBNK or a phone number.\n"
+                                "- Extract the FULL message body text exactly as shown.\n"
+                                "- If any field is not visible, use null.\n"
+                                "Return ONLY valid JSON, no markdown fences, no extra text."
+                            ),
+                        },
+                    ],
+                }
+            ],
         )
 
         raw = response.content[0].text.strip()
@@ -172,6 +192,7 @@ async def _extract_sms_from_image(image_bytes: bytes, media_type: str) -> Dict[s
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
+
 @router.post("/analyze", response_model=MessageAnalyzeResponse)
 async def analyze_message(
     request: MessageAnalyzeRequest,
@@ -180,7 +201,9 @@ async def analyze_message(
 ):
     """Analyze an SMS or text message for scam/phishing content."""
     # Pattern-based analysis (fast)
-    risk_score, threat_category, detected_patterns = analyze_message_content(request.message_text)
+    risk_score, threat_category, detected_patterns = analyze_message_content(
+        request.message_text
+    )
 
     ai_result: Dict[str, Any] = {
         "is_safe": risk_score < 40,
@@ -194,7 +217,9 @@ async def analyze_message(
     if request.use_ai:
         ai_result = await analyze_message_safety(request.message_text)
 
-    combined_risk = max(risk_score, _risk_level_to_score(ai_result.get("risk_level", "safe")))
+    combined_risk = max(
+        risk_score, _risk_level_to_score(ai_result.get("risk_level", "safe"))
+    )
 
     # Validate sender if provided
     sender_validation_data: Optional[SenderValidation] = None
@@ -223,7 +248,9 @@ async def analyze_message(
                 f"A message from {request.sender or 'unknown sender'} was flagged as potentially dangerous. "
                 f"Risk: {ai_result.get('scam_type', 'unknown')}"
             ),
-            severity=AlertSeverity.critical if combined_risk >= 75 else AlertSeverity.warning,
+            severity=AlertSeverity.critical
+            if combined_risk >= 75
+            else AlertSeverity.warning,
             extra_data={
                 "sender": request.sender,
                 "risk_score": combined_risk,
@@ -234,9 +261,7 @@ async def analyze_message(
         db.add(alert)
         await db.commit()
 
-    all_red_flags = list(set(
-        (ai_result.get("red_flags") or []) + detected_patterns
-    ))
+    all_red_flags = list(set((ai_result.get("red_flags") or []) + detected_patterns))
 
     return MessageAnalyzeResponse(
         is_safe=ai_result.get("is_safe"),
@@ -272,7 +297,9 @@ async def extract_from_screenshot(
 
     image_bytes = await file.read()
     if len(image_bytes) > _MAX_IMAGE_BYTES:
-        raise HTTPException(status_code=400, detail="Image too large. Maximum size is 5 MB.")
+        raise HTTPException(
+            status_code=400, detail="Image too large. Maximum size is 5 MB."
+        )
     if len(image_bytes) == 0:
         raise HTTPException(status_code=400, detail="Empty file uploaded.")
 
@@ -326,7 +353,10 @@ async def check_job_offer(
                 f"(confidence: {combined_risk:.0f}%). Never pay any registration fee."
             ),
             severity=AlertSeverity.warning,
-            extra_data={"risk_score": combined_risk, "red_flags": ai_result.get("red_flags", [])},
+            extra_data={
+                "risk_score": combined_risk,
+                "red_flags": ai_result.get("red_flags", []),
+            },
         )
         db.add(alert)
         await db.commit()
@@ -349,7 +379,9 @@ async def check_bullying(
     db: AsyncSession = Depends(get_db),
 ):
     """Detect cyberbullying in a message."""
-    confidence_score, is_bullying, indicators = detect_cyberbullying(request.message_text)
+    confidence_score, is_bullying, indicators = detect_cyberbullying(
+        request.message_text
+    )
 
     if is_bullying:
         alert = Alert(
@@ -380,6 +412,8 @@ async def check_bullying(
             "Report to platform (WhatsApp/Instagram/etc.)",
             "If child is involved, contact school authorities",
             "File complaint at cybercrime.gov.in if severe",
-        ] if is_bullying else ["No action needed — message appears safe"],
+        ]
+        if is_bullying
+        else ["No action needed — message appears safe"],
         "helpline": "Childline: 1098 | Cybercrime: 1930",
     }

@@ -12,6 +12,7 @@ Features:
 Get a free API key here:
   https://console.cloud.google.com/  (enable "Safe Browsing API")
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -165,34 +166,49 @@ async def check_url_gsb(url: str) -> Dict[str, Any]:
 
                 # Hard non-recoverable failures
                 if response.status_code == 400:
-                    logger.warning("[GSB] HTTP 400 — bad request body: %s", response.text[:200])
-                    return _envelope("http_error", reason="bad_request",
-                                     http_status=response.status_code)
+                    logger.warning(
+                        "[GSB] HTTP 400 — bad request body: %s", response.text[:200]
+                    )
+                    return _envelope(
+                        "http_error",
+                        reason="bad_request",
+                        http_status=response.status_code,
+                    )
                 if response.status_code in (401, 403):
                     logger.error(
                         "[GSB] HTTP %s — API key invalid or quota exceeded: %s",
-                        response.status_code, response.text[:200],
+                        response.status_code,
+                        response.text[:200],
                     )
-                    return _envelope("http_error", reason="auth_failed",
-                                     http_status=response.status_code)
+                    return _envelope(
+                        "http_error",
+                        reason="auth_failed",
+                        http_status=response.status_code,
+                    )
                 if response.status_code == 429:
                     # Rate-limited — back off if we have attempts left.
                     last_error = "rate_limited"
-                    logger.warning("[GSB] HTTP 429 — rate limited (attempt %d)", attempt + 1)
+                    logger.warning(
+                        "[GSB] HTTP 429 — rate limited (attempt %d)", attempt + 1
+                    )
                     if attempt < GSB_MAX_RETRIES:
-                        await asyncio.sleep(0.5 * (2 ** attempt))
+                        await asyncio.sleep(0.5 * (2**attempt))
                         continue
                     return _envelope("rate_limited", reason="quota_exceeded")
                 if 500 <= response.status_code < 600:
                     # Transient server error — retry.
                     last_error = f"http_{response.status_code}"
-                    logger.warning("[GSB] HTTP %s (attempt %d)",
-                                   response.status_code, attempt + 1)
+                    logger.warning(
+                        "[GSB] HTTP %s (attempt %d)", response.status_code, attempt + 1
+                    )
                     if attempt < GSB_MAX_RETRIES:
-                        await asyncio.sleep(0.4 * (2 ** attempt))
+                        await asyncio.sleep(0.4 * (2**attempt))
                         continue
-                    return _envelope("http_error", reason="server_error",
-                                     http_status=response.status_code)
+                    return _envelope(
+                        "http_error",
+                        reason="server_error",
+                        http_status=response.status_code,
+                    )
 
                 response.raise_for_status()
                 data = response.json()
@@ -201,12 +217,13 @@ async def check_url_gsb(url: str) -> Dict[str, Any]:
                 if matches:
                     threats = [
                         {
-                            "threat_type":  m.get("threatType"),
+                            "threat_type": m.get("threatType"),
                             "threat_label": THREAT_LABELS.get(
-                                m.get("threatType", ""), m.get("threatType", "")),
-                            "platform_type":     m.get("platformType"),
+                                m.get("threatType", ""), m.get("threatType", "")
+                            ),
+                            "platform_type": m.get("platformType"),
                             "threat_entry_type": m.get("threatEntryType"),
-                            "url":               m.get("threat", {}).get("url"),
+                            "url": m.get("threat", {}).get("url"),
                         }
                         for m in matches
                     ]
@@ -221,14 +238,16 @@ async def check_url_gsb(url: str) -> Dict[str, Any]:
             last_error = "timeout"
             logger.warning("[GSB] Timeout (attempt %d)", attempt + 1)
             if attempt < GSB_MAX_RETRIES:
-                await asyncio.sleep(0.4 * (2 ** attempt))
+                await asyncio.sleep(0.4 * (2**attempt))
                 continue
             return _envelope("network_error", reason="timeout")
         except httpx.RequestError as e:
             last_error = f"request_error:{type(e).__name__}"
-            logger.warning("[GSB] Request error: %s (attempt %d)", type(e).__name__, attempt + 1)
+            logger.warning(
+                "[GSB] Request error: %s (attempt %d)", type(e).__name__, attempt + 1
+            )
             if attempt < GSB_MAX_RETRIES:
-                await asyncio.sleep(0.4 * (2 ** attempt))
+                await asyncio.sleep(0.4 * (2**attempt))
                 continue
             # type name only: exception text can embed the request URL
             return _envelope("network_error", reason=type(e).__name__)
@@ -248,11 +267,11 @@ def _envelope(
 ) -> Dict[str, Any]:
     """Construct the canonical response shape."""
     return {
-        "status":      status,
-        "safe":        status == "safe",
-        "threats":     threats or [],
-        "provider":    "google_safe_browsing",
-        "reason":      reason,
+        "status": status,
+        "safe": status == "safe",
+        "threats": threats or [],
+        "provider": "google_safe_browsing",
+        "reason": reason,
         "http_status": http_status,
-        "cached":      False,
+        "cached": False,
     }

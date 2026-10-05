@@ -17,7 +17,9 @@ def _clean_phone(v: Optional[str]) -> Optional[str]:
     if v == "":
         return ""  # PATCH: empty string means "clear this field"
     if not _PHONE.match(v):
-        raise ValueError("phone must be 6-30 digits (optional +, spaces, dashes, brackets)")
+        raise ValueError(
+            "phone must be 6-30 digits (optional +, spaces, dashes, brackets)"
+        )
     return v
 
 
@@ -60,6 +62,7 @@ class EmergencyContactCreate(BaseModel):
 
 class EmergencyContactUpdate(BaseModel):
     """Partial update - only fields the user supplies are changed ("" clears phone/email/relationship)."""
+
     name: Optional[str] = Field(None, max_length=150)
     relationship: Optional[str] = Field(None, max_length=100)
     phone: Optional[str] = Field(None, max_length=30)

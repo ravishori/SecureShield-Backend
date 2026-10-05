@@ -24,20 +24,24 @@ from app.config import Settings
 logger = logging.getLogger(__name__)
 
 # Known-bad values that must never ship to production.
-_DEV_DEFAULT_SECRETS = frozenset({
-    "secureshield-secret-key-change-in-prod",
-    "secret",
-    "changeme",
-    "",
-})
+_DEV_DEFAULT_SECRETS = frozenset(
+    {
+        "secureshield-secret-key-change-in-prod",
+        "secret",
+        "changeme",
+        "",
+    }
+)
 # NOTE: comparisons are case-insensitive via .lower() at call site;
 # entries here MUST already be lowercase.
-_DEV_DEFAULT_ADMIN_TOKENS = frozenset({
-    "secureshield-admin-changeme",
-    "changeme",
-    "admin",
-    "",
-})
+_DEV_DEFAULT_ADMIN_TOKENS = frozenset(
+    {
+        "secureshield-admin-changeme",
+        "changeme",
+        "admin",
+        "",
+    }
+)
 
 
 class StartupCheckError(RuntimeError):
@@ -120,7 +124,7 @@ def run_startup_checks(settings: Settings, checks: Iterable | None = None) -> No
     this returns without doing anything useful; in production it fails
     loudly before any traffic is accepted.
     """
-    for check in (checks or _CHECKS):
+    for check in checks or _CHECKS:
         check(settings)
     if settings.is_production():
         logger.info("All startup checks passed — safe to serve production traffic")

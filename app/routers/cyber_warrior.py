@@ -55,6 +55,7 @@ router = APIRouter(prefix="/warriors", tags=["warriors"])
 
 # ─── User-facing endpoints ────────────────────────────────────────────────
 
+
 @router.post(
     "/apply",
     response_model=WarriorApplicationResponse,
@@ -119,13 +120,17 @@ async def submit_application(
     db.add(application)
     await db.flush()
 
-    db.add(WarriorAuditLog(
-        actor_user_id=current_user.id,
-        subject_user_id=current_user.id,
-        action=AuditAction.application_submitted,
-        extra={"application_id": str(application.id),
-               "preferred_role": payload.preferred_role.value},
-    ))
+    db.add(
+        WarriorAuditLog(
+            actor_user_id=current_user.id,
+            subject_user_id=current_user.id,
+            action=AuditAction.application_submitted,
+            extra={
+                "application_id": str(application.id),
+                "preferred_role": payload.preferred_role.value,
+            },
+        )
+    )
     await db.commit()
     await db.refresh(application)
 
@@ -156,6 +161,7 @@ async def get_my_warrior_profile(
 
 
 # ─── Admin-gated endpoints ────────────────────────────────────────────────
+
 
 @router.get(
     "/admin/applications",
@@ -227,14 +233,18 @@ async def approve_application(
     app_row.reviewed_at = datetime.utcnow()
 
     db.add(profile)
-    db.add(WarriorAuditLog(
-        actor_user_id=admin.user_id,
-        subject_user_id=app_row.user_id,
-        action=AuditAction.application_approved,
-        extra={"application_id": str(app_row.id),
-               "assigned_role": payload.assigned_role.value},
-        reason=payload.reviewer_notes,
-    ))
+    db.add(
+        WarriorAuditLog(
+            actor_user_id=admin.user_id,
+            subject_user_id=app_row.user_id,
+            action=AuditAction.application_approved,
+            extra={
+                "application_id": str(app_row.id),
+                "assigned_role": payload.assigned_role.value,
+            },
+            reason=payload.reviewer_notes,
+        )
+    )
     await db.commit()
     await db.refresh(profile)
     logger.info(
@@ -270,14 +280,14 @@ async def reject_application(
     app_row.reviewer_notes = payload.reviewer_notes
     app_row.reviewed_at = datetime.utcnow()
 
-    db.add(WarriorAuditLog(
-        actor_user_id=admin.user_id,
-        subject_user_id=app_row.user_id,
-        action=AuditAction.application_rejected,
-        extra={"application_id": str(app_row.id)},
-        reason=payload.reviewer_notes,
-    ))
-    await db.commit()
-    logger.info(
-        f"Warrior application {app_row.id} rejected by admin {admin.user_id}"
+    db.add(
+        WarriorAuditLog(
+            actor_user_id=admin.user_id,
+            subject_user_id=app_row.user_id,
+            action=AuditAction.application_rejected,
+            extra={"application_id": str(app_row.id)},
+            reason=payload.reviewer_notes,
+        )
     )
+    await db.commit()
+    logger.info(f"Warrior application {app_row.id} rejected by admin {admin.user_id}")

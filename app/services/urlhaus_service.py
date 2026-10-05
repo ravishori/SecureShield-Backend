@@ -7,6 +7,7 @@ to have checked. Consulted alongside Google Safe Browsing (they cover different 
 
 API docs: https://urlhaus-api.abuse.ch/
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -23,7 +24,7 @@ logger = logging.getLogger(__name__)
 URLHAUS_API = "https://urlhaus-api.abuse.ch/v1/url/"
 URLHAUS_TIMEOUT = 5.0
 URLHAUS_MAX_RETRIES = 1
-URLHAUS_CACHE_TTL = 5 * 60      # 5-minute cache (matches GSB)
+URLHAUS_CACHE_TTL = 5 * 60  # 5-minute cache (matches GSB)
 URLHAUS_CACHE_MAX_SIZE = 2048
 
 _cache: Dict[str, Tuple[Dict[str, Any], float]] = {}
@@ -79,29 +80,48 @@ async def check_url_urlhaus(url: str) -> Dict[str, Any]:
     for attempt in range(URLHAUS_MAX_RETRIES + 1):
         try:
             async with httpx.AsyncClient(timeout=URLHAUS_TIMEOUT) as client:
-                response = await client.post(URLHAUS_API, data={"url": url}, headers={"Auth-Key": auth_key})
+                response = await client.post(
+                    URLHAUS_API, data={"url": url}, headers={"Auth-Key": auth_key}
+                )
 
                 if response.status_code >= 500:
                     if attempt < URLHAUS_MAX_RETRIES:
-                        await asyncio.sleep(0.3 * (2 ** attempt))
+                        await asyncio.sleep(0.3 * (2**attempt))
                         continue
-                    return _envelope("http_error", reason="server_error",
-                                     http_status=response.status_code)
+                    return _envelope(
+                        "http_error",
+                        reason="server_error",
+                        http_status=response.status_code,
+                    )
                 if response.status_code in (401, 403):
-                    logger.error("[URLhaus] HTTP %s - Auth-Key rejected", response.status_code)
-                    return _envelope("http_error", reason="auth_failed", http_status=response.status_code)
+                    logger.error(
+                        "[URLhaus] HTTP %s - Auth-Key rejected", response.status_code
+                    )
+                    return _envelope(
+                        "http_error",
+                        reason="auth_failed",
+                        http_status=response.status_code,
+                    )
                 if response.status_code != 200:
-                    return _envelope("http_error", reason="unexpected_status",
-                                     http_status=response.status_code)
+                    return _envelope(
+                        "http_error",
+                        reason="unexpected_status",
+                        http_status=response.status_code,
+                    )
 
                 data = response.json()
                 qs = data.get("query_status", "")
 
                 if qs == "ok":
                     threats = _build_threats(data)
-                    verdict = _envelope("malicious", threats=threats,
-                                        extra={"threat": data.get("threat"),
-                                               "tags":    data.get("tags") or []})
+                    verdict = _envelope(
+                        "malicious",
+                        threats=threats,
+                        extra={
+                            "threat": data.get("threat"),
+                            "tags": data.get("tags") or [],
+                        },
+                    )
                 elif qs == "no_results":
                     # URLhaus has never seen this URL — treat as "not malicious" but
                     # NOT as positive confirmation that it's safe. The router uses
@@ -110,20 +130,19 @@ async def check_url_urlhaus(url: str) -> Dict[str, Any]:
                 elif qs == "invalid_url":
                     verdict = _envelope("http_error", reason="invalid_url")
                 else:
-                    verdict = _envelope("unknown_error",
-                                        reason=f"query_status={qs}")
+                    verdict = _envelope("unknown_error", reason=f"query_status={qs}")
 
                 await _cache_put(url, verdict)
                 return verdict
 
         except httpx.TimeoutException:
             if attempt < URLHAUS_MAX_RETRIES:
-                await asyncio.sleep(0.3 * (2 ** attempt))
+                await asyncio.sleep(0.3 * (2**attempt))
                 continue
             return _envelope("network_error", reason="timeout")
         except httpx.RequestError as e:
             if attempt < URLHAUS_MAX_RETRIES:
-                await asyncio.sleep(0.3 * (2 ** attempt))
+                await asyncio.sleep(0.3 * (2**attempt))
                 continue
             return _envelope("network_error", reason=type(e).__name__)
         except Exception as e:
@@ -138,18 +157,18 @@ def _build_threats(data: Dict[str, Any]) -> List[Dict[str, Any]]:
     threat = data.get("threat") or "malicious_url"
     label_map = {
         "malware_download": "Malware Download",
-        "phishing":         "Phishing / Social Engineering",
-        "exploit":          "Exploit Kit",
+        "phishing": "Phishing / Social Engineering",
+        "exploit": "Exploit Kit",
     }
     return [
         {
-            "threat_type":       threat.upper(),
-            "threat_label":      label_map.get(threat, threat.replace("_", " ").title()),
-            "platform_type":     "ANY_PLATFORM",
+            "threat_type": threat.upper(),
+            "threat_label": label_map.get(threat, threat.replace("_", " ").title()),
+            "platform_type": "ANY_PLATFORM",
             "threat_entry_type": "URL",
-            "url":               data.get("url"),
-            "tags":              data.get("tags") or [],
-            "date_added":        data.get("date_added"),
+            "url": data.get("url"),
+            "tags": data.get("tags") or [],
+            "date_added": data.get("date_added"),
         }
     ]
 
@@ -163,13 +182,13 @@ def _envelope(
     extra: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     env = {
-        "status":      status,
-        "safe":        status == "safe",
-        "threats":     threats or [],
-        "provider":    "urlhaus",
-        "reason":      reason,
+        "status": status,
+        "safe": status == "safe",
+        "threats": threats or [],
+        "provider": "urlhaus",
+        "reason": reason,
         "http_status": http_status,
-        "cached":      False,
+        "cached": False,
     }
     if extra:
         env.update(extra)

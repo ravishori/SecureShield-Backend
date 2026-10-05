@@ -7,22 +7,32 @@ import uuid
 from app.database import get_db
 from app.models.user import User
 from app.models.network_activity import NetworkActivity
-from app.schemas.network_activity import NetworkActivityBatchRequest, NetworkActivityResponse
+from app.schemas.network_activity import (
+    NetworkActivityBatchRequest,
+    NetworkActivityResponse,
+)
 from app.routers.auth import get_current_user
 
 router = APIRouter(prefix="/network", tags=["network"])
 
 SUSPICIOUS_DOMAINS = [
-    "exfiltrate.com", "dataharvest.net", "spynet.ru",
-    "maltrack.cn", "phishkit.tk",
+    "exfiltrate.com",
+    "dataharvest.net",
+    "spynet.ru",
+    "maltrack.cn",
+    "phishkit.tk",
 ]
 
 SUSPICIOUS_IPS = [
-    "185.220.", "5.188.", "77.73.",
+    "185.220.",
+    "5.188.",
+    "77.73.",
 ]
 
 
-def is_suspicious_activity(domain: str | None, ip: str | None) -> tuple[bool, str | None]:
+def is_suspicious_activity(
+    domain: str | None, ip: str | None
+) -> tuple[bool, str | None]:
     if domain:
         for sus in SUSPICIOUS_DOMAINS:
             if sus in domain.lower():

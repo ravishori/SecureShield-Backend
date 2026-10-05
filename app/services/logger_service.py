@@ -202,32 +202,34 @@ async def log_error(
     notify_email = getattr(settings, "ERROR_NOTIFY_EMAIL", "")
     if send_email and level in ("ERROR", "CRITICAL") and notify_email:
         icon = "🔴" if level == "CRITICAL" else "🟠"
-        subject = f"{icon} SecureShield [{level}] {exc_type or 'Error'} @ {endpoint or 'N/A'}"
+        subject = (
+            f"{icon} SecureShield [{level}] {exc_type or 'Error'} @ {endpoint or 'N/A'}"
+        )
         html_body = f"""
         <html><body style="font-family:Arial,sans-serif;background:#0A0E27;color:#e0e0e0;padding:20px;">
-        <div style="background:#1a1e3a;border-left:5px solid {'#ff4444' if level=='CRITICAL' else '#ff8800'};
+        <div style="background:#1a1e3a;border-left:5px solid {"#ff4444" if level == "CRITICAL" else "#ff8800"};
                     padding:20px;border-radius:8px;max-width:700px;">
-          <h2 style="color:{'#ff4444' if level=='CRITICAL' else '#ff8800'};">
+          <h2 style="color:{"#ff4444" if level == "CRITICAL" else "#ff8800"};">
             {icon} SecureShield AI — {level}
           </h2>
           <table style="width:100%;border-collapse:collapse;">
             <tr><td style="padding:6px;color:#aaa;width:130px;">⏰ Time (UTC)</td>
-                <td style="padding:6px;">{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}</td></tr>
+                <td style="padding:6px;">{datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")}</td></tr>
             <tr style="background:#222644;">
                 <td style="padding:6px;color:#aaa;">🌐 Endpoint</td>
-                <td style="padding:6px;">{method or ''} {endpoint or 'N/A'}</td></tr>
+                <td style="padding:6px;">{method or ""} {endpoint or "N/A"}</td></tr>
             <tr><td style="padding:6px;color:#aaa;">⚡ Error Type</td>
-                <td style="padding:6px;color:#ff6666;">{exc_type or 'N/A'}</td></tr>
+                <td style="padding:6px;color:#ff6666;">{exc_type or "N/A"}</td></tr>
             <tr style="background:#222644;">
                 <td style="padding:6px;color:#aaa;">💬 Message</td>
                 <td style="padding:6px;">{full_message}</td></tr>
             <tr><td style="padding:6px;color:#aaa;">👤 User ID</td>
-                <td style="padding:6px;">{user_id or 'Anonymous'}</td></tr>
+                <td style="padding:6px;">{user_id or "Anonymous"}</td></tr>
             <tr style="background:#222644;">
                 <td style="padding:6px;color:#aaa;">🌍 Client IP</td>
-                <td style="padding:6px;">{client_ip or 'N/A'}</td></tr>
+                <td style="padding:6px;">{client_ip or "N/A"}</td></tr>
           </table>
-          {"<h3 style='color:#aaa;'>Traceback</h3><pre style='background:#111;padding:12px;border-radius:4px;overflow-x:auto;font-size:12px;color:#ff8888;'>" + (tb_str or '') + "</pre>" if tb_str else ""}
+          {"<h3 style='color:#aaa;'>Traceback</h3><pre style='background:#111;padding:12px;border-radius:4px;overflow-x:auto;font-size:12px;color:#ff8888;'>" + (tb_str or "") + "</pre>" if tb_str else ""}
         </div>
         </body></html>
         """

@@ -141,11 +141,17 @@ def register_exception_handlers(app: FastAPI) -> None:
         return JSONResponse(
             status_code=exc.status_code,
             headers=dict(getattr(exc, "headers", None) or {}),
-            content={"error": user_message, "detail": exc.detail, "code": exc.status_code},
+            content={
+                "error": user_message,
+                "detail": exc.detail,
+                "code": exc.status_code,
+            },
         )
 
     @app.exception_handler(RequestValidationError)
-    async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    async def validation_exception_handler(
+        request: Request, exc: RequestValidationError
+    ):
         """Handle Pydantic / FastAPI validation errors (422)."""
         client_ip = request.client.host if request.client else None
 

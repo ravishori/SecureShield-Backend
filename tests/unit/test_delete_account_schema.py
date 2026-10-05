@@ -52,6 +52,7 @@ class TestDeleteAccountResponse:
     @pytest.mark.unit
     def test_response_shape(self):
         from datetime import datetime
+
         resp = DeleteAccountResponse(
             message="done",
             user_id="abc-123",

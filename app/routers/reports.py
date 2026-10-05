@@ -19,13 +19,17 @@ from app.services.ai_service import generate_ai_security_tips
 router = APIRouter(prefix="/reports", tags=["reports"])
 
 
-async def generate_daily_report(user_id, report_date: date, db: AsyncSession) -> SecurityReport:
+async def generate_daily_report(
+    user_id, report_date: date, db: AsyncSession
+) -> SecurityReport:
     start = datetime.combine(report_date, datetime.min.time())
     end = start + timedelta(days=1)
 
     # Count threats
     threats_result = await db.execute(
-        select(func.count()).select_from(Alert).where(
+        select(func.count())
+        .select_from(Alert)
+        .where(
             Alert.user_id == user_id,
             Alert.created_at >= start,
             Alert.created_at < end,
@@ -34,7 +38,9 @@ async def generate_daily_report(user_id, report_date: date, db: AsyncSession) ->
     threats_detected = threats_result.scalar() or 0
 
     apps_result = await db.execute(
-        select(func.count()).select_from(AppScan).where(
+        select(func.count())
+        .select_from(AppScan)
+        .where(
             AppScan.scanned_at >= start,
             AppScan.scanned_at < end,
         )
@@ -42,7 +48,9 @@ async def generate_daily_report(user_id, report_date: date, db: AsyncSession) ->
     apps_scanned = apps_result.scalar() or 0
 
     links_result = await db.execute(
-        select(func.count()).select_from(LinkScan).where(
+        select(func.count())
+        .select_from(LinkScan)
+        .where(
             LinkScan.user_id == user_id,
             LinkScan.scanned_at >= start,
             LinkScan.scanned_at < end,
@@ -51,7 +59,9 @@ async def generate_daily_report(user_id, report_date: date, db: AsyncSession) ->
     links_scanned = links_result.scalar() or 0
 
     calls_result = await db.execute(
-        select(func.count()).select_from(ScamCall).where(
+        select(func.count())
+        .select_from(ScamCall)
+        .where(
             ScamCall.user_id == user_id,
             ScamCall.detected_at >= start,
             ScamCall.detected_at < end,
@@ -84,8 +94,13 @@ async def generate_daily_report(user_id, report_date: date, db: AsyncSession) ->
 
     # Calculate overall risk score
     overall_risk = min(
-        (threats_detected * 10 + apps_scanned * 0.5 + links_scanned * 2 + behavior_risk),
-        100.0
+        (
+            threats_detected * 10
+            + apps_scanned * 0.5
+            + links_scanned * 2
+            + behavior_risk
+        ),
+        100.0,
     )
 
     # Generate AI-powered personalized tips
@@ -104,7 +119,13 @@ async def generate_daily_report(user_id, report_date: date, db: AsyncSession) ->
     if calls_analyzed > 0:
         top_threats.append({"type": "scam_calls", "count": calls_analyzed})
     if risky_behaviors:
-        top_threats.append({"type": "risky_behaviors", "count": len(risky_behaviors), "details": risky_behaviors[:5]})
+        top_threats.append(
+            {
+                "type": "risky_behaviors",
+                "count": len(risky_behaviors),
+                "details": risky_behaviors[:5],
+            }
+        )
 
     report = SecurityReport(
         user_id=user_id,
@@ -188,7 +209,10 @@ async def log_behavior_event(
     )
     db.add(event)
     await db.commit()
-    return {"message": "Behavior event logged", "risk_contribution": risk_map.get(event_type, 10.0)}
+    return {
+        "message": "Behavior event logged",
+        "risk_contribution": risk_map.get(event_type, 10.0),
+    }
 
 
 @router.get("/weekly-insights")
@@ -201,26 +225,40 @@ async def get_weekly_insights(
     week_ago = today - timedelta(days=7)
 
     reports_result = await db.execute(
-        select(SecurityReport).where(
+        select(SecurityReport)
+        .where(
             SecurityReport.user_id == current_user.id,
             SecurityReport.report_date >= week_ago,
-        ).order_by(SecurityReport.report_date.asc())
+        )
+        .order_by(SecurityReport.report_date.asc())
     )
     reports = reports_result.scalars().all()
 
     if not reports:
-        return {"message": "No data for the past week", "trend": "unknown", "daily_scores": []}
+        return {
+            "message": "No data for the past week",
+            "trend": "unknown",
+            "daily_scores": [],
+        }
 
     scores = [r.overall_risk_score for r in reports]
     avg_score = sum(scores) / len(scores)
-    trend = "improving" if scores[-1] < scores[0] else ("worsening" if scores[-1] > scores[0] else "stable")
+    trend = (
+        "improving"
+        if scores[-1] < scores[0]
+        else ("worsening" if scores[-1] > scores[0] else "stable")
+    )
 
     return {
         "period": f"{week_ago.isoformat()} to {today.isoformat()}",
         "average_risk_score": round(avg_score, 1),
         "trend": trend,
-        "best_day": min(reports, key=lambda r: r.overall_risk_score).report_date.isoformat(),
-        "worst_day": max(reports, key=lambda r: r.overall_risk_score).report_date.isoformat(),
+        "best_day": min(
+            reports, key=lambda r: r.overall_risk_score
+        ).report_date.isoformat(),
+        "worst_day": max(
+            reports, key=lambda r: r.overall_risk_score
+        ).report_date.isoformat(),
         "total_threats": sum(r.threats_detected for r in reports),
         "total_links_scanned": sum(r.links_scanned for r in reports),
         "daily_scores": [

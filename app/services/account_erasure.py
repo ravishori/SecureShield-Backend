@@ -70,7 +70,12 @@ async def _del(db: AsyncSession, name: str, stmt, result: ErasureResult) -> None
 
 
 async def erase_user_data(
-    db: AsyncSession, user: User, *, email: str | None, phone: str | None, alt_phone: str | None = None
+    db: AsyncSession,
+    user: User,
+    *,
+    email: str | None,
+    phone: str | None,
+    alt_phone: str | None = None,
 ) -> ErasureResult:
     """Delete/anonymise all data linked to ``user`` inside the caller's transaction.
 
@@ -81,15 +86,43 @@ async def erase_user_data(
 
     # files first (paths needed before the rows go)
     for model in (Evidence, Recording):
-        rows = (await db.execute(select(model.file_path).where(model.user_id == uid))).scalars().all()
+        rows = (
+            (await db.execute(select(model.file_path).where(model.user_id == uid)))
+            .scalars()
+            .all()
+        )
         result.files.extend(p for p in rows if p)
 
-    device_ids = (await db.execute(select(Device.id).where(Device.user_id == uid))).scalars().all()
+    device_ids = (
+        (await db.execute(select(Device.id).where(Device.user_id == uid)))
+        .scalars()
+        .all()
+    )
     if device_ids:
-        await _del(db, "network_activities", delete(NetworkActivity).where(NetworkActivity.device_id.in_(device_ids)), result)
-        await _del(db, "app_scans", delete(AppScan).where(AppScan.device_id.in_(device_ids)), result)
-        await _del(db, "wifi_scans", delete(WifiScan).where(WifiScan.device_id.in_(device_ids)), result)
-        await _del(db, "alerts_by_device", delete(Alert).where(Alert.device_id.in_(device_ids)), result)
+        await _del(
+            db,
+            "network_activities",
+            delete(NetworkActivity).where(NetworkActivity.device_id.in_(device_ids)),
+            result,
+        )
+        await _del(
+            db,
+            "app_scans",
+            delete(AppScan).where(AppScan.device_id.in_(device_ids)),
+            result,
+        )
+        await _del(
+            db,
+            "wifi_scans",
+            delete(WifiScan).where(WifiScan.device_id.in_(device_ids)),
+            result,
+        )
+        await _del(
+            db,
+            "alerts_by_device",
+            delete(Alert).where(Alert.device_id.in_(device_ids)),
+            result,
+        )
     await _del(db, "alerts", delete(Alert).where(Alert.user_id == uid), result)
     await _del(db, "devices", delete(Device).where(Device.user_id == uid), result)
 
@@ -109,22 +142,53 @@ async def erase_user_data(
     ):
         await _del(db, name, delete(model).where(model.user_id == uid), result)
 
-    await _del(db, "family_members", delete(FamilyMember).where(FamilyMember.user_id == uid), result)
+    await _del(
+        db,
+        "family_members",
+        delete(FamilyMember).where(FamilyMember.user_id == uid),
+        result,
+    )
     await _del(  # other people's lists that point at this account: unlink, keep their rows
-        db, "family_links_cleared",
-        update(FamilyMember).where(FamilyMember.member_user_id == uid).values(member_user_id=None), result,
+        db,
+        "family_links_cleared",
+        update(FamilyMember)
+        .where(FamilyMember.member_user_id == uid)
+        .values(member_user_id=None),
+        result,
     )
 
-    await _del(db, "warrior_profiles", delete(WarriorProfile).where(WarriorProfile.user_id == uid), result)
-    await _del(db, "warrior_applications", delete(WarriorApplication).where(WarriorApplication.user_id == uid), result)
+    await _del(
+        db,
+        "warrior_profiles",
+        delete(WarriorProfile).where(WarriorProfile.user_id == uid),
+        result,
+    )
+    await _del(
+        db,
+        "warrior_applications",
+        delete(WarriorApplication).where(WarriorApplication.user_id == uid),
+        result,
+    )
 
     keys = [k.lower() for k in (email,) if k] + [p for p in (phone, alt_phone) if p]
     if keys:
-        await _del(db, "otps", delete(OTP).where((OTP.email.in_(keys)) | (OTP.phone.in_(keys))), result)
+        await _del(
+            db,
+            "otps",
+            delete(OTP).where((OTP.email.in_(keys)) | (OTP.phone.in_(keys))),
+            result,
+        )
 
-    await _del(db, "error_logs_anonymised", update(ErrorLog).where(ErrorLog.user_id == str(uid)).values(user_id=None), result)
+    await _del(
+        db,
+        "error_logs_anonymised",
+        update(ErrorLog).where(ErrorLog.user_id == str(uid)).values(user_id=None),
+        result,
+    )
     # legacy table without an ORM model (feature removed, table still created by migration 1)
-    res = await db.execute(text("DELETE FROM otp_vault_entries WHERE user_id = :u"), {"u": uid})
+    res = await db.execute(
+        text("DELETE FROM otp_vault_entries WHERE user_id = :u"), {"u": uid}
+    )
     result.counts["otp_vault_entries"] = res.rowcount or 0
     return result
 
@@ -133,7 +197,10 @@ def _allowed_roots() -> list[str]:
     from app.routers import evidence as ev_router
     from app.routers import recordings as rec_router
 
-    return [os.path.abspath(ev_router.UPLOAD_DIR), os.path.abspath(rec_router.UPLOAD_DIR)]
+    return [
+        os.path.abspath(ev_router.UPLOAD_DIR),
+        os.path.abspath(rec_router.UPLOAD_DIR),
+    ]
 
 
 def remove_files(paths: list[str]) -> tuple[int, int]:

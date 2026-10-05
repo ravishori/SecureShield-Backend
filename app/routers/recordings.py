@@ -31,6 +31,7 @@ SHARE_LINK_TTL_HOURS = 24
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
 
+
 class RecordingResponse(BaseModel):
     id: str
     title: str
@@ -68,6 +69,7 @@ class ShareLinkResponse(BaseModel):
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
+
 @router.post("/upload", response_model=RecordingResponse)
 async def upload_recording(
     title: str = Form(..., min_length=1, max_length=200),
@@ -79,7 +81,10 @@ async def upload_recording(
     db: AsyncSession = Depends(get_db),
 ):
     file_path, file_size = await save_upload(
-        file, UPLOAD_DIR, default_name="recording.aac", max_bytes=settings.MAX_RECORDING_MB * 1024 * 1024
+        file,
+        UPLOAD_DIR,
+        default_name="recording.aac",
+        max_bytes=settings.MAX_RECORDING_MB * 1024 * 1024,
     )
     recording = Recording(
         user_id=current_user.id,
@@ -103,7 +108,10 @@ async def upload_recording(
 
 async def _owned(db: AsyncSession, user: User, recording_id: str) -> Recording:
     result = await db.execute(
-        select(Recording).where(Recording.id == parse_uuid_or_404(recording_id, "Recording"), Recording.user_id == user.id)
+        select(Recording).where(
+            Recording.id == parse_uuid_or_404(recording_id, "Recording"),
+            Recording.user_id == user.id,
+        )
     )
     recording = result.scalar_one_or_none()
     if not recording:
@@ -204,9 +212,7 @@ async def download_via_share_link(
     token: str,
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(Recording).where(Recording.share_token == token)
-    )
+    result = await db.execute(select(Recording).where(Recording.share_token == token))
     recording = result.scalar_one_or_none()
 
     if not recording:

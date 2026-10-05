@@ -9,6 +9,7 @@ Format: XY-HEADER
 
 Source: TCCCPR 2018 regulations.
 """
+
 from typing import Optional, Dict, Any, List
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func

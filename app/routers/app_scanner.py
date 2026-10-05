@@ -34,7 +34,7 @@ async def scan_apps(
         removal_reason = get_removal_reason(risk_level, threat_tags, is_malicious)
 
         scan = AppScan(
-            device_id=None,           # device_id optional — not required for app scans
+            device_id=None,  # device_id optional — not required for app scans
             package_name=app_info.package_name,
             app_name=app_info.app_name,
             version_name=app_info.version_name,
@@ -49,14 +49,20 @@ async def scan_apps(
 
         if risk_level in ("high", "critical") or is_malicious:
             high_risk_count += 1
-            spyware_note = " This may be a spyware app — uninstall immediately." if "known_spyware" in threat_tags else ""
+            spyware_note = (
+                " This may be a spyware app — uninstall immediately."
+                if "known_spyware" in threat_tags
+                else ""
+            )
             alert = Alert(
                 user_id=current_user.id,
                 device_id=None,
                 alert_type=AlertType.app_risk,
                 title=f"{'Spyware' if 'known_spyware' in threat_tags else 'Risky App'} Detected: {app_info.app_name}",
                 message=f"{app_info.app_name} has a risk score of {risk_score:.0f}/100. Threat: {', '.join(threat_tags)}.{spyware_note}",
-                severity=AlertSeverity.critical if risk_level == "critical" or is_malicious else AlertSeverity.warning,
+                severity=AlertSeverity.critical
+                if risk_level == "critical" or is_malicious
+                else AlertSeverity.warning,
                 extra_data={
                     "package_name": app_info.package_name,
                     "risk_score": risk_score,
@@ -130,7 +136,9 @@ async def check_for_spyware(
                 "risk_score": a.risk_score,
                 "risk_level": a.risk_level,
                 "threat_tags": a.threat_tags,
-                "removal_reason": get_removal_reason(a.risk_level, a.threat_tags or [], a.is_malicious),
+                "removal_reason": get_removal_reason(
+                    a.risk_level, a.threat_tags or [], a.is_malicious
+                ),
                 "removal_steps": [
                     f"Go to Settings → Apps → {a.app_name}",
                     "Tap 'Uninstall' or 'Disable'",
@@ -146,5 +154,7 @@ async def check_for_spyware(
             "Enable 2FA on all important accounts",
             "Check for unauthorized transactions in banking apps",
             "Report spyware installation at cybercrime.gov.in",
-        ] if spyware_apps else [],
+        ]
+        if spyware_apps
+        else [],
     }

@@ -40,12 +40,12 @@ class SendOtpRequest(BaseModel):
 
 class SendOtpResponse(BaseModel):
     message: str
-    identifier: str   # masked, e.g. +91*****1916 or r****@gmail.com
-    method: str       # 'sms' or 'email'
+    identifier: str  # masked, e.g. +91*****1916 or r****@gmail.com
+    method: str  # 'sms' or 'email'
 
 
 class VerifyOtpRequest(BaseModel):
-    identifier: str   # same phone or email used in send-otp
+    identifier: str  # same phone or email used in send-otp
     code: str
 
     # Optional device registration fields
@@ -114,12 +114,14 @@ class UpdateProfileRequest(BaseModel):
 
 # ── Registration ─────────────────────────────────────────────────────────────
 
+
 class RegisterRequest(BaseModel):
     """Full profile registration — creates user + sends OTP in one step."""
+
     first_name: str
     last_name: Optional[str] = None
     email: str
-    phone: Optional[str] = None     # optional; with country code e.g. +919987671916
+    phone: Optional[str] = None  # optional; with country code e.g. +919987671916
     # Address (all optional at registration time)
     flat_no: Optional[str] = None
     building: Optional[str] = None
@@ -176,8 +178,8 @@ class RegisterRequest(BaseModel):
 
 class RegisterResponse(BaseModel):
     message: str
-    identifier: str          # masked primary identifier (email)
-    masked_email: str        # r****@gmail.com
+    identifier: str  # masked primary identifier (email)
+    masked_email: str  # r****@gmail.com
     masked_phone: Optional[str] = None  # +91*****1916 or None
 
 
@@ -191,6 +193,7 @@ class DeleteAccountRequest(BaseModel):
     deletion via click-jacking or test tooling, and satisfies Play's
     "clear and conspicuous" confirmation guidance.
     """
+
     confirm: str  # must be exactly "DELETE"
 
     @field_validator("confirm")

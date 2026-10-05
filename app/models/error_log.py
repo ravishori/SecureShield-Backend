@@ -7,10 +7,13 @@ from app.database import Base
 
 class ErrorLog(Base):
     """Stores all backend errors/exceptions in the database."""
+
     __tablename__ = "error_logs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    level: Mapped[str] = mapped_column(String(20), nullable=False, default="ERROR", index=True)
+    level: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="ERROR", index=True
+    )
     logger_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     message: Mapped[str] = mapped_column(Text, nullable=False)
     exception_type: Mapped[str | None] = mapped_column(String(255), nullable=True)

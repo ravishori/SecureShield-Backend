@@ -19,18 +19,33 @@ def _request(headers: dict[str, str]) -> Request:
 @pytest.mark.unit
 @pytest.mark.security
 def test_allowlist_never_contains_credential_bearing_headers():
-    forbidden = {"authorization", "cookie", "set-cookie", "proxy-authorization",
-                 "x-admin-token", "x-api-key", "referer"}
+    forbidden = {
+        "authorization",
+        "cookie",
+        "set-cookie",
+        "proxy-authorization",
+        "x-admin-token",
+        "x-api-key",
+        "referer",
+    }
     assert not forbidden & set(_SAFE_HEADERS)
 
 
 @pytest.mark.unit
 @pytest.mark.security
 def test_only_allowlisted_headers_pass_and_names_are_lowercase():
-    out = _safe_headers(_request({
-        "Authorization": "Bearer SECRET", "Cookie": "a=b", "X-Admin-Token": "t",
-        "User-Agent": "ua", "X-Request-ID": "rid-1", "X-Whatever": "w",
-    }))
+    out = _safe_headers(
+        _request(
+            {
+                "Authorization": "Bearer SECRET",
+                "Cookie": "a=b",
+                "X-Admin-Token": "t",
+                "User-Agent": "ua",
+                "X-Request-ID": "rid-1",
+                "X-Whatever": "w",
+            }
+        )
+    )
     assert out == {"user-agent": "ua", "x-request-id": "rid-1"}
 
 

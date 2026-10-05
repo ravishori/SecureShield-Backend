@@ -1,4 +1,5 @@
 """Email generation utilities for fraud complaints and security alerts."""
+
 from typing import List, Optional
 from datetime import datetime
 
@@ -13,7 +14,13 @@ def generate_daily_report_email(
 ) -> dict:
     """Generate a daily security report email."""
     date_str = datetime.utcnow().strftime("%B %d, %Y")
-    risk_label = "LOW" if overall_risk_score < 30 else "MEDIUM" if overall_risk_score < 60 else "HIGH"
+    risk_label = (
+        "LOW"
+        if overall_risk_score < 30
+        else "MEDIUM"
+        if overall_risk_score < 60
+        else "HIGH"
+    )
 
     body = f"""Dear {user_name},
 
@@ -53,7 +60,11 @@ def generate_panic_alert_email(
 ) -> dict:
     """Generate emergency panic alert email for family members."""
     timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
-    location_str = f"https://maps.google.com/?q={latitude},{longitude}" if latitude and longitude else "Location not available"
+    location_str = (
+        f"https://maps.google.com/?q={latitude},{longitude}"
+        if latitude and longitude
+        else "Location not available"
+    )
 
     body = f"""URGENT — PANIC ALERT
 

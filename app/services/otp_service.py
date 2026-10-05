@@ -39,7 +39,13 @@ def _normalize_phone(phone: str) -> str:
         +919987671916   →  +919987671916  (already correct)
         0044... / 00... →  +...           (international prefix 00 → +)
     """
-    p = phone.strip().replace(" ", "").replace("-", "").replace("(", "").replace(")", "")
+    p = (
+        phone.strip()
+        .replace(" ", "")
+        .replace("-", "")
+        .replace("(", "")
+        .replace(")", "")
+    )
 
     # Already E.164
     if p.startswith("+"):
@@ -70,7 +76,7 @@ def _normalize_phone(phone: str) -> str:
 @dataclass
 class DeliveryResult:
     success: bool
-    method: str          # 'sms' | 'whatsapp' | 'email' | 'none'
+    method: str  # 'sms' | 'whatsapp' | 'email' | 'none'
     error: str | None = field(default=None)
 
 
@@ -129,10 +135,13 @@ def _send_sms(phone: str, code: str) -> DeliveryResult:
     from_number = (settings.TWILIO_SMS_NUMBER or "").strip()
 
     if not sid or not token or not sid.startswith("AC") or not from_number:
-        return DeliveryResult(success=False, method="sms", error="Twilio not configured")
+        return DeliveryResult(
+            success=False, method="sms", error="Twilio not configured"
+        )
 
     try:
         from twilio.rest import Client  # type: ignore
+
         e164_phone = _normalize_phone(phone)
         client = Client(sid, token)
         msg = client.messages.create(
@@ -165,12 +174,17 @@ def _send_whatsapp(phone: str, code: str) -> DeliveryResult:
         from_number = f"whatsapp:{from_number}"
 
     if not sid or not token or not sid.startswith("AC") or not from_number:
-        return DeliveryResult(success=False, method="whatsapp", error="Twilio not configured")
+        return DeliveryResult(
+            success=False, method="whatsapp", error="Twilio not configured"
+        )
 
     try:
         from twilio.rest import Client  # type: ignore
+
         # Strip whatsapp: prefix if present, then normalise to E.164, then re-add whatsapp:
-        clean_phone = phone[len("whatsapp:"):] if phone.startswith("whatsapp:") else phone
+        clean_phone = (
+            phone[len("whatsapp:") :] if phone.startswith("whatsapp:") else phone
+        )
         e164_phone = _normalize_phone(clean_phone)
         client = Client(sid, token)
         msg = client.messages.create(
@@ -332,7 +346,9 @@ async def deliver_otp(identifier: str, code: str) -> DeliveryResult:
         return DeliveryResult(success=False, method="none", error=result.error)
 
 
-def _log_delivery_failure(identifier: str, attempted_method: str, error: str | None) -> None:
+def _log_delivery_failure(
+    identifier: str, attempted_method: str, error: str | None
+) -> None:
     """Record that every delivery channel failed.
 
     SECURITY: never emit the OTP value (or the unmasked identifier) to stdout,

@@ -3,7 +3,11 @@ from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from pydantic import field_validator
-from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
+from pydantic_settings import (
+    BaseSettings,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+)
 
 _BACKEND_DIR = Path(__file__).resolve().parent.parent
 _PROJECT_ROOT = _BACKEND_DIR.parent
@@ -24,7 +28,7 @@ def normalize_async_db_url(url: str) -> str:
     url = url.strip()
     for prefix in ("postgres://", "postgresql://"):
         if url.startswith(prefix):
-            url = "postgresql+asyncpg://" + url[len(prefix):]
+            url = "postgresql+asyncpg://" + url[len(prefix) :]
             break
     if not url.startswith("postgresql+asyncpg://"):
         return url

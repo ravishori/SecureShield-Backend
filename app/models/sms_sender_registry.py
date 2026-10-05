@@ -5,6 +5,7 @@ from app.database import Base
 
 class TspCode(Base):
     """TSP (Telecom Service Provider) code — the 'X' character in XY-HEADER SMS sender format."""
+
     __tablename__ = "tsp_codes"
 
     code: Mapped[str] = mapped_column(String(1), primary_key=True)
@@ -13,6 +14,7 @@ class TspCode(Base):
 
 class LsaCode(Base):
     """LSA (License Service Area) code — the 'Y' character in XY-HEADER SMS sender format."""
+
     __tablename__ = "lsa_codes"
 
     code: Mapped[str] = mapped_column(String(1), primary_key=True)
@@ -25,6 +27,7 @@ class SmsSenderRegistry(Base):
     Source: TCCCPR 2018 — Access Provider submissions to TRAI.
     Data loaded from List_SMS_Headers_16062020_0.xlsx (23,192 rows).
     """
+
     __tablename__ = "sms_sender_registry"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -32,6 +35,4 @@ class SmsSenderRegistry(Base):
     header: Mapped[str] = mapped_column(String(30), nullable=False, index=True)
     principal_entity_name: Mapped[str] = mapped_column(Text, nullable=False)
 
-    __table_args__ = (
-        Index("ix_sms_sender_header_upper", "header"),
-    )
+    __table_args__ = (Index("ix_sms_sender_header_upper", "header"),)

@@ -23,10 +23,14 @@ def _settings(**overrides) -> Settings:
         "DATABASE_URL": "postgresql+asyncpg://t:t@localhost/t",
         "MIGRATOR_DATABASE_URL": "postgresql+asyncpg://t:t@localhost/t",
         "SECRET_KEY": "something-long-and-random-that-isnt-the-default",
-        "SMTP_HOST": "localhost", "SMTP_PORT": "1025",
-        "SMTP_USER": "t", "SMTP_PASSWORD": "t",
-        "SMTP_FROM_EMAIL": "t@e.com", "ERROR_NOTIFY_EMAIL": "t@e.com",
-        "TWILIO_ACCOUNT_SID": "AC", "TWILIO_AUTH_TOKEN": "t",
+        "SMTP_HOST": "localhost",
+        "SMTP_PORT": "1025",
+        "SMTP_USER": "t",
+        "SMTP_PASSWORD": "t",
+        "SMTP_FROM_EMAIL": "t@e.com",
+        "ERROR_NOTIFY_EMAIL": "t@e.com",
+        "TWILIO_ACCOUNT_SID": "AC",
+        "TWILIO_AUTH_TOKEN": "t",
         "TWILIO_SMS_NUMBER": "+15555555555",
         "TWILIO_WHATSAPP_NUMBER": "+15555555555",
         "ADMIN_TOKEN": "real-admin-token-12345",
@@ -37,12 +41,14 @@ def _settings(**overrides) -> Settings:
 
 # ─── TLS ──────────────────────────────────────────────────────────────────
 
+
 class TestTlsCheck:
     @pytest.mark.unit
     @pytest.mark.security
     def test_production_without_tls_raises(self):
-        s = _settings(ENVIRONMENT="production", FORCE_HTTPS=False,
-                      TRUST_PROXY_TLS=False)
+        s = _settings(
+            ENVIRONMENT="production", FORCE_HTTPS=False, TRUST_PROXY_TLS=False
+        )
         with pytest.raises(StartupCheckError, match="TLS not configured"):
             check_tls_configuration(s)
 
@@ -58,19 +64,23 @@ class TestTlsCheck:
 
     @pytest.mark.unit
     def test_development_ignores_tls(self):
-        s = _settings(ENVIRONMENT="development", FORCE_HTTPS=False,
-                      TRUST_PROXY_TLS=False)
+        s = _settings(
+            ENVIRONMENT="development", FORCE_HTTPS=False, TRUST_PROXY_TLS=False
+        )
         check_tls_configuration(s)  # no raise — dev convenience
 
 
 # ─── JWT secret ───────────────────────────────────────────────────────────
 
+
 class TestJwtSecret:
     @pytest.mark.unit
     @pytest.mark.security
     def test_production_rejects_default_secret(self):
-        s = _settings(ENVIRONMENT="production",
-                      SECRET_KEY="secureshield-secret-key-change-in-prod")
+        s = _settings(
+            ENVIRONMENT="production",
+            SECRET_KEY="secureshield-secret-key-change-in-prod",
+        )
         with pytest.raises(StartupCheckError, match="SECRET_KEY in production"):
             check_jwt_secret(s)
 
@@ -83,8 +93,10 @@ class TestJwtSecret:
 
     @pytest.mark.unit
     def test_production_accepts_strong_secret(self):
-        s = _settings(ENVIRONMENT="production",
-                      SECRET_KEY="k9-F2Jx7mZ.LpQw3-RVnTbU6Yx8Ag4Bc5De1Hi2JkMo7PqRsTvWxYz0A")
+        s = _settings(
+            ENVIRONMENT="production",
+            SECRET_KEY="k9-F2Jx7mZ.LpQw3-RVnTbU6Yx8Ag4Bc5De1Hi2JkMo7PqRsTvWxYz0A",
+        )
         check_jwt_secret(s)
 
     @pytest.mark.unit
@@ -95,12 +107,14 @@ class TestJwtSecret:
 
 # ─── Admin token ──────────────────────────────────────────────────────────
 
+
 class TestAdminToken:
     @pytest.mark.unit
     @pytest.mark.security
     def test_production_rejects_placeholder_admin_token(self):
-        s = _settings(ENVIRONMENT="production",
-                      ADMIN_TOKEN="secureshield-admin-CHANGEME")
+        s = _settings(
+            ENVIRONMENT="production", ADMIN_TOKEN="secureshield-admin-CHANGEME"
+        )
         with pytest.raises(StartupCheckError, match="ADMIN_TOKEN"):
             check_admin_token(s)
 
@@ -119,6 +133,7 @@ class TestAdminToken:
 
 # ─── CORS ─────────────────────────────────────────────────────────────────
 
+
 class TestCorsCheck:
     @pytest.mark.unit
     @pytest.mark.security
@@ -136,12 +151,14 @@ class TestCorsCheck:
 
     @pytest.mark.unit
     def test_production_accepts_explicit_list(self):
-        s = _settings(ENVIRONMENT="production",
-                      CORS_ALLOWED_ORIGINS="https://admin.example.com")
+        s = _settings(
+            ENVIRONMENT="production", CORS_ALLOWED_ORIGINS="https://admin.example.com"
+        )
         check_cors_configuration(s)
 
 
 # ─── Composite runner ────────────────────────────────────────────────────
+
 
 class TestRunStartupChecks:
     @pytest.mark.unit
@@ -165,7 +182,8 @@ class TestRunStartupChecks:
     @pytest.mark.security
     def test_prod_fails_fast_on_first_problem(self):
         # Missing TLS — should raise before even looking at the secret
-        s = _settings(ENVIRONMENT="production", FORCE_HTTPS=False,
-                      TRUST_PROXY_TLS=False)
+        s = _settings(
+            ENVIRONMENT="production", FORCE_HTTPS=False, TRUST_PROXY_TLS=False
+        )
         with pytest.raises(StartupCheckError, match="TLS"):
             run_startup_checks(s)

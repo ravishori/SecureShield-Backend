@@ -71,6 +71,7 @@ class TestConfigDrift:
     @pytest.mark.security
     def test_otp_send_limit_is_reasonable(self):
         from app.config import settings
+
         # Guardrail: should never go above 20 or below 3 without discussion.
         assert 3 <= settings.OTP_SEND_LIMIT <= 20
 
@@ -78,4 +79,5 @@ class TestConfigDrift:
     @pytest.mark.security
     def test_api_rate_limit_is_set(self):
         from app.config import settings
+
         assert settings.API_RATE_LIMIT >= 30

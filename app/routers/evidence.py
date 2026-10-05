@@ -40,7 +40,10 @@ def get_file_type(filename: str) -> FileType:
 
 async def _owned(db: AsyncSession, user: User, evidence_id: str) -> Evidence:
     result = await db.execute(
-        select(Evidence).where(Evidence.id == parse_uuid_or_404(evidence_id, "Evidence"), Evidence.user_id == user.id)
+        select(Evidence).where(
+            Evidence.id == parse_uuid_or_404(evidence_id, "Evidence"),
+            Evidence.user_id == user.id,
+        )
     )
     evidence = result.scalar_one_or_none()
     if not evidence:
@@ -58,7 +61,10 @@ async def upload_evidence(
     db: AsyncSession = Depends(get_db),
 ):
     file_path, file_size = await save_upload(
-        file, UPLOAD_DIR, default_name="evidence", max_bytes=settings.MAX_EVIDENCE_MB * 1024 * 1024
+        file,
+        UPLOAD_DIR,
+        default_name="evidence",
+        max_bytes=settings.MAX_EVIDENCE_MB * 1024 * 1024,
     )
     evidence = Evidence(
         user_id=current_user.id,
@@ -86,7 +92,9 @@ async def list_evidence(
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
-        select(Evidence).where(Evidence.user_id == current_user.id).order_by(Evidence.created_at.desc())
+        select(Evidence)
+        .where(Evidence.user_id == current_user.id)
+        .order_by(Evidence.created_at.desc())
     )
     return [EvidenceResponse.from_evidence(e) for e in result.scalars().all()]
 

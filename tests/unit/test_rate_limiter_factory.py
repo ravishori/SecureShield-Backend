@@ -5,7 +5,6 @@ limiter can swap in later without touching call sites. These tests
 guard the swap boundary.
 """
 
-
 import pytest
 
 from app.middleware.rate_limiter import (
@@ -46,8 +45,7 @@ class TestFactory:
     @pytest.mark.unit
     def test_redis_url_warns_but_falls_back(self, monkeypatch):
         # REDIS_URL set but backend not yet implemented → warn + in-memory
-        monkeypatch.setenv("REDIS_URL",
-                           "redis://user:password@redis.example.com:6379")
+        monkeypatch.setenv("REDIS_URL", "redis://user:password@redis.example.com:6379")
         recorded = self._recording_logger(monkeypatch)
         instance = make_rate_limiter()
         assert isinstance(instance, RateLimiter)
@@ -60,8 +58,9 @@ class TestFactory:
     @pytest.mark.security
     def test_redis_warning_does_not_leak_credentials(self, monkeypatch):
         # The log line must not contain the username:password portion
-        monkeypatch.setenv("REDIS_URL",
-                           "redis://admin:supersecret@redis.example.com:6379")
+        monkeypatch.setenv(
+            "REDIS_URL", "redis://admin:supersecret@redis.example.com:6379"
+        )
         recorded = self._recording_logger(monkeypatch)
         make_rate_limiter()
         assert recorded, "expected a warning to be logged (test would be vacuous)"

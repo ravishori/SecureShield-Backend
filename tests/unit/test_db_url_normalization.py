@@ -13,7 +13,9 @@ BASE = "user:pw@host.example:5432/db"
 @pytest.mark.unit
 @pytest.mark.parametrize("scheme", ["postgres", "postgresql"])
 def test_plain_schemes_become_asyncpg(scheme):
-    assert normalize_async_db_url(f"{scheme}://{BASE}") == f"postgresql+asyncpg://{BASE}"
+    assert (
+        normalize_async_db_url(f"{scheme}://{BASE}") == f"postgresql+asyncpg://{BASE}"
+    )
 
 
 @pytest.mark.unit
@@ -37,7 +39,9 @@ def test_explicit_ssl_wins_over_sslmode():
 
 @pytest.mark.unit
 def test_url_without_query_is_untouched_apart_from_scheme():
-    assert normalize_async_db_url(f"postgres://{BASE}") == f"postgresql+asyncpg://{BASE}"
+    assert (
+        normalize_async_db_url(f"postgres://{BASE}") == f"postgresql+asyncpg://{BASE}"
+    )
 
 
 @pytest.mark.unit

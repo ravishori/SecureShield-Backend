@@ -3,8 +3,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
 from app.routers import (
-    auth, devices, app_scanner, link_scanner,
-    alerts, scam_calls, evidence, family, reports, wifi, network, ai_coach
+    auth,
+    devices,
+    app_scanner,
+    link_scanner,
+    alerts,
+    scam_calls,
+    evidence,
+    family,
+    reports,
+    wifi,
+    network,
+    ai_coach,
 )
 from app.routers import recordings, emergency_contacts
 from app.routers import community_scam, message_analyzer, video_call
@@ -12,7 +22,10 @@ from app.routers import app_monitor, clone_detection, elderly_protection
 from app.routers import admin_errors
 from app.routers import cyber_warrior
 from app.middleware.access_log import install_access_log_redaction
-from app.middleware.error_handler import GlobalErrorHandlerMiddleware, register_exception_handlers
+from app.middleware.error_handler import (
+    GlobalErrorHandlerMiddleware,
+    register_exception_handlers,
+)
 from app.middleware.rate_limiter import RateLimitMiddleware
 from app.services.logger_service import get_logger
 from app.config import settings
@@ -50,28 +63,28 @@ register_exception_handlers(app)
 # ── Routers ──────────────────────────────────────────────────────────────────
 PREFIX = "/api/v1"
 
-app.include_router(auth.router,         prefix=PREFIX)
-app.include_router(devices.router,      prefix=PREFIX)
-app.include_router(app_scanner.router,  prefix=PREFIX)
+app.include_router(auth.router, prefix=PREFIX)
+app.include_router(devices.router, prefix=PREFIX)
+app.include_router(app_scanner.router, prefix=PREFIX)
 app.include_router(link_scanner.router, prefix=PREFIX)
-app.include_router(alerts.router,       prefix=PREFIX)
-app.include_router(scam_calls.router,   prefix=PREFIX)
-app.include_router(evidence.router,     prefix=PREFIX)
-app.include_router(family.router,       prefix=PREFIX)
-app.include_router(reports.router,      prefix=PREFIX)
-app.include_router(wifi.router,         prefix=PREFIX)
-app.include_router(network.router,      prefix=PREFIX)
-app.include_router(ai_coach.router,           prefix=PREFIX)
-app.include_router(recordings.router,         prefix=PREFIX)
-app.include_router(community_scam.router,      prefix=PREFIX)
-app.include_router(message_analyzer.router,    prefix=PREFIX)
-app.include_router(app_monitor.router,         prefix=PREFIX)
-app.include_router(clone_detection.router,     prefix=PREFIX)
-app.include_router(elderly_protection.router,  prefix=PREFIX)
-app.include_router(video_call.router,         prefix=PREFIX)
+app.include_router(alerts.router, prefix=PREFIX)
+app.include_router(scam_calls.router, prefix=PREFIX)
+app.include_router(evidence.router, prefix=PREFIX)
+app.include_router(family.router, prefix=PREFIX)
+app.include_router(reports.router, prefix=PREFIX)
+app.include_router(wifi.router, prefix=PREFIX)
+app.include_router(network.router, prefix=PREFIX)
+app.include_router(ai_coach.router, prefix=PREFIX)
+app.include_router(recordings.router, prefix=PREFIX)
+app.include_router(community_scam.router, prefix=PREFIX)
+app.include_router(message_analyzer.router, prefix=PREFIX)
+app.include_router(app_monitor.router, prefix=PREFIX)
+app.include_router(clone_detection.router, prefix=PREFIX)
+app.include_router(elderly_protection.router, prefix=PREFIX)
+app.include_router(video_call.router, prefix=PREFIX)
 app.include_router(emergency_contacts.router, prefix=PREFIX)
-app.include_router(admin_errors.router,       prefix=PREFIX)
-app.include_router(cyber_warrior.router,      prefix=PREFIX)
+app.include_router(admin_errors.router, prefix=PREFIX)
+app.include_router(cyber_warrior.router, prefix=PREFIX)
 
 
 # ── Startup / shutdown events ─────────────────────────────────────────────────
@@ -193,9 +206,7 @@ async def ready():
         async with AsyncSessionLocal() as session:
             assert isinstance(session, AsyncSession)
             row = (
-                await session.execute(
-                    text("SELECT current_database(), current_user")
-                )
+                await session.execute(text("SELECT current_database(), current_user"))
             ).one()
             return {
                 "status": "ready",

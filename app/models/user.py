@@ -15,10 +15,16 @@ class SubscriptionTier(str, enum.Enum):
 class User(Base):
     __tablename__ = "users"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
     # Both phone and email are nullable — user must have at least one (enforced in app layer)
-    phone: Mapped[str | None] = mapped_column(String(20), unique=True, nullable=True, index=True)
-    email: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True, index=True)
+    phone: Mapped[str | None] = mapped_column(
+        String(20), unique=True, nullable=True, index=True
+    )
+    email: Mapped[str | None] = mapped_column(
+        String(255), unique=True, nullable=True, index=True
+    )
     full_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     hashed_password: Mapped[str | None] = mapped_column(String(255), nullable=True)
     subscription_tier: Mapped[SubscriptionTier] = mapped_column(
@@ -29,20 +35,26 @@ class User(Base):
 
     # Extended profile fields (added for profile completeness feature)
     first_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    last_name:  Mapped[str | None] = mapped_column(String(100), nullable=True)
-    alt_phone:  Mapped[str | None] = mapped_column(String(20),  nullable=True)
+    last_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    alt_phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
     # Address fields
-    flat_no:   Mapped[str | None] = mapped_column(String(50),  nullable=True)
-    building:  Mapped[str | None] = mapped_column(String(255), nullable=True)
-    street:    Mapped[str | None] = mapped_column(String(255), nullable=True)
-    city:      Mapped[str | None] = mapped_column(String(100), nullable=True)
-    state:     Mapped[str | None] = mapped_column(String(100), nullable=True)
-    country:   Mapped[str | None] = mapped_column(String(100), nullable=True, default="India")
-    pin_code:  Mapped[str | None] = mapped_column(String(10),  nullable=True)
+    flat_no: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    building: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    street: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    city: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    state: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    country: Mapped[str | None] = mapped_column(
+        String(100), nullable=True, default="India"
+    )
+    pin_code: Mapped[str | None] = mapped_column(String(10), nullable=True)
 
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
 
     @property
     def identifier(self) -> str:
@@ -60,4 +72,6 @@ class OTP(Base):
     code: Mapped[str] = mapped_column(String(10), nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     is_used: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, nullable=False
+    )

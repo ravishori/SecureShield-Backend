@@ -19,7 +19,9 @@ import logging
 import re
 from urllib.parse import unquote
 
-_UUID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+_UUID = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
 _LONG_TOKEN = re.compile(r"^[A-Za-z0-9_\-\.~]{24,}$")
 _EMAILISH = re.compile(r"@|%40", re.I)
 _PHONEISH = re.compile(r"^\+?\d[\d\-\s%B]{7,}$")
@@ -41,8 +43,14 @@ def redact_target(target: str) -> str:
             mask_next = False
             continue
         decoded = unquote(seg)
-        if seg and not _UUID.match(seg) and (
-            _LONG_TOKEN.match(seg) or _EMAILISH.search(seg) or _PHONEISH.match(decoded)
+        if (
+            seg
+            and not _UUID.match(seg)
+            and (
+                _LONG_TOKEN.match(seg)
+                or _EMAILISH.search(seg)
+                or _PHONEISH.match(decoded)
+            )
         ):
             out.append(REDACTED)
         else:

@@ -7,6 +7,7 @@ Endpoints:
   POST  /feedback        — user confirms / dismisses a clone finding
   GET   /catalogue       — return the known-legitimate-apps catalogue (for local caching)
 """
+
 from __future__ import annotations
 
 
@@ -18,8 +19,10 @@ from app.database import get_db
 from app.models.user import User
 from app.models.clone_report import CloneReport
 from app.schemas.clone_detection import (
-    CloneScanRequest, CloneScanResponse,
-    CloneHistoryResponse, CloneFeedbackRequest,
+    CloneScanRequest,
+    CloneScanResponse,
+    CloneHistoryResponse,
+    CloneFeedbackRequest,
 )
 from app.routers.auth import get_current_user
 from app.services.clone_analyzer import analyze_clone, KNOWN_APPS
@@ -30,9 +33,9 @@ router = APIRouter(prefix="/clone-detection", tags=["clone-detection"])
 def _action_recommended(verdict: str) -> str:
     return {
         "confirmed_clone": "uninstall",
-        "likely_clone":    "block",
-        "suspicious":      "warn",
-        "safe":            "none",
+        "likely_clone": "block",
+        "suspicious": "warn",
+        "safe": "none",
     }.get(verdict, "none")
 
 
@@ -58,7 +61,7 @@ async def scan_app(
         target_name=result.target_name,
         name_similarity=result.name_similarity,
         package_similarity=result.package_similarity,
-        icon_hash_match=False,   # populated when icon-hash DB is in place
+        icon_hash_match=False,  # populated when icon-hash DB is in place
         cert_hash_match=result.verdict == "confirmed_clone" and bool(request.cert_hash),
         overall_score=result.overall_score,
         verdict=result.verdict,
@@ -73,8 +76,8 @@ async def scan_app(
 
 @router.get("/history", response_model=CloneHistoryResponse)
 async def get_history(
-    page:    int = Query(1, ge=1),
-    limit:   int = Query(20, ge=1, le=100),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
     verdict: str | None = Query(None),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -84,8 +87,10 @@ async def get_history(
         q = q.where(CloneReport.verdict == verdict)
     q = q.order_by(desc(CloneReport.created_at))
 
-    total = (await db.execute(select(func.count()).select_from(q.subquery()))).scalar_one()
-    rows  = (await db.execute(q.offset((page - 1) * limit).limit(limit))).scalars().all()
+    total = (
+        await db.execute(select(func.count()).select_from(q.subquery()))
+    ).scalar_one()
+    rows = (await db.execute(q.offset((page - 1) * limit).limit(limit))).scalars().all()
 
     return CloneHistoryResponse(reports=[_to_response(r) for r in rows], total=total)
 
@@ -108,7 +113,7 @@ async def submit_feedback(
         raise HTTPException(status_code=404, detail="Report not found")
 
     report.user_confirmed = request.user_confirmed
-    report.action_taken   = request.action_taken
+    report.action_taken = request.action_taken
     await db.commit()
     return {"status": "ok"}
 
@@ -121,12 +126,13 @@ async def get_catalogue(_: User = Depends(get_current_user)):
     """
     return {
         "version": "2025-05-06",
-        "count":   len(KNOWN_APPS),
-        "apps":    [{"packageName": k, "displayName": v} for k, v in KNOWN_APPS.items()],
+        "count": len(KNOWN_APPS),
+        "apps": [{"packageName": k, "displayName": v} for k, v in KNOWN_APPS.items()],
     }
 
 
 # ── Helper ────────────────────────────────────────────────────────────────────
+
 
 def _to_response(r: CloneReport) -> CloneScanResponse:
     return CloneScanResponse(

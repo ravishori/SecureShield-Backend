@@ -6,7 +6,11 @@ from sqlalchemy import select
 from app.database import get_db
 from app.models.user import User
 from app.models.device import Device
-from app.schemas.device import DeviceRegisterRequest, DeviceResponse, DeviceUpdateRequest
+from app.schemas.device import (
+    DeviceRegisterRequest,
+    DeviceResponse,
+    DeviceUpdateRequest,
+)
 from app.routers.auth import get_current_user
 from typing import List
 
@@ -20,7 +24,9 @@ async def register_device(
     db: AsyncSession = Depends(get_db),
 ):
     # Check if device already exists
-    result = await db.execute(select(Device).where(Device.device_token == request.device_token))
+    result = await db.execute(
+        select(Device).where(Device.device_token == request.device_token)
+    )
     device = result.scalar_one_or_none()
 
     if device:
@@ -53,7 +59,9 @@ async def list_devices(
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
-        select(Device).where(Device.user_id == current_user.id, Device.is_active.is_(True))
+        select(Device).where(
+            Device.user_id == current_user.id, Device.is_active.is_(True)
+        )
     )
     return result.scalars().all()
 
@@ -66,8 +74,11 @@ async def update_device(
     db: AsyncSession = Depends(get_db),
 ):
     import uuid
+
     result = await db.execute(
-        select(Device).where(Device.id == uuid.UUID(device_id), Device.user_id == current_user.id)
+        select(Device).where(
+            Device.id == uuid.UUID(device_id), Device.user_id == current_user.id
+        )
     )
     device = result.scalar_one_or_none()
     if not device:

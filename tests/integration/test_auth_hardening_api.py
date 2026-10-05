@@ -23,6 +23,7 @@ ME = "/api/v1/auth/me"
 @pytest.fixture(autouse=True)
 def _stub_otp_delivery(monkeypatch):
     """Never send real email/SMS from tests."""
+
     async def _fake(identifier, code):  # noqa: ARG001
         return SimpleNamespace(success=True, error=None)
 
@@ -38,6 +39,7 @@ def _register_body(n: int, **over) -> dict:
 # ═══════════════════════════════════════════════════════════════════════════
 # 422-not-500 regression (custom validators)
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 class TestValidationErrorsAre422:
     async def test_register_with_bad_email_is_422_not_500(self, client):
@@ -63,6 +65,7 @@ class TestValidationErrorsAre422:
 # ═══════════════════════════════════════════════════════════════════════════
 # Rate limiting
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 class TestCheckUserRateLimit:
     async def test_enumeration_is_throttled_per_ip(self, client):
@@ -93,8 +96,7 @@ class TestRegisterRateLimit:
 
     async def test_repeated_registration_of_same_email_is_throttled(self, client):
         body = _register_body(500)
-        codes = [(await client.post(REGISTER, json=body)).status_code
-                 for _ in range(6)]
+        codes = [(await client.post(REGISTER, json=body)).status_code for _ in range(6)]
         # 1st creates the account; 2nd-5th hit the uniqueness check (409);
         # 6th exceeds the per-identifier OTP limit (5/hour) → 429 *before*
         # any account-existence information is returned.
@@ -104,9 +106,11 @@ class TestRegisterRateLimit:
         body = _register_body(600)
         for _ in range(6):
             await client.post(REGISTER, json=body)
-        users = (await db.execute(
-            select(User).where(User.email == "reg600@example.com")
-        )).scalars().all()
+        users = (
+            (await db.execute(select(User).where(User.email == "reg600@example.com")))
+            .scalars()
+            .all()
+        )
         assert len(users) == 1
 
 
@@ -114,9 +118,11 @@ class TestRegisterRateLimit:
 # Account deletion
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 async def _delete_me(client, headers, confirm="DELETE"):
-    return await client.request("DELETE", ME, json={"confirm": confirm},
-                                headers=headers)
+    return await client.request(
+        "DELETE", ME, json={"confirm": confirm}, headers=headers
+    )
 
 
 async def _reload(db, user) -> User:
@@ -144,17 +150,30 @@ class TestAccountDeletion:
     async def test_scrubs_pii_and_deactivates(
         self, client, db, make_user, auth_headers
     ):
-        user = await make_user("leaver", first_name="Lee", last_name="Ver",
-                               city="Pune", pin_code="411001")
+        user = await make_user(
+            "leaver", first_name="Lee", last_name="Ver", city="Pune", pin_code="411001"
+        )
         r = await _delete_me(client, auth_headers(user))
         assert r.status_code == 200, r.text
         assert r.json()["user_id"] == str(user.id)
 
         row = (await db.execute(select(User).where(User.id == user.id))).scalar_one()
         await db.refresh(row)
-        for field in ("email", "phone", "alt_phone", "first_name", "last_name",
-                      "full_name", "flat_no", "building", "street", "city",
-                      "state", "pin_code", "country"):
+        for field in (
+            "email",
+            "phone",
+            "alt_phone",
+            "first_name",
+            "last_name",
+            "full_name",
+            "flat_no",
+            "building",
+            "street",
+            "city",
+            "state",
+            "pin_code",
+            "country",
+        ):
             assert getattr(row, field) is None, f"{field} was not scrubbed"
         assert row.is_active is False
 
@@ -179,12 +198,15 @@ class TestAccountDeletion:
     ):
         user = await make_user("leaver", email="comeback@example.com")
         await _delete_me(client, auth_headers(user))
-        r = await client.post(REGISTER, json=_register_body(
-            700, email="comeback@example.com"))
+        r = await client.post(
+            REGISTER, json=_register_body(700, email="comeback@example.com")
+        )
         assert r.status_code == 200, r.text
-        rows = (await db.execute(
-            select(User).where(User.email == "comeback@example.com")
-        )).scalars().all()
+        rows = (
+            (await db.execute(select(User).where(User.email == "comeback@example.com")))
+            .scalars()
+            .all()
+        )
         assert len(rows) == 1 and rows[0].id != user.id
 
     async def test_deleting_one_account_does_not_touch_another(
@@ -210,22 +232,42 @@ class TestAccountDeletion:
         )
         # active warriors can't apply (409) — insert the application directly
         assert applied.status_code == 409
-        db.add(WarriorApplication(
-            user_id=user.id, full_name="Warrior Name",
-            date_of_birth=__import__("datetime").date(1990, 1, 1),
-            phone="+919800000000", email="warrior@example.com",
-            motivation="m" * 50, consent_bgcheck=True, consent_pii=True,
-            consent_safeguarding=True,
-        ))
+        db.add(
+            WarriorApplication(
+                user_id=user.id,
+                full_name="Warrior Name",
+                date_of_birth=__import__("datetime").date(1990, 1, 1),
+                phone="+919800000000",
+                email="warrior@example.com",
+                motivation="m" * 50,
+                consent_bgcheck=True,
+                consent_pii=True,
+                consent_safeguarding=True,
+            )
+        )
         await db.commit()
 
         assert (await _delete_me(client, auth_headers(user))).status_code == 200
 
-        apps = (await db.execute(
-            select(WarriorApplication).where(WarriorApplication.user_id == user.id)
-        )).scalars().all()
-        profiles = (await db.execute(
-            select(WarriorProfile).where(WarriorProfile.user_id == user.id)
-        )).scalars().all()
+        apps = (
+            (
+                await db.execute(
+                    select(WarriorApplication).where(
+                        WarriorApplication.user_id == user.id
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        profiles = (
+            (
+                await db.execute(
+                    select(WarriorProfile).where(WarriorProfile.user_id == user.id)
+                )
+            )
+            .scalars()
+            .all()
+        )
         assert apps == [], "warrior application PII survived account deletion"
         assert profiles == [], "warrior profile PII survived account deletion"

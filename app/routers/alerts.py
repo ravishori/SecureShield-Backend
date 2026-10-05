@@ -21,7 +21,9 @@ async def list_alerts(
 ):
     offset = (page - 1) * page_size
     count_result = await db.execute(
-        select(func.count()).select_from(Alert).where(
+        select(func.count())
+        .select_from(Alert)
+        .where(
             Alert.user_id == current_user.id,
             Alert.is_dismissed.is_(False),
         )
@@ -47,7 +49,9 @@ async def mark_read(
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
-        select(Alert).where(Alert.id == uuid.UUID(alert_id), Alert.user_id == current_user.id)
+        select(Alert).where(
+            Alert.id == uuid.UUID(alert_id), Alert.user_id == current_user.id
+        )
     )
     alert = result.scalar_one_or_none()
     if not alert:
@@ -65,7 +69,9 @@ async def dismiss_alert(
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
-        select(Alert).where(Alert.id == uuid.UUID(alert_id), Alert.user_id == current_user.id)
+        select(Alert).where(
+            Alert.id == uuid.UUID(alert_id), Alert.user_id == current_user.id
+        )
     )
     alert = result.scalar_one_or_none()
     if not alert:
@@ -83,7 +89,9 @@ async def delete_alert(
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
-        select(Alert).where(Alert.id == uuid.UUID(alert_id), Alert.user_id == current_user.id)
+        select(Alert).where(
+            Alert.id == uuid.UUID(alert_id), Alert.user_id == current_user.id
+        )
     )
     alert = result.scalar_one_or_none()
     if not alert:

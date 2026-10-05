@@ -77,6 +77,7 @@ def _test_url() -> str | None:
 # Collection-time gating
 # ---------------------------------------------------------------------------
 
+
 def pytest_collection_modifyitems(config, items):
     if _test_url():
         return
@@ -91,6 +92,7 @@ def pytest_collection_modifyitems(config, items):
 # ---------------------------------------------------------------------------
 # Session-scoped: validate URL, migrate schema once
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture(scope="session")
 def test_database_url() -> str:
@@ -133,7 +135,9 @@ _KEEP_TABLES = ("alembic_version", "tsp_codes", "lsa_codes", "sms_sender_registr
 
 
 async def _truncate_all(conn) -> None:
-    rows = await conn.execute(text("select tablename from pg_tables where schemaname = 'public'"))
+    rows = await conn.execute(
+        text("select tablename from pg_tables where schemaname = 'public'")
+    )
     tables = [r[0] for r in rows if r[0] not in _KEEP_TABLES]
     if tables:
         quoted = ", ".join(f'"{t}"' for t in tables)
@@ -233,6 +237,7 @@ async def lenient_client(session_factory) -> AsyncIterator[httpx.AsyncClient]:
 # ---------------------------------------------------------------------------
 # Data + auth helpers
 # ---------------------------------------------------------------------------
+
 
 def adult_dob(years: int = 30) -> date:
     return date.today() - timedelta(days=365 * years + years // 4 + 2)

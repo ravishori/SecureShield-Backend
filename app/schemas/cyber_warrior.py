@@ -39,27 +39,29 @@ def _age_in_years(dob: date, today: date | None = None) -> int:
 
 # ─── Application in ──────────────────────────────────────────────────────
 
+
 class WarriorApplicationCreate(BaseModel):
     """Payload for POST /warriors/apply.
 
     All consent flags must be `true` — the schema rejects false/missing.
     date_of_birth must correspond to someone ≥ 18 years old today.
     """
-    full_name:     str  = Field(..., min_length=2, max_length=255)
+
+    full_name: str = Field(..., min_length=2, max_length=255)
     date_of_birth: date
-    phone:         str  = Field(..., min_length=7, max_length=20)
-    email:         EmailStr
-    city:          Optional[str] = Field(None, max_length=100)
-    state:         Optional[str] = Field(None, max_length=100)
+    phone: str = Field(..., min_length=7, max_length=20)
+    email: EmailStr
+    city: Optional[str] = Field(None, max_length=100)
+    state: Optional[str] = Field(None, max_length=100)
 
     preferred_role: WarriorRole = WarriorRole.trainee
-    motivation:     str = Field(..., min_length=40, max_length=5000)
-    skills:         Optional[str] = Field(None, max_length=5000)
-    languages:      Optional[str] = Field(None, max_length=200)
+    motivation: str = Field(..., min_length=40, max_length=5000)
+    skills: Optional[str] = Field(None, max_length=5000)
+    languages: Optional[str] = Field(None, max_length=200)
     availability_hours_per_week: Optional[int] = Field(None, ge=1, le=168)
 
-    consent_bgcheck:      bool
-    consent_pii:          bool
+    consent_bgcheck: bool
+    consent_pii: bool
     consent_safeguarding: bool
 
     @field_validator("date_of_birth")
@@ -108,6 +110,7 @@ class WarriorApplicationCreate(BaseModel):
 
 # ─── Application out ─────────────────────────────────────────────────────
 
+
 class WarriorApplicationResponse(BaseModel):
     id: uuid.UUID
     user_id: uuid.UUID
@@ -122,6 +125,7 @@ class WarriorApplicationResponse(BaseModel):
 
 # ─── Profile out (for /me/warrior endpoint, future slice) ────────────────
 
+
 class WarriorProfileResponse(BaseModel):
     id: uuid.UUID
     user_id: uuid.UUID
@@ -135,6 +139,7 @@ class WarriorProfileResponse(BaseModel):
 
 
 # ─── Admin review payloads ───────────────────────────────────────────────
+
 
 class ApplicationApprove(BaseModel):
     reviewer_notes: Optional[str] = Field(None, max_length=5000)
@@ -155,5 +160,6 @@ class ApplicationApprove(BaseModel):
 
 
 class ApplicationReject(BaseModel):
-    reviewer_notes: str = Field(..., min_length=5, max_length=5000,
-                                description="Reason shown to the applicant.")
+    reviewer_notes: str = Field(
+        ..., min_length=5, max_length=5000, description="Reason shown to the applicant."
+    )

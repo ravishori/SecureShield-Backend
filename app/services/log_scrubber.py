@@ -19,7 +19,9 @@ MAX_MESSAGE = 4_000
 MAX_TRACEBACK = 20_000
 MAX_EXTRA_STRING = 2_000
 
-_JWT = re.compile(r"eyJ[A-Za-z0-9_-]{6,4096}\.[A-Za-z0-9_-]{6,4096}\.[A-Za-z0-9_-]{0,4096}")
+_JWT = re.compile(
+    r"eyJ[A-Za-z0-9_-]{6,4096}\.[A-Za-z0-9_-]{6,4096}\.[A-Za-z0-9_-]{0,4096}"
+)
 _AUTH_SCHEME = re.compile(r"(?i)\b(bearer|basic)\s{1,8}[A-Za-z0-9._~+/=-]{8,4096}")
 # key=VALUE style secrets in URLs, form bodies and messages
 _KV = re.compile(
@@ -27,15 +29,23 @@ _KV = re.compile(
     r"secret|client[_-]?secret|password|passwd|pwd|authorization|signature|sig|otp)\b)"
     r"(?P<sep>\s*[=:]\s*)(?P<q>[\"']?)(?P<v>[^&\s\"'<>,;)}\]]+)"
 )
-_KNOWN_KEYS = re.compile(r"\b(?:sk-ant-[A-Za-z0-9_-]{10,}|AIza[0-9A-Za-z_-]{20,}|AC[0-9a-f]{32}|SG\.[A-Za-z0-9_-]{16,}|re_[A-Za-z0-9]{16,})\b")
-_URL_USERINFO = re.compile(r"(?P<scheme>[A-Za-z][A-Za-z0-9+.-]{0,19}://)(?P<user>[^:/\s@]{1,128}):(?P<pw>[^@\s/]{1,256})@")
+_KNOWN_KEYS = re.compile(
+    r"\b(?:sk-ant-[A-Za-z0-9_-]{10,}|AIza[0-9A-Za-z_-]{20,}|AC[0-9a-f]{32}|SG\.[A-Za-z0-9_-]{16,}|re_[A-Za-z0-9]{16,})\b"
+)
+_URL_USERINFO = re.compile(
+    r"(?P<scheme>[A-Za-z][A-Za-z0-9+.-]{0,19}://)(?P<user>[^:/\s@]{1,128}):(?P<pw>[^@\s/]{1,256})@"
+)
 # asyncpg/psycopg: ``Key (email)=(a@b.com) already exists.``
 _PG_DETAIL = re.compile(r"(?i)(Key\s*\([^)]*\)\s*=\s*\()[^)]*(\))")
 # pydantic v2: ``input_value='...'`` / ``[input_value=..., input_type=str]``
 _PYDANTIC_INPUT = re.compile(r"(input_value\s*=\s*)(?:'[^']*'|\"[^\"]*\"|[^,\]\s]+)")
-_EMAIL = re.compile(r"(?<![A-Za-z0-9._%+-])([A-Za-z0-9._%+-])[A-Za-z0-9._%+-]{0,63}@([A-Za-z0-9-]{1,63}(?:\.[A-Za-z0-9-]{1,63}){1,8})(?![A-Za-z0-9-])")
+_EMAIL = re.compile(
+    r"(?<![A-Za-z0-9._%+-])([A-Za-z0-9._%+-])[A-Za-z0-9._%+-]{0,63}@([A-Za-z0-9-]{1,63}(?:\.[A-Za-z0-9-]{1,63}){1,8})(?![A-Za-z0-9-])"
+)
 _PHONE = re.compile(r"(?<![\w.:/-])\+?\d[\d \-]{8,16}\d(?![\w.-])")
-_OTP_WORDS = re.compile(r"(?i)\b(otp|verification code|passcode|pin)\b([^0-9\n]{0,12})(\d{4,8})\b")
+_OTP_WORDS = re.compile(
+    r"(?i)\b(otp|verification code|passcode|pin)\b([^0-9\n]{0,12})(\d{4,8})\b"
+)
 
 
 def _mask_phone(m: re.Match) -> str:
@@ -65,7 +75,10 @@ def scrub_text(value: str | None, limit: int = MAX_MESSAGE) -> str | None:
         s = _EMAIL.sub(lambda m: f"{m.group(1)}***@{m.group(2)}", s)
         s = _PHONE.sub(_mask_phone, s)
         if pre_cut > 0 or len(s) > limit:
-            s = s[:limit] + f"… [truncated {max(pre_cut, 0) + max(len(s) - limit, 0)} chars]"
+            s = (
+                s[:limit]
+                + f"… [truncated {max(pre_cut, 0) + max(len(s) - limit, 0)} chars]"
+            )
         return s
     except Exception:  # noqa: BLE001 - logging must never fail because of scrubbing
         return "[unscrubbable text omitted]"

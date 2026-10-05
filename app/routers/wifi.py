@@ -20,13 +20,17 @@ async def scan_wifi(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    is_open = not request.encryption_type or request.encryption_type.upper() in ["NONE", "OPEN", ""]
+    is_open = not request.encryption_type or request.encryption_type.upper() in [
+        "NONE",
+        "OPEN",
+        "",
+    ]
     is_suspicious, risk_level, risk_reasons = analyze_wifi(
         request.ssid, request.encryption_type, is_open
     )
 
     scan = WifiScan(
-        device_id=None,           # device_id is optional — not required for wifi scans
+        device_id=None,  # device_id is optional — not required for wifi scans
         ssid=request.ssid,
         bssid=request.bssid,
         signal_strength=request.signal_strength,
@@ -41,7 +45,7 @@ async def scan_wifi(
     if is_suspicious or risk_level in ("high", "medium"):
         alert = Alert(
             user_id=current_user.id,
-            device_id=None,       # device_id optional on alerts too
+            device_id=None,  # device_id optional on alerts too
             alert_type=AlertType.wifi_unsafe,
             title=f"Unsafe Wi-Fi: {request.ssid or 'Unknown'}",
             message=f"The Wi-Fi network '{request.ssid}' may be unsafe. Reasons: {', '.join(risk_reasons)}",
@@ -62,6 +66,7 @@ async def get_history(
     db: AsyncSession = Depends(get_db),
 ):
     import uuid
+
     query = select(WifiScan).order_by(WifiScan.scanned_at.desc()).limit(50)
     if device_id:
         query = query.where(WifiScan.device_id == uuid.UUID(device_id))

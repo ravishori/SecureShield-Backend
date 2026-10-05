@@ -7,6 +7,7 @@ Set ADMIN_TOKEN in .env to a strong secret. Then call with:
     curl -H "X-Admin-Token: $ADMIN_TOKEN" \
          http://localhost:8000/api/v1/admin/errors?level=CRITICAL&limit=20
 """
+
 from __future__ import annotations
 
 from typing import Any, Optional
@@ -59,17 +60,17 @@ async def list_errors(
         "offset": offset,
         "errors": [
             {
-                "id":             r.id,
-                "level":          r.level,
-                "message":        r.message,
+                "id": r.id,
+                "level": r.level,
+                "message": r.message,
                 "exception_type": r.exception_type,
-                "endpoint":       r.endpoint,
-                "method":         r.method,
-                "user_id":        r.user_id,
-                "client_ip":      r.client_ip,
-                "email_sent":     r.email_sent,
-                "created_at":     r.created_at.isoformat() if r.created_at else None,
-                "has_traceback":  bool(r.traceback),
+                "endpoint": r.endpoint,
+                "method": r.method,
+                "user_id": r.user_id,
+                "client_ip": r.client_ip,
+                "email_sent": r.email_sent,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "has_traceback": bool(r.traceback),
             }
             for r in rows
         ],
@@ -90,18 +91,18 @@ async def get_error(
         raise HTTPException(status_code=404, detail=f"error_log {error_id} not found")
 
     return {
-        "id":             row.id,
-        "level":          row.level,
-        "message":        row.message,
+        "id": row.id,
+        "level": row.level,
+        "message": row.message,
         "exception_type": row.exception_type,
-        "traceback":      row.traceback,
-        "endpoint":       row.endpoint,
-        "method":         row.method,
-        "user_id":        row.user_id,
-        "client_ip":      row.client_ip,
-        "extra":          row.extra,
-        "email_sent":     row.email_sent,
-        "created_at":     row.created_at.isoformat() if row.created_at else None,
+        "traceback": row.traceback,
+        "endpoint": row.endpoint,
+        "method": row.method,
+        "user_id": row.user_id,
+        "client_ip": row.client_ip,
+        "extra": row.extra,
+        "email_sent": row.email_sent,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
     }
 
 
@@ -114,19 +115,20 @@ async def errors_summary(
     _check_admin(x_admin_token)
 
     # Per-level counts
-    level_rows = (await db.execute(
-        select(ErrorLog.level, func.count())
-        .group_by(ErrorLog.level)
-    )).all()
+    level_rows = (
+        await db.execute(select(ErrorLog.level, func.count()).group_by(ErrorLog.level))
+    ).all()
 
     # Top 10 noisiest endpoints
-    endpoint_rows = (await db.execute(
-        select(ErrorLog.endpoint, func.count())
-        .where(ErrorLog.endpoint.isnot(None))
-        .group_by(ErrorLog.endpoint)
-        .order_by(desc(func.count()))
-        .limit(10)
-    )).all()
+    endpoint_rows = (
+        await db.execute(
+            select(ErrorLog.endpoint, func.count())
+            .where(ErrorLog.endpoint.isnot(None))
+            .group_by(ErrorLog.endpoint)
+            .order_by(desc(func.count()))
+            .limit(10)
+        )
+    ).all()
 
     return {
         "by_level": {lvl: cnt for lvl, cnt in level_rows},

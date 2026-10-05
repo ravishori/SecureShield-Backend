@@ -11,7 +11,9 @@ class ChatRequest(BaseModel):
     topic_category: Optional[str] = Field(None, max_length=64)
     # ISO 639-1 language code (en/hi/mr/bn/ta/te/kn/gu/ml/pa/or/ur/as).
     # When provided, the AI replies in that language.
-    language: Optional[str] = Field("en", max_length=8, pattern=r"^[A-Za-z]{2,3}(-[A-Za-z]{2,4})?$")
+    language: Optional[str] = Field(
+        "en", max_length=8, pattern=r"^[A-Za-z]{2,3}(-[A-Za-z]{2,4})?$"
+    )
 
     @field_validator("message")
     @classmethod
@@ -48,11 +50,13 @@ class ComplaintEmailRequest(BaseModel):
     incident_date: Optional[str] = Field(None, max_length=50)
     evidence_summary: Optional[str] = Field(None, max_length=2000)
     suspect_info: Optional[str] = Field(None, max_length=1000)
-    language: Optional[str] = Field("en", max_length=8, pattern=r"^[A-Za-z]{2,3}(-[A-Za-z]{2,4})?$")
+    language: Optional[str] = Field(
+        "en", max_length=8, pattern=r"^[A-Za-z]{2,3}(-[A-Za-z]{2,4})?$"
+    )
 
 
 class ComplaintEmailResponse(BaseModel):
     subject: str
     body: str
-    email: str          # same as body — for Flutter compatibility
+    email: str  # same as body — for Flutter compatibility
     to_addresses: List[str]

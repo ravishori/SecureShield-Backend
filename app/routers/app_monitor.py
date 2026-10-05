@@ -7,6 +7,7 @@ Endpoints:
   GET   /summary       — aggregate stats for dashboard widget
   DELETE/{id}          — delete a specific event record
 """
+
 from __future__ import annotations
 
 import uuid
@@ -22,8 +23,10 @@ from app.models.user import User
 from app.models.app_install_event import AppInstallEvent
 from app.models.alert import Alert, AlertType, AlertSeverity
 from app.schemas.app_monitor import (
-    BatchSyncRequest, BatchSyncResponse,
-    AppEventResponse, MonitorHistoryResponse,
+    BatchSyncRequest,
+    BatchSyncResponse,
+    AppEventResponse,
+    MonitorHistoryResponse,
 )
 from app.routers.auth import get_current_user
 from app.services.risk_engine import compute_risk
@@ -89,7 +92,10 @@ async def batch_sync_events(
         db.add(event)
 
         # ── Auto-create alert for dangerous events ────────────────────────────
-        if risk.level == "danger" or clone.verdict in ("likely_clone", "confirmed_clone"):
+        if risk.level == "danger" or clone.verdict in (
+            "likely_clone",
+            "confirmed_clone",
+        ):
             title = (
                 f"⚠️ Fake app detected: {ev.app_name}"
                 if clone.verdict in ("likely_clone", "confirmed_clone")
@@ -98,14 +104,16 @@ async def batch_sync_events(
             alert = Alert(
                 user_id=current_user.id,
                 alert_type=AlertType.malware_detected,
-                severity=AlertSeverity.high if risk.level == "danger" else AlertSeverity.medium,
+                severity=AlertSeverity.high
+                if risk.level == "danger"
+                else AlertSeverity.medium,
                 title=title,
                 description="; ".join(risk.tags[:3]),
                 metadata={
-                    "packageName":    ev.package_name,
-                    "riskScore":      risk.score,
-                    "cloneVerdict":   clone.verdict,
-                    "cloneTarget":    clone.target_name,
+                    "packageName": ev.package_name,
+                    "riskScore": risk.score,
+                    "cloneVerdict": clone.verdict,
+                    "cloneTarget": clone.target_name,
                 },
                 is_read=False,
             )
@@ -117,14 +125,16 @@ async def batch_sync_events(
     for e in saved:
         await db.refresh(e)
 
-    return BatchSyncResponse(synced=len(saved), results=[_to_response(e) for e in saved])
+    return BatchSyncResponse(
+        synced=len(saved), results=[_to_response(e) for e in saved]
+    )
 
 
 @router.get("/history", response_model=MonitorHistoryResponse)
 async def get_history(
-    page:  int = Query(1, ge=1),
+    page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
-    risk_level: str | None = Query(None),      # filter: safe / warning / danger
+    risk_level: str | None = Query(None),  # filter: safe / warning / danger
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -134,11 +144,11 @@ async def get_history(
         q = q.where(AppInstallEvent.risk_level == risk_level)
     q = q.order_by(desc(AppInstallEvent.created_at))
 
-    total_q  = select(func.count()).select_from(q.subquery())
-    total    = (await db.execute(total_q)).scalar_one()
+    total_q = select(func.count()).select_from(q.subquery())
+    total = (await db.execute(total_q)).scalar_one()
 
-    result   = await db.execute(q.offset((page - 1) * limit).limit(limit))
-    events   = result.scalars().all()
+    result = await db.execute(q.offset((page - 1) * limit).limit(limit))
+    events = result.scalars().all()
 
     return MonitorHistoryResponse(
         events=[_to_response(e) for e in events],
@@ -153,17 +163,23 @@ async def get_summary(
 ):
     """Aggregated counts for the dashboard widget."""
     base = select(func.count()).where(AppInstallEvent.user_id == current_user.id)
-    total   = (await db.execute(base)).scalar_one()
-    danger  = (await db.execute(base.where(AppInstallEvent.risk_level == "danger"))).scalar_one()
-    warning = (await db.execute(base.where(AppInstallEvent.risk_level == "warning"))).scalar_one()
-    clones  = (await db.execute(base.where(AppInstallEvent.flagged_as_clone.is_(True)))).scalar_one()
+    total = (await db.execute(base)).scalar_one()
+    danger = (
+        await db.execute(base.where(AppInstallEvent.risk_level == "danger"))
+    ).scalar_one()
+    warning = (
+        await db.execute(base.where(AppInstallEvent.risk_level == "warning"))
+    ).scalar_one()
+    clones = (
+        await db.execute(base.where(AppInstallEvent.flagged_as_clone.is_(True)))
+    ).scalar_one()
 
     return {
         "total_monitored": total,
-        "danger_count":    danger,
-        "warning_count":   warning,
-        "clone_count":     clones,
-        "safe_count":      total - danger - warning,
+        "danger_count": danger,
+        "warning_count": warning,
+        "clone_count": clones,
+        "safe_count": total - danger - warning,
     }
 
 
@@ -188,8 +204,10 @@ async def delete_event(
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+
 def _to_response(e: AppInstallEvent) -> AppEventResponse:
     from app.schemas.app_monitor import AppEventResponse
+
     return AppEventResponse(
         id=e.id,
         package_name=e.package_name,

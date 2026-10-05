@@ -93,12 +93,23 @@ SCAM_DOMAINS = [
 
 # Fake job offer keywords
 FAKE_JOB_KEYWORDS = [
-    "work from home earn", "guaranteed income", "no experience required earn",
-    "daily payment", "weekly salary guaranteed", "upfront registration fee",
-    "pay to apply", "training fee required", "part time earn lakhs",
-    "data entry earn per day", "typing job earn", "earn from mobile",
-    "whatsapp job", "telegram earning", "youtube subscriber job",
-    "like and subscribe earn", "investment required job",
+    "work from home earn",
+    "guaranteed income",
+    "no experience required earn",
+    "daily payment",
+    "weekly salary guaranteed",
+    "upfront registration fee",
+    "pay to apply",
+    "training fee required",
+    "part time earn lakhs",
+    "data entry earn per day",
+    "typing job earn",
+    "earn from mobile",
+    "whatsapp job",
+    "telegram earning",
+    "youtube subscriber job",
+    "like and subscribe earn",
+    "investment required job",
 ]
 
 # Scam message patterns
@@ -121,14 +132,24 @@ SCAM_MESSAGE_PATTERNS = [
 
 # Cyberbullying indicator patterns
 BULLYING_PATTERNS = [
-    r"\byou.*stupid\b", r"\byou.*idiot\b", r"\bkill.*yourself\b",
-    r"\bnobody.*likes.*you\b", r"\byou.*ugly\b", r"\byou.*loser\b",
-    r"\bgo.*die\b", r"\bi.*hate.*you\b", r"\byou.*worthless\b",
-    r"\bstupid.*kid\b", r"\bbig.*fat\b", r"\byou.*fat\b",
+    r"\byou.*stupid\b",
+    r"\byou.*idiot\b",
+    r"\bkill.*yourself\b",
+    r"\bnobody.*likes.*you\b",
+    r"\byou.*ugly\b",
+    r"\byou.*loser\b",
+    r"\bgo.*die\b",
+    r"\bi.*hate.*you\b",
+    r"\byou.*worthless\b",
+    r"\bstupid.*kid\b",
+    r"\bbig.*fat\b",
+    r"\byou.*fat\b",
 ]
 
 
-def analyze_app_risk(package_name: str, permissions: List[str], is_system_app: bool) -> Tuple[float, str, bool, List[str]]:
+def analyze_app_risk(
+    package_name: str, permissions: List[str], is_system_app: bool
+) -> Tuple[float, str, bool, List[str]]:
     """
     Returns (risk_score, risk_level, is_malicious, threat_tags)
     """
@@ -214,7 +235,9 @@ def analyze_app_risk(package_name: str, permissions: List[str], is_system_app: b
     return risk_score, risk_level, is_malicious, threat_tags
 
 
-def get_removal_reason(risk_level: str, threat_tags: List[str], is_malicious: bool) -> str | None:
+def get_removal_reason(
+    risk_level: str, threat_tags: List[str], is_malicious: bool
+) -> str | None:
     """Returns a human-readable removal recommendation."""
     if is_malicious or "known_spyware" in threat_tags:
         return "This app is identified as spyware or malware. Uninstall immediately and run a device scan."
@@ -227,7 +250,9 @@ def get_removal_reason(risk_level: str, threat_tags: List[str], is_malicious: bo
     if "accessibility_abuse_risk" in threat_tags:
         return "Accessibility service abuse can allow hidden screen reading. Review if this app needs this permission."
     if risk_level == "high":
-        return "High-risk permissions detected. Only keep this app if you fully trust it."
+        return (
+            "High-risk permissions detected. Only keep this app if you fully trust it."
+        )
     return None
 
 
@@ -266,7 +291,18 @@ def analyze_url(url: str) -> Tuple[bool, bool, float, str]:
     if len(url) > 200:
         risk_score += 10
 
-    suspicious_keywords = ["verify", "login", "secure", "update", "kyc", "otp", "bank", "reward", "prize", "winner"]
+    suspicious_keywords = [
+        "verify",
+        "login",
+        "secure",
+        "update",
+        "kyc",
+        "otp",
+        "bank",
+        "reward",
+        "prize",
+        "winner",
+    ]
     for kw in suspicious_keywords:
         if kw in url_lower:
             risk_score += 5
@@ -298,7 +334,9 @@ def analyze_url(url: str) -> Tuple[bool, bool, float, str]:
     return is_phishing, is_malicious, risk_score, threat_category
 
 
-def analyze_wifi(ssid: str | None, encryption_type: str | None, is_open: bool) -> Tuple[bool, str, list]:
+def analyze_wifi(
+    ssid: str | None, encryption_type: str | None, is_open: bool
+) -> Tuple[bool, str, list]:
     """
     Returns (is_suspicious, risk_level, risk_reasons)
     """
@@ -306,7 +344,11 @@ def analyze_wifi(ssid: str | None, encryption_type: str | None, is_open: bool) -
     risk_level = "safe"
     is_suspicious = False
 
-    if is_open or not encryption_type or encryption_type.upper() in ["NONE", "OPEN", ""]:
+    if (
+        is_open
+        or not encryption_type
+        or encryption_type.upper() in ["NONE", "OPEN", ""]
+    ):
         is_suspicious = True
         risk_level = "high"
         risk_reasons.append("Open network — no encryption")
@@ -323,7 +365,13 @@ def analyze_wifi(ssid: str | None, encryption_type: str | None, is_open: bool) -
     # Check for suspicious SSID patterns
     if ssid:
         ssid_lower = ssid.lower()
-        suspicious_ssids = ["free wifi", "public wifi", "airport wifi", "hotel lobby", "starbucks"]
+        suspicious_ssids = [
+            "free wifi",
+            "public wifi",
+            "airport wifi",
+            "hotel lobby",
+            "starbucks",
+        ]
         for s in suspicious_ssids:
             if s in ssid_lower:
                 if not is_suspicious:
@@ -338,7 +386,9 @@ def analyze_wifi(ssid: str | None, encryption_type: str | None, is_open: bool) -
     return is_suspicious, risk_level, risk_reasons
 
 
-def analyze_scam_call(caller_number: str, duration_seconds: int, audio_features: dict | None) -> Tuple[float, str]:
+def analyze_scam_call(
+    caller_number: str, duration_seconds: int, audio_features: dict | None
+) -> Tuple[float, str]:
     """
     Returns (risk_score, detection_reason)
     """
@@ -372,7 +422,9 @@ def analyze_scam_call(caller_number: str, duration_seconds: int, audio_features:
             reasons.append("Unusually fast speech rate")
 
     risk_score = min(risk_score, 100.0)
-    detection_reason = "; ".join(reasons) if reasons else "No suspicious patterns detected"
+    detection_reason = (
+        "; ".join(reasons) if reasons else "No suspicious patterns detected"
+    )
 
     return risk_score, detection_reason
 
@@ -401,7 +453,7 @@ def analyze_message_content(text: str) -> Tuple[float, str, List[str]]:
                 detected_patterns.append("fake_job_offer")
 
     # Check for suspicious links in message
-    urls_in_text = re.findall(r'https?://\S+', text)
+    urls_in_text = re.findall(r"https?://\S+", text)
     for url in urls_in_text:
         _, is_malicious, url_score, _ = analyze_url(url)
         if is_malicious or url_score > 40:
@@ -410,14 +462,30 @@ def analyze_message_content(text: str) -> Tuple[float, str, List[str]]:
             break
 
     # Urgency keywords
-    urgency_words = ["urgent", "immediately", "now", "expire", "suspended", "blocked", "action required"]
+    urgency_words = [
+        "urgent",
+        "immediately",
+        "now",
+        "expire",
+        "suspended",
+        "blocked",
+        "action required",
+    ]
     urgency_count = sum(1 for w in urgency_words if w in text_lower)
     if urgency_count >= 2:
         risk_score += urgency_count * 5
         detected_patterns.append("high_urgency_language")
 
     # Financial bait
-    financial_bait = ["won", "prize", "reward", "cashback", "refund", "lottery", "lucky draw"]
+    financial_bait = [
+        "won",
+        "prize",
+        "reward",
+        "cashback",
+        "refund",
+        "lottery",
+        "lucky draw",
+    ]
     if any(w in text_lower for w in financial_bait):
         risk_score += 15
         detected_patterns.append("financial_bait")
@@ -452,28 +520,50 @@ def analyze_job_offer(text: str) -> Tuple[float, bool, List[str]]:
             red_flags.append(f"Suspicious phrase: '{keyword}'")
 
     # Fee-based red flags
-    if any(w in text_lower for w in ["registration fee", "training fee", "deposit", "pay first", "advance payment"]):
+    if any(
+        w in text_lower
+        for w in [
+            "registration fee",
+            "training fee",
+            "deposit",
+            "pay first",
+            "advance payment",
+        ]
+    ):
         risk_score += 35
         red_flags.append("Legitimate jobs never ask for payment upfront")
 
     # Unrealistic income claims
-    income_pattern = re.search(r"earn.*?(\d+[,\d]*)\s*(rs|rupees|₹|per day|daily)", text_lower)
+    income_pattern = re.search(
+        r"earn.*?(\d+[,\d]*)\s*(rs|rupees|₹|per day|daily)", text_lower
+    )
     if income_pattern:
         risk_score += 20
         red_flags.append("Unrealistic income claim detected")
 
     # Contact via WhatsApp/Telegram (not professional)
-    if any(w in text_lower for w in ["whatsapp", "telegram", "signal"]) and "apply" in text_lower:
+    if (
+        any(w in text_lower for w in ["whatsapp", "telegram", "signal"])
+        and "apply" in text_lower
+    ):
         risk_score += 15
-        red_flags.append("Legitimate companies use official email, not WhatsApp/Telegram for hiring")
+        red_flags.append(
+            "Legitimate companies use official email, not WhatsApp/Telegram for hiring"
+        )
 
     # No company name or vague employer
-    if not any(w in text_lower for w in ["company", "organization", "pvt ltd", "limited", "inc", "llp"]):
+    if not any(
+        w in text_lower
+        for w in ["company", "organization", "pvt ltd", "limited", "inc", "llp"]
+    ):
         risk_score += 10
         red_flags.append("No company name mentioned")
 
     # Urgency in job posting
-    if any(w in text_lower for w in ["urgent hiring", "immediate joining", "today only", "limited seats"]):
+    if any(
+        w in text_lower
+        for w in ["urgent hiring", "immediate joining", "today only", "limited seats"]
+    ):
         risk_score += 15
         red_flags.append("Artificial urgency — common fake job tactic")
 
@@ -498,12 +588,23 @@ def detect_cyberbullying(text: str) -> Tuple[float, bool, List[str]]:
             indicators.append("Harmful language detected")
 
     # Threats
-    if any(w in text_lower for w in ["i will hurt you", "i know where you live", "you'll regret", "watch your back"]):
+    if any(
+        w in text_lower
+        for w in [
+            "i will hurt you",
+            "i know where you live",
+            "you'll regret",
+            "watch your back",
+        ]
+    ):
         score += 40
         indicators.append("Threat detected")
 
     # Exclusion/isolation language
-    if any(w in text_lower for w in ["nobody wants you", "everyone hates you", "you have no friends"]):
+    if any(
+        w in text_lower
+        for w in ["nobody wants you", "everyone hates you", "you have no friends"]
+    ):
         score += 35
         indicators.append("Social exclusion language detected")
 

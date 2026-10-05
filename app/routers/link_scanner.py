@@ -13,6 +13,7 @@ Verdict pipeline:
 The `scan_provider` field on the response reports which tier produced the
 final verdict, so the UI can show a confidence indicator.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -39,19 +40,22 @@ router = APIRouter(prefix="/link-scanner", tags=["link-scanner"])
 
 # Maps any provider's threat-type string to the canonical internal category.
 _THREAT_CATEGORY_MAP = {
-    "MALWARE":                        "malware",
-    "MALWARE_DOWNLOAD":               "malware",
-    "SOCIAL_ENGINEERING":             "phishing",
-    "PHISHING":                       "phishing",
-    "UNWANTED_SOFTWARE":              "unwanted_software",
-    "POTENTIALLY_HARMFUL_APPLICATION":"harmful_app",
-    "EXPLOIT":                        "exploit",
+    "MALWARE": "malware",
+    "MALWARE_DOWNLOAD": "malware",
+    "SOCIAL_ENGINEERING": "phishing",
+    "PHISHING": "phishing",
+    "UNWANTED_SOFTWARE": "unwanted_software",
+    "POTENTIALLY_HARMFUL_APPLICATION": "harmful_app",
+    "EXPLOIT": "exploit",
 }
 
 # Statuses indicating the provider couldn't deliver a definitive verdict.
 _INCONCLUSIVE = {
-    "no_api_key", "rate_limited",
-    "network_error", "http_error", "unknown_error",
+    "no_api_key",
+    "rate_limited",
+    "network_error",
+    "http_error",
+    "unknown_error",
 }
 
 
@@ -64,13 +68,17 @@ async def scan_link(
     url = request.url
 
     # ── Providers (concurrent; each degrades to an inconclusive envelope, never raises) ──
-    gsb_result, urlhaus_result = await asyncio.gather(check_url_gsb(url), check_url_urlhaus(url))
+    gsb_result, urlhaus_result = await asyncio.gather(
+        check_url_gsb(url), check_url_urlhaus(url)
+    )
     gsb_status = gsb_result.get("status")
     urlhaus_status = urlhaus_result.get("status")
 
     if gsb_status == "malicious" or urlhaus_status == "malicious":
         hit, provider = (
-            (gsb_result, "google_safe_browsing") if gsb_status == "malicious" else (urlhaus_result, "urlhaus")
+            (gsb_result, "google_safe_browsing")
+            if gsb_status == "malicious"
+            else (urlhaus_result, "urlhaus")
         )
         threats = hit["threats"]
         threat_types = [t["threat_type"] for t in threats]
@@ -78,7 +86,9 @@ async def scan_link(
         is_malicious = True
         risk_score = 95.0 if provider == "google_safe_browsing" else 90.0
         threat_category = (
-            _THREAT_CATEGORY_MAP.get(threat_types[0], "malicious_url") if threat_types else "malicious_url"
+            _THREAT_CATEGORY_MAP.get(threat_types[0], "malicious_url")
+            if threat_types
+            else "malicious_url"
         )
         scan_provider = provider
         gsb_threats = threats
@@ -88,8 +98,10 @@ async def scan_link(
         is_phishing, is_malicious, risk_score, threat_category = analyze_url(url)
         both = gsb_status == "safe" and urlhaus_status == "safe"
         scan_provider = (
-            "google_safe_browsing+urlhaus" if both
-            else "google_safe_browsing" if gsb_status == "safe"
+            "google_safe_browsing+urlhaus"
+            if both
+            else "google_safe_browsing"
+            if gsb_status == "safe"
             else "urlhaus_clean_internal_score"
         )
         gsb_threats = []
@@ -99,7 +111,10 @@ async def scan_link(
         gsb_threats = None
         logger.info(
             "[LinkScan] All external providers inconclusive — gsb=%s/%s urlhaus=%s/%s",
-            gsb_status, gsb_result.get("reason"), urlhaus_status, urlhaus_result.get("reason"),
+            gsb_status,
+            gsb_result.get("reason"),
+            urlhaus_status,
+            urlhaus_result.get("reason"),
         )
 
     scan = LinkScan(

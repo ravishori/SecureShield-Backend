@@ -36,10 +36,14 @@ def delivered(monkeypatch):
 
 async def _otp_row(db, email):
     return (
-        await db.execute(
-            select(OTP).where(OTP.email == email).order_by(OTP.created_at.desc())
+        (
+            await db.execute(
+                select(OTP).where(OTP.email == email).order_by(OTP.created_at.desc())
+            )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
 
 
 async def _register(client, email):
@@ -47,11 +51,17 @@ async def _register(client, email):
     assert r.status_code == 200, r.text
 
 
-async def test_otp_generation_stores_code_with_ttl_and_delivers_same_code(client, db, delivered):
+async def test_otp_generation_stores_code_with_ttl_and_delivers_same_code(
+    client, db, delivered
+):
     await _register(client, "gen@example.com")
     row = await _otp_row(db, "gen@example.com")
     assert row.code.isdigit() and len(row.code) == 6 and not row.is_used
-    assert timedelta(minutes=5) < row.expires_at - datetime.utcnow() <= timedelta(minutes=15)
+    assert (
+        timedelta(minutes=5)
+        < row.expires_at - datetime.utcnow()
+        <= timedelta(minutes=15)
+    )
     assert ("gen@example.com", row.code) in delivered
 
 
@@ -59,9 +69,13 @@ async def test_verify_success_returns_tokens_and_burns_otp(client, db, delivered
     await _register(client, "ok@example.com")
     code = (await _otp_row(db, "ok@example.com")).code
     r = await client.post(VERIFY, json={"identifier": "ok@example.com", "code": code})
-    assert r.status_code == 200 and r.json()["access_token"] and r.json()["refresh_token"]
+    assert (
+        r.status_code == 200 and r.json()["access_token"] and r.json()["refresh_token"]
+    )
     # single use
-    again = await client.post(VERIFY, json={"identifier": "ok@example.com", "code": code})
+    again = await client.post(
+        VERIFY, json={"identifier": "ok@example.com", "code": code}
+    )
     assert again.status_code == 400
     # token works and refresh issues a working access token
     h = {"Authorization": f"Bearer {r.json()['access_token']}"}
@@ -76,13 +90,21 @@ async def test_wrong_and_expired_codes_rejected(client, db, delivered, session_f
     await _register(client, "bad@example.com")
     row = await _otp_row(db, "bad@example.com")
     wrong = "000000" if row.code != "000000" else "111111"
-    assert (await client.post(VERIFY, json={"identifier": "bad@example.com", "code": wrong})).status_code == 400
+    assert (
+        await client.post(VERIFY, json={"identifier": "bad@example.com", "code": wrong})
+    ).status_code == 400
     async with session_factory() as s:
         await s.execute(
-            text("update otps set expires_at = (now() at time zone 'utc') - interval '1 minute' where email='bad@example.com'")
+            text(
+                "update otps set expires_at = (now() at time zone 'utc') - interval '1 minute' where email='bad@example.com'"
+            )
         )
         await s.commit()
-    assert (await client.post(VERIFY, json={"identifier": "bad@example.com", "code": row.code})).status_code == 400
+    assert (
+        await client.post(
+            VERIFY, json={"identifier": "bad@example.com", "code": row.code}
+        )
+    ).status_code == 400
 
 
 async def test_code_for_one_identifier_does_not_work_for_another(client, db, delivered):
@@ -91,11 +113,15 @@ async def test_code_for_one_identifier_does_not_work_for_another(client, db, del
     code_a = (await _otp_row(db, "a@example.com")).code
     code_b = (await _otp_row(db, "b@example.com")).code
     if code_a != code_b:  # random 6-digit codes: only meaningful when they differ
-        r = await client.post(VERIFY, json={"identifier": "b@example.com", "code": code_a})
+        r = await client.post(
+            VERIFY, json={"identifier": "b@example.com", "code": code_a}
+        )
         assert r.status_code == 400
 
 
-async def test_delivery_failure_on_login_returns_503_and_leaks_nothing(client, db, delivered, monkeypatch):
+async def test_delivery_failure_on_login_returns_503_and_leaks_nothing(
+    client, db, delivered, monkeypatch
+):
     await _register(client, "fail@example.com")
 
     async def _down(identifier, code):

@@ -23,7 +23,9 @@ async def add_member(
 ):
     member_user_id = None
     if request.member_phone:
-        result = await db.execute(select(User).where(User.phone == request.member_phone))
+        result = await db.execute(
+            select(User).where(User.phone == request.member_phone)
+        )
         member_user = result.scalar_one_or_none()
         if member_user:
             member_user_id = member_user.id
@@ -35,9 +37,9 @@ async def add_member(
         nickname=request.nickname,
         can_view_alerts=request.can_view_alerts,
         can_trigger_panic=request.can_trigger_panic,
-        is_child_profile=getattr(request, 'is_child_profile', False),
-        content_filter_enabled=getattr(request, 'content_filter_enabled', False),
-        cyberbullying_alerts=getattr(request, 'cyberbullying_alerts', False),
+        is_child_profile=getattr(request, "is_child_profile", False),
+        content_filter_enabled=getattr(request, "content_filter_enabled", False),
+        cyberbullying_alerts=getattr(request, "cyberbullying_alerts", False),
     )
     db.add(member)
     await db.commit()
@@ -92,7 +94,9 @@ async def get_member_alerts(
     )
     member = result.scalar_one_or_none()
     if not member or not member.member_user_id:
-        raise HTTPException(status_code=404, detail="Member not found or alerts not permitted")
+        raise HTTPException(
+            status_code=404, detail="Member not found or alerts not permitted"
+        )
 
     result = await db.execute(
         select(Alert)

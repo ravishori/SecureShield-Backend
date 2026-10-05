@@ -8,9 +8,11 @@ from app.database import get_db
 from app.models.user import User
 from app.models.ai_conversation import AiConversation, ConversationRole
 from app.schemas.ai_conversation import (
-    ChatRequest, ChatResponse,
+    ChatRequest,
+    ChatResponse,
     ConversationMessageResponse,
-    ComplaintEmailRequest, ComplaintEmailResponse,
+    ComplaintEmailRequest,
+    ComplaintEmailResponse,
 )
 from app.routers.auth import get_current_user
 from app.services.ai_limits import check_ai_rate
@@ -19,7 +21,6 @@ from app.services.ai_service import chat_with_coach, generate_complaint_email
 router = APIRouter(prefix="/ai", tags=["ai"])
 
 HISTORY_TURNS = 20
-
 
 
 @router.post("/chat", response_model=ChatResponse)
@@ -91,7 +92,9 @@ async def get_history(
     try:
         session_uuid = uuid.UUID(session_id)
     except ValueError:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found"
+        )
     result = await db.execute(
         select(AiConversation)
         .where(

@@ -25,8 +25,10 @@ class TestAssertSafeTestDatabase:
     def test_azure_host_is_rejected(self):
         with pytest.raises(UnsafeTestDatabaseError):
             assert_safe_test_database(
-                _url("secureshield-pg-prod.postgres.database.azure.com",
-                     "SecureShieldDB_test")
+                _url(
+                    "secureshield-pg-prod.postgres.database.azure.com",
+                    "SecureShieldDB_test",
+                )
             )
 
     @pytest.mark.unit

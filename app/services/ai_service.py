@@ -23,7 +23,7 @@ def get_async_client() -> anthropic.AsyncAnthropic:
     if _async_client_singleton is None:
         _async_client_singleton = anthropic.AsyncAnthropic(
             api_key=settings.ANTHROPIC_API_KEY,
-            timeout=AI_TIMEOUT_SECONDS,   # never hold a request open for the SDK default (10 min)
+            timeout=AI_TIMEOUT_SECONDS,  # never hold a request open for the SDK default (10 min)
             max_retries=1,
         )
     return _async_client_singleton
@@ -40,19 +40,19 @@ async def _create_message(**kwargs):
 # Maps ISO 639-1 language code → (English name, native script name).
 # Used to instruct Claude to respond in the user's chosen language.
 LANGUAGE_NAMES: dict[str, tuple[str, str]] = {
-    "en": ("English",   "English"),
-    "hi": ("Hindi",     "हिंदी"),
-    "mr": ("Marathi",   "मराठी"),
-    "bn": ("Bengali",   "বাংলা"),
-    "ta": ("Tamil",     "தமிழ்"),
-    "te": ("Telugu",    "తెలుగు"),
-    "kn": ("Kannada",   "ಕನ್ನಡ"),
-    "gu": ("Gujarati",  "ગુજરાતી"),
+    "en": ("English", "English"),
+    "hi": ("Hindi", "हिंदी"),
+    "mr": ("Marathi", "मराठी"),
+    "bn": ("Bengali", "বাংলা"),
+    "ta": ("Tamil", "தமிழ்"),
+    "te": ("Telugu", "తెలుగు"),
+    "kn": ("Kannada", "ಕನ್ನಡ"),
+    "gu": ("Gujarati", "ગુજરાતી"),
     "ml": ("Malayalam", "മലയാളം"),
-    "pa": ("Punjabi",   "ਪੰਜਾਬੀ"),
-    "or": ("Odia",      "ଓଡ଼ିଆ"),
-    "ur": ("Urdu",      "اردو"),
-    "as": ("Assamese",  "অসমীয়া"),
+    "pa": ("Punjabi", "ਪੰਜਾਬੀ"),
+    "or": ("Odia", "ଓଡ଼ିଆ"),
+    "ur": ("Urdu", "اردو"),
+    "as": ("Assamese", "অসমীয়া"),
 }
 
 
@@ -164,7 +164,12 @@ def _diagnose_ai_error(e: Exception) -> str:
 
 
 def _log_ai_failure(where: str, e: Exception) -> None:
-    logger.error("[AI] %s failed: %s (status=%s)", where, type(e).__name__, getattr(e, "status_code", None))
+    logger.error(
+        "[AI] %s failed: %s (status=%s)",
+        where,
+        type(e).__name__,
+        getattr(e, "status_code", None),
+    )
 
 
 SYSTEM_PROMPT = """You are SecureShield AI Coach — an expert cybersecurity assistant specializing in digital safety for everyday users in India and worldwide. Your role is to:
@@ -268,7 +273,10 @@ def _localised_fallback(language: Optional[str], reason: str) -> str:
         "ta": f"AI Coach தற்போது கிடைக்கவில்லை — {reason}. சிறிது நேரம் கழித்து மீண்டும் முயற்சிக்கவும்.",
         "te": f"AI Coach ప్రస్తుతం అందుబాటులో లేదు — {reason}. దయచేసి కొంత సమయం తర్వాత మళ్లీ ప్రయత్నించండి.",
     }
-    return msg.get(language or "en", f"AI Coach is unavailable right now — {reason}. Please try again shortly.")
+    return msg.get(
+        language or "en",
+        f"AI Coach is unavailable right now — {reason}. Please try again shortly.",
+    )
 
 
 async def generate_complaint_email(
@@ -284,10 +292,9 @@ async def generate_complaint_email(
 ) -> dict:
     """Generate a formal fraud complaint email. Optionally in [language]."""
     try:
-
-        bank_line   = f"Bank/Institution: {bank_name}" if bank_name else ""
+        bank_line = f"Bank/Institution: {bank_name}" if bank_name else ""
         amount_line = f"Amount Lost: ₹{amount}" if amount else ""
-        date_line   = f"Incident Date: {incident_date}" if incident_date else ""
+        date_line = f"Incident Date: {incident_date}" if incident_date else ""
         extra = "\n".join(filter(None, [bank_line, amount_line, date_line]))
 
         prompt = f"""Generate a formal cybercrime complaint email for the following:
@@ -374,14 +381,15 @@ TO: <comma-separated list of recommended recipient emails>"""
         }
 
 
-async def explain_app_threat(app_name: str, risk_score: float, threat_tags: List[str], permissions: List[str]) -> str:
+async def explain_app_threat(
+    app_name: str, risk_score: float, threat_tags: List[str], permissions: List[str]
+) -> str:
     """Generate human-readable explanation of app threats."""
     try:
-
         prompt = f"""Explain in simple language why the app "{app_name}" is flagged as potentially risky:
 Risk Score: {risk_score}/100
-Threat Tags: {', '.join(threat_tags)}
-Dangerous Permissions: {', '.join(permissions[:10])}
+Threat Tags: {", ".join(threat_tags)}
+Dangerous Permissions: {", ".join(permissions[:10])}
 
 Provide:
 1. What the risk means in plain English
@@ -424,7 +432,8 @@ def _build_fir_prompts(
     """
     amount_line = (
         f"Financial Loss: ₹{amount_lost}"
-        if amount_lost else "Financial Loss: None reported"
+        if amount_lost
+        else "Financial Loss: None reported"
     )
 
     user_prompt = f"""Draft a formal Indian FIR for this cybercrime.
@@ -621,7 +630,7 @@ async def stream_fir_draft(
             "complainant_name": complainant_name,
             "generated_at": incident_date,
             "note": "This is a draft. Review with a legal expert before "
-                    "filing at police station.",
+            "filing at police station.",
         }
 
     except Exception as e:
@@ -662,8 +671,8 @@ async def stream_fir_draft(
             "complainant_name": complainant_name,
             "generated_at": incident_date,
             "note": f"{reason}. A complete template was generated locally — "
-                    f"please review and add any missing details before "
-                    f"submitting.",
+            f"please review and add any missing details before "
+            f"submitting.",
             "error": reason,
         }
 
@@ -671,7 +680,6 @@ async def stream_fir_draft(
 async def analyze_message_safety(message_text: str) -> dict:
     """AI-powered analysis of whether a message is safe or a scam."""
     try:
-
         prompt = f"""Analyze this message/SMS for scam, phishing, or fraud indicators:
 
 Message: "{message_text}"
@@ -723,7 +731,9 @@ RED_FLAGS: flag1 | flag2 | flag3"""
                 result["action"] = line.replace("ACTION:", "").strip()
             elif line.startswith("RED_FLAGS:"):
                 flags_raw = line.replace("RED_FLAGS:", "").strip()
-                result["red_flags"] = [f.strip() for f in flags_raw.split("|") if f.strip()]
+                result["red_flags"] = [
+                    f.strip() for f in flags_raw.split("|") if f.strip()
+                ]
 
         return result
 
@@ -741,7 +751,6 @@ RED_FLAGS: flag1 | flag2 | flag3"""
 async def analyze_job_offer_ai(job_text: str) -> dict:
     """AI-powered fake job offer detection."""
     try:
-
         prompt = f"""Analyze this job offer/advertisement for fraud indicators:
 
 Job Offer Text: "{job_text}"
@@ -780,7 +789,9 @@ ACTION: recommended action for the user"""
                     pass
             elif line.startswith("RED_FLAGS:"):
                 flags_raw = line.replace("RED_FLAGS:", "").strip()
-                result["red_flags"] = [f.strip() for f in flags_raw.split("|") if f.strip()]
+                result["red_flags"] = [
+                    f.strip() for f in flags_raw.split("|") if f.strip()
+                ]
             elif line.startswith("EXPLANATION:"):
                 result["explanation"] = line.replace("EXPLANATION:", "").strip()
             elif line.startswith("ACTION:"):
@@ -806,9 +817,12 @@ async def generate_ai_security_tips(
 ) -> List[str]:
     """Generate personalized AI security improvement tips based on user's security data."""
     try:
-
-        behaviors_text = ", ".join(risky_behaviors) if risky_behaviors else "none recorded"
-        threats_text = ", ".join(top_threat_types) if top_threat_types else "no specific threats"
+        behaviors_text = (
+            ", ".join(risky_behaviors) if risky_behaviors else "none recorded"
+        )
+        threats_text = (
+            ", ".join(top_threat_types) if top_threat_types else "no specific threats"
+        )
 
         prompt = f"""Generate 5 personalized cybersecurity improvement tips for a user with:
 - Risk Score: {risk_score}/100

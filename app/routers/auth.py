@@ -111,28 +111,40 @@ async def get_current_user(
 ) -> User:
     token = credentials.credentials
     try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        payload = jwt.decode(
+            token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
+        )
         user_id: str = payload.get("sub")
         if not user_id:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token"
+            )
         # Only ACCESS tokens authenticate API calls. A refresh token (30-day lifetime) must
         # never work as a bearer token, and tokens without a type claim are rejected.
         if payload.get("type") != "access":
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token type")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token type"
+            )
         user_uuid = uuid.UUID(user_id)
     except (JWTError, ValueError):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token"
+        )
 
     result = await db.execute(select(User).where(User.id == user_uuid))
     user = result.scalar_one_or_none()
     if not user or not user.is_active:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found or inactive",
+        )
     return user
 
 
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
+
 
 @router.get("/check-user")
 async def check_user(
@@ -228,7 +240,9 @@ async def register_user(
             except Exception:
                 normalized_phone = body.phone
 
-            existing_phone = await db.execute(select(User).where(User.phone == normalized_phone))
+            existing_phone = await db.execute(
+                select(User).where(User.phone == normalized_phone)
+            )
             if existing_phone.scalar_one_or_none():
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
@@ -252,7 +266,7 @@ async def register_user(
             pin_code=body.pin_code,
         )
         db.add(user)
-        await db.flush()   # get user.id without committing yet
+        await db.flush()  # get user.id without committing yet
 
         # ── Generate OTP (single code, dual delivery) ──────────────────────
         code = str(random.randint(100000, 999999))
@@ -272,12 +286,16 @@ async def register_user(
         # ── Deliver OTP ────────────────────────────────────────────────────
         email_result = await deliver_otp(email_lower, code)
         if not email_result.success:
-            logger.warning(f"OTP email delivery failed for {_mask_email(email_lower)}: {email_result.error}")
+            logger.warning(
+                f"OTP email delivery failed for {_mask_email(email_lower)}: {email_result.error}"
+            )
 
         if normalized_phone:
             phone_result = await deliver_otp(normalized_phone, code)
             if not phone_result.success:
-                logger.warning(f"OTP SMS delivery failed for {_mask_phone(normalized_phone)}: {phone_result.error}")
+                logger.warning(
+                    f"OTP SMS delivery failed for {_mask_phone(normalized_phone)}: {phone_result.error}"
+                )
 
         masked_email = _mask_email(email_lower)
         masked_phone = _mask_phone(normalized_phone) if normalized_phone else None
@@ -331,7 +349,9 @@ async def send_otp(
 
         # ── Look up user to check if they have both channels ───────────────
         if request.is_email:
-            user_result = await db.execute(select(User).where(User.email == identifier.lower()))
+            user_result = await db.execute(
+                select(User).where(User.email == identifier.lower())
+            )
         else:
             user_result = await db.execute(select(User).where(User.phone == identifier))
         user = user_result.scalar_one_or_none()
@@ -368,25 +388,37 @@ async def send_otp(
         # ── Deliver OTP (primary channel + secondary if available) ─────────
         primary_result = await deliver_otp(identifier, code)
         if primary_result.success:
-            logger.info(f"OTP delivered via {primary_result.method} to {_mask(request.identifier)}")
+            logger.info(
+                f"OTP delivered via {primary_result.method} to {_mask(request.identifier)}"
+            )
         else:
-            logger.warning(f"Primary OTP delivery failed to {_mask(request.identifier)}: {primary_result.error}")
+            logger.warning(
+                f"Primary OTP delivery failed to {_mask(request.identifier)}: {primary_result.error}"
+            )
 
         secondary_ok = False
         if other_phone:
             secondary = await deliver_otp(other_phone, code)
             secondary_ok = secondary.success
             if secondary.success:
-                logger.info(f"OTP also delivered via SMS to secondary channel {_mask_phone(other_phone)}")
+                logger.info(
+                    f"OTP also delivered via SMS to secondary channel {_mask_phone(other_phone)}"
+                )
             else:
-                logger.warning(f"Secondary SMS delivery failed for {_mask_phone(other_phone)}: {secondary.error}")
+                logger.warning(
+                    f"Secondary SMS delivery failed for {_mask_phone(other_phone)}: {secondary.error}"
+                )
         elif other_email:
             secondary = await deliver_otp(other_email, code)
             secondary_ok = secondary.success
             if secondary.success:
-                logger.info(f"OTP also delivered via email to secondary channel {_mask_email(other_email)}")
+                logger.info(
+                    f"OTP also delivered via email to secondary channel {_mask_email(other_email)}"
+                )
             else:
-                logger.warning(f"Secondary email delivery failed for {_mask_email(other_email)}: {secondary.error}")
+                logger.warning(
+                    f"Secondary email delivery failed for {_mask_email(other_email)}: {secondary.error}"
+                )
 
         if not primary_result.success and not secondary_ok:
             raise HTTPException(
@@ -492,7 +524,9 @@ async def verify_otp(
                         client_ip=client_ip,
                     )
             except Exception as dev_exc:
-                logger.error(f"Device registration failed for user {user.id}: {dev_exc}")
+                logger.error(
+                    f"Device registration failed for user {user.id}: {dev_exc}"
+                )
 
         # Use email as primary identifier for JWT if available (for registered users)
         login_identifier = user.email or identifier
@@ -531,12 +565,21 @@ async def refresh_token(
         try:
             user_uuid = uuid.UUID(str(user_id))
         except ValueError:
-            raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
+            raise HTTPException(
+                status_code=401, detail="Invalid or expired refresh token"
+            )
         # A deleted/deactivated account must not be able to keep minting tokens.
-        user = (await db.execute(select(User).where(User.id == user_uuid))).scalar_one_or_none()
+        user = (
+            await db.execute(select(User).where(User.id == user_uuid))
+        ).scalar_one_or_none()
         if user is None or not user.is_active:
             raise HTTPException(status_code=401, detail="User not found or inactive")
-        identifier = payload.get("identifier") or payload.get("email") or payload.get("phone") or ""
+        identifier = (
+            payload.get("identifier")
+            or payload.get("email")
+            or payload.get("phone")
+            or ""
+        )
         return create_tokens(user_id, identifier)
 
     except HTTPException:
@@ -551,7 +594,9 @@ async def refresh_token(
             method="POST",
             client_ip=client_ip,
         )
-        raise HTTPException(status_code=500, detail="Token refresh failed. Please log in again.")
+        raise HTTPException(
+            status_code=500, detail="Token refresh failed. Please log in again."
+        )
 
 
 @router.get("/me", response_model=UserResponse)
@@ -576,10 +621,11 @@ async def update_profile(
             current_user.first_name = request.first_name
         if request.last_name is not None:
             current_user.last_name = request.last_name
-        if (request.first_name is not None or request.last_name is not None) \
-                and request.full_name is None:
-            fn = request.first_name or current_user.first_name or ''
-            ln = request.last_name  or current_user.last_name  or ''
+        if (
+            request.first_name is not None or request.last_name is not None
+        ) and request.full_name is None:
+            fn = request.first_name or current_user.first_name or ""
+            ln = request.last_name or current_user.last_name or ""
             current_user.full_name = f"{fn} {ln}".strip() or current_user.full_name
         if request.alt_phone is not None:
             current_user.alt_phone = request.alt_phone
@@ -612,7 +658,9 @@ async def update_profile(
             user_id=str(current_user.id),
             client_ip=client_ip,
         )
-        raise HTTPException(status_code=500, detail="Profile update failed. Please try again.")
+        raise HTTPException(
+            status_code=500, detail="Profile update failed. Please try again."
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -656,28 +704,34 @@ async def delete_account(
     try:
         logger.info(f"Account deletion requested by user {user_id}")
         # Identifiers the OTP rows are keyed by — capture BEFORE the scrub.
-        email, phone, alt_phone = current_user.email, current_user.phone, current_user.alt_phone
+        email, phone, alt_phone = (
+            current_user.email,
+            current_user.phone,
+            current_user.alt_phone,
+        )
 
         # ── Delete user-linked data (rows) inside this transaction ─────────
-        erased = await erase_user_data(db, current_user, email=email, phone=phone, alt_phone=alt_phone)
+        erased = await erase_user_data(
+            db, current_user, email=email, phone=phone, alt_phone=alt_phone
+        )
 
         # ── Scrub the user row into an inert tombstone ──────────────────────
-        current_user.email           = None
-        current_user.phone           = None
-        current_user.alt_phone       = None
-        current_user.first_name      = None
-        current_user.last_name       = None
-        current_user.full_name       = None
+        current_user.email = None
+        current_user.phone = None
+        current_user.alt_phone = None
+        current_user.first_name = None
+        current_user.last_name = None
+        current_user.full_name = None
         current_user.hashed_password = None
-        current_user.flat_no         = None
-        current_user.building        = None
-        current_user.street          = None
-        current_user.city            = None
-        current_user.state           = None
-        current_user.pin_code        = None
-        current_user.country         = None
+        current_user.flat_no = None
+        current_user.building = None
+        current_user.street = None
+        current_user.city = None
+        current_user.state = None
+        current_user.pin_code = None
+        current_user.country = None
         # Deactivate: blocks API access and /auth/refresh for any token already issued
-        current_user.is_active  = False
+        current_user.is_active = False
         current_user.updated_at = datetime.utcnow()
 
         await db.commit()
@@ -692,7 +746,10 @@ async def delete_account(
         if failed:
             await log_error(
                 message=f"Account erasure left {failed} file(s) on disk for user {user_id}",
-                level="ERROR", endpoint="/auth/me", method="DELETE", client_ip=client_ip,
+                level="ERROR",
+                endpoint="/auth/me",
+                method="DELETE",
+                client_ip=client_ip,
                 send_email=False,
             )
         return DeleteAccountResponse(

@@ -42,12 +42,16 @@ def guess_media_type(filename: str) -> str:
     return mimetypes.guess_type(filename)[0] or "application/octet-stream"
 
 
-async def save_upload(file: UploadFile, directory: str, *, default_name: str, max_bytes: int) -> tuple[str, int]:
+async def save_upload(
+    file: UploadFile, directory: str, *, default_name: str, max_bytes: int
+) -> tuple[str, int]:
     """Stream ``file`` to ``directory`` in chunks, enforcing ``max_bytes``.
 
     Returns ``(path, size)``. Raises 413 (too large) / 400 (empty); a partial file is removed."""
     os.makedirs(directory, exist_ok=True)
-    path = os.path.join(directory, f"{uuid.uuid4()}_{safe_filename(file.filename, default_name)}")
+    path = os.path.join(
+        directory, f"{uuid.uuid4()}_{safe_filename(file.filename, default_name)}"
+    )
     size = 0
     try:
         with open(path, "wb") as out:
@@ -63,7 +67,10 @@ async def save_upload(file: UploadFile, directory: str, *, default_name: str, ma
                     )
                 out.write(chunk)
         if size == 0:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="The uploaded file is empty.")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="The uploaded file is empty.",
+            )
     except BaseException:
         if os.path.exists(path):
             os.remove(path)
@@ -74,7 +81,9 @@ async def save_upload(file: UploadFile, directory: str, *, default_name: str, ma
 def save_text(directory: str, text: str, *, name: str) -> tuple[str, int]:
     """Persist generated text (e.g. an FIR draft) as a real file; returns ``(path, size)``."""
     os.makedirs(directory, exist_ok=True)
-    path = os.path.join(directory, f"{uuid.uuid4()}_{safe_filename(name, 'document.txt')}")
+    path = os.path.join(
+        directory, f"{uuid.uuid4()}_{safe_filename(name, 'document.txt')}"
+    )
     data = text.encode("utf-8")
     with open(path, "wb") as f:
         f.write(data)
@@ -94,4 +103,6 @@ def parse_uuid_or_404(value: str, what: str = "Resource") -> uuid.UUID:
     try:
         return uuid.UUID(value)
     except (ValueError, AttributeError, TypeError):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"{what} not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"{what} not found"
+        )

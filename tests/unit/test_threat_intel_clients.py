@@ -29,7 +29,9 @@ def _fresh(monkeypatch):
     monkeypatch.setattr(uh.settings, "URLHAUS_AUTH_KEY", UKEY, raising=False)
 
 
-_REAL_CLIENT = httpx.AsyncClient  # captured once: _mock() may be called several times per test
+_REAL_CLIENT = (
+    httpx.AsyncClient
+)  # captured once: _mock() may be called several times per test
 
 
 def _mock(monkeypatch, handler):
@@ -60,8 +62,16 @@ async def test_gsb_sends_key_in_header_never_in_url(monkeypatch):
 
 @pytest.mark.unit
 async def test_gsb_malicious_match_is_parsed(monkeypatch):
-    body = {"matches": [{"threatType": "SOCIAL_ENGINEERING", "platformType": "ANY_PLATFORM",
-                         "threatEntryType": "URL", "threat": {"url": "http://bad.example/"}}]}
+    body = {
+        "matches": [
+            {
+                "threatType": "SOCIAL_ENGINEERING",
+                "platformType": "ANY_PLATFORM",
+                "threatEntryType": "URL",
+                "threat": {"url": "http://bad.example/"},
+            }
+        ]
+    }
     _mock(monkeypatch, lambda req: httpx.Response(200, json=body))
     r = await gsb.check_url_gsb("http://bad.example/")
     assert r["status"] == "malicious" and r["safe"] is False
@@ -79,13 +89,24 @@ async def test_gsb_without_key_is_inconclusive_and_makes_no_request(monkeypatch)
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("code,expected_status,expected_reason", [
-    (400, "http_error", "bad_request"), (401, "http_error", "auth_failed"), (403, "http_error", "auth_failed"),
-])
-async def test_gsb_client_errors_are_classified(monkeypatch, code, expected_status, expected_reason):
+@pytest.mark.parametrize(
+    "code,expected_status,expected_reason",
+    [
+        (400, "http_error", "bad_request"),
+        (401, "http_error", "auth_failed"),
+        (403, "http_error", "auth_failed"),
+    ],
+)
+async def test_gsb_client_errors_are_classified(
+    monkeypatch, code, expected_status, expected_reason
+):
     _mock(monkeypatch, lambda req: httpx.Response(code, text="nope"))
     r = await gsb.check_url_gsb("https://example.org/")
-    assert (r["status"], r["reason"], r["http_status"]) == (expected_status, expected_reason, code)
+    assert (r["status"], r["reason"], r["http_status"]) == (
+        expected_status,
+        expected_reason,
+        code,
+    )
 
 
 @pytest.mark.unit
@@ -110,7 +131,9 @@ async def test_gsb_transient_5xx_recovers_on_retry(monkeypatch):
         return httpx.Response(503) if n["c"] == 1 else httpx.Response(200, json={})
 
     _mock(monkeypatch, handler)
-    assert (await gsb.check_url_gsb("https://example.org/"))["status"] == "safe" and n["c"] == 2
+    assert (await gsb.check_url_gsb("https://example.org/"))["status"] == "safe" and n[
+        "c"
+    ] == 2
 
 
 @pytest.mark.unit
@@ -131,7 +154,9 @@ async def test_gsb_timeout_and_connection_errors_are_network_errors(monkeypatch)
 
 @pytest.mark.unit
 @pytest.mark.security
-async def test_gsb_unexpected_errors_never_echo_text_that_could_hold_the_key(monkeypatch):
+async def test_gsb_unexpected_errors_never_echo_text_that_could_hold_the_key(
+    monkeypatch,
+):
     def boom(req):
         raise RuntimeError(f"failed calling {req.url} with key {KEY}")
 
@@ -185,16 +210,26 @@ async def test_urlhaus_sends_auth_key_header_and_form_body(monkeypatch):
 
 @pytest.mark.unit
 async def test_urlhaus_known_bad_url_is_malicious(monkeypatch):
-    body = {"query_status": "ok", "threat": "malware_download", "url": "http://bad.example/m.exe",
-            "tags": ["exe"], "date_added": "2026-01-01"}
+    body = {
+        "query_status": "ok",
+        "threat": "malware_download",
+        "url": "http://bad.example/m.exe",
+        "tags": ["exe"],
+        "date_added": "2026-01-01",
+    }
     _mock(monkeypatch, lambda req: httpx.Response(200, json=body))
     r = await uh.check_url_urlhaus("http://bad.example/m.exe")
     assert r["status"] == "malicious"
-    assert r["threats"][0]["threat_label"] == "Malware Download" and r["threats"][0]["tags"] == ["exe"]
+    assert r["threats"][0]["threat_label"] == "Malware Download" and r["threats"][0][
+        "tags"
+    ] == ["exe"]
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("code,reason", [(401, "auth_failed"), (403, "auth_failed"), (404, "unexpected_status")])
+@pytest.mark.parametrize(
+    "code,reason",
+    [(401, "auth_failed"), (403, "auth_failed"), (404, "unexpected_status")],
+)
 async def test_urlhaus_http_errors(monkeypatch, code, reason):
     _mock(monkeypatch, lambda req: httpx.Response(code))
     r = await uh.check_url_urlhaus("http://x.example/")
@@ -202,7 +237,9 @@ async def test_urlhaus_http_errors(monkeypatch, code, reason):
 
 
 @pytest.mark.unit
-async def test_urlhaus_5xx_retries_then_errors_and_network_errors_are_typed(monkeypatch):
+async def test_urlhaus_5xx_retries_then_errors_and_network_errors_are_typed(
+    monkeypatch,
+):
     n = {"c": 0}
 
     def handler(req):

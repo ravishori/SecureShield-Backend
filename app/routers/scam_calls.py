@@ -46,8 +46,13 @@ async def report_scam_call(
             alert_type=AlertType.scam_call,
             title=f"Potential Scam Call: {request.caller_number}",
             message=f"A call from {request.caller_number} was flagged. Risk score: {risk_score:.0f}/100. {detection_reason}",
-            severity=AlertSeverity.critical if risk_score >= 70 else AlertSeverity.warning,
-            extra_data={"caller_number": request.caller_number, "risk_score": risk_score},
+            severity=AlertSeverity.critical
+            if risk_score >= 70
+            else AlertSeverity.warning,
+            extra_data={
+                "caller_number": request.caller_number,
+                "risk_score": risk_score,
+            },
         )
         db.add(alert)
 
@@ -77,10 +82,12 @@ async def block_number(
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
-        select(ScamCall).where(
+        select(ScamCall)
+        .where(
             ScamCall.user_id == current_user.id,
             ScamCall.caller_number == number,
-        ).order_by(ScamCall.detected_at.desc())
+        )
+        .order_by(ScamCall.detected_at.desc())
     )
     scam_call = result.scalar_one_or_none()
 

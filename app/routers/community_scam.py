@@ -64,7 +64,9 @@ async def report_scam(
     # Check if this scam number/URL has been reported 5+ times — broadcast alert
     if request.phone_number:
         count_result = await db.execute(
-            select(func.count()).select_from(CommunityScamReport).where(
+            select(func.count())
+            .select_from(CommunityScamReport)
+            .where(
                 CommunityScamReport.phone_number == request.phone_number,
                 CommunityScamReport.is_active.is_(True),
             )
@@ -77,7 +79,10 @@ async def report_scam(
                 title="Community Scam Alert Verified",
                 message=f"Phone {request.phone_number} has been reported as a scam {report_count + 1} times in your community.",
                 severity=AlertSeverity.critical,
-                extra_data={"phone": request.phone_number, "report_count": report_count + 1},
+                extra_data={
+                    "phone": request.phone_number,
+                    "report_count": report_count + 1,
+                },
             )
             db.add(alert)
 
@@ -111,7 +116,9 @@ async def get_community_feed(
     query = select(CommunityScamReport).where(CommunityScamReport.is_active.is_(True))
 
     if city:
-        query = query.where(CommunityScamReport.city.ilike(f"%{_like_escape(city)}%", escape="\\"))
+        query = query.where(
+            CommunityScamReport.city.ilike(f"%{_like_escape(city)}%", escape="\\")
+        )
     if pincode:
         query = query.where(CommunityScamReport.pincode == pincode)
     if scam_type:
@@ -147,7 +154,9 @@ async def get_trending_scams(
 ):
     query = select(CommunityScamReport).where(CommunityScamReport.is_active.is_(True))
     if city:
-        query = query.where(CommunityScamReport.city.ilike(f"%{_like_escape(city)}%", escape="\\"))
+        query = query.where(
+            CommunityScamReport.city.ilike(f"%{_like_escape(city)}%", escape="\\")
+        )
     query = query.order_by(CommunityScamReport.upvotes.desc()).limit(10)
     result = await db.execute(query)
     reports = result.scalars().all()
@@ -270,7 +279,9 @@ _EDITORIAL_NEWS: List[dict] = [
 
 @router.get("/news-feed", response_model=ScamNewsResponse)
 async def get_scam_news_feed(
-    city: Optional[str] = Query(None, max_length=80, description="Filter community trends by city"),
+    city: Optional[str] = Query(
+        None, max_length=80, description="Filter community trends by city"
+    ),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -290,7 +301,9 @@ async def get_scam_news_feed(
         CommunityScamReport.created_at >= week_start,
     )
     if city:
-        base = base.where(CommunityScamReport.city.ilike(f"%{_like_escape(city)}%", escape="\\"))
+        base = base.where(
+            CommunityScamReport.city.ilike(f"%{_like_escape(city)}%", escape="\\")
+        )
 
     # ── Aggregate by scam_type ──────────────────────────────────────────
     agg = select(
@@ -301,8 +314,12 @@ async def get_scam_news_feed(
         CommunityScamReport.created_at >= week_start,
     )
     if city:
-        agg = agg.where(CommunityScamReport.city.ilike(f"%{_like_escape(city)}%", escape="\\"))
-    agg = agg.group_by(CommunityScamReport.scam_type).order_by(func.count(CommunityScamReport.id).desc())
+        agg = agg.where(
+            CommunityScamReport.city.ilike(f"%{_like_escape(city)}%", escape="\\")
+        )
+    agg = agg.group_by(CommunityScamReport.scam_type).order_by(
+        func.count(CommunityScamReport.id).desc()
+    )
     agg_rows = (await db.execute(agg)).all()
 
     # ── Sample phones/URLs for the top scam type ────────────────────────
@@ -310,21 +327,32 @@ async def get_scam_news_feed(
     total_reports = 0
     for stype, cnt in agg_rows[:6]:
         total_reports += cnt
-        sample_q = select(CommunityScamReport).where(
-            CommunityScamReport.is_active.is_(True),
-            CommunityScamReport.created_at >= week_start,
-            CommunityScamReport.scam_type == stype,
-        ).order_by(CommunityScamReport.upvotes.desc()).limit(5)
+        sample_q = (
+            select(CommunityScamReport)
+            .where(
+                CommunityScamReport.is_active.is_(True),
+                CommunityScamReport.created_at >= week_start,
+                CommunityScamReport.scam_type == stype,
+            )
+            .order_by(CommunityScamReport.upvotes.desc())
+            .limit(5)
+        )
         if city:
-            sample_q = sample_q.where(CommunityScamReport.city.ilike(f"%{_like_escape(city)}%", escape="\\"))
+            sample_q = sample_q.where(
+                CommunityScamReport.city.ilike(f"%{_like_escape(city)}%", escape="\\")
+            )
         samples = (await db.execute(sample_q)).scalars().all()
 
         # Community reports are unverified: only surface a number/URL that at least two
         # separate reports name, so one malicious report cannot publicly label someone.
         phone_counts = Counter(s.phone_number for s in samples if s.phone_number)
         url_counts = Counter(s.url for s in samples if s.url)
-        phones = sorted(p for p, n in phone_counts.items() if n >= MIN_CORROBORATING_REPORTS)[:3]
-        urls = sorted(u for u, n in url_counts.items() if n >= MIN_CORROBORATING_REPORTS)[:3]
+        phones = sorted(
+            p for p, n in phone_counts.items() if n >= MIN_CORROBORATING_REPORTS
+        )[:3]
+        urls = sorted(
+            u for u, n in url_counts.items() if n >= MIN_CORROBORATING_REPORTS
+        )[:3]
         headline_text = samples[0].title if samples else f"{stype.value} reports rising"
         summary_text = (
             f"{cnt} community report{'s' if cnt != 1 else ''} this week"
@@ -332,54 +360,60 @@ async def get_scam_news_feed(
             f"{(samples[0].description[:140] + '…') if samples and len(samples[0].description) > 140 else (samples[0].description if samples else '')}"
         )
 
-        severity = (
-            "critical" if cnt >= 10
-            else "warning" if cnt >= 3
-            else "info"
-        )
+        severity = "critical" if cnt >= 10 else "warning" if cnt >= 3 else "info"
 
-        items.append(ScamNewsItem(
-            id=f"community-{stype.value}-{week_start.date().isoformat()}",
-            headline=headline_text,
-            summary=summary_text,
-            scam_type=stype.value,
-            severity=severity,
-            region=city or "All India",
-            source="community",
-            reports_in_period=cnt,
-            sample_phones=phones,
-            sample_urls=urls,
-            week_starting=week_start.date().isoformat(),
-        ))
+        items.append(
+            ScamNewsItem(
+                id=f"community-{stype.value}-{week_start.date().isoformat()}",
+                headline=headline_text,
+                summary=summary_text,
+                scam_type=stype.value,
+                severity=severity,
+                region=city or "All India",
+                source="community",
+                reports_in_period=cnt,
+                sample_phones=phones,
+                sample_urls=urls,
+                week_starting=week_start.date().isoformat(),
+            )
+        )
 
     # ── Append editorial items not already covered by community ─────────
     seen_types = {it.scam_type for it in items}
     for ed in _EDITORIAL_NEWS:
         if ed["scam_type"] in seen_types and len(items) >= 5:
             continue
-        items.append(ScamNewsItem(
-            id=f"editorial-{ed['scam_type']}-{week_start.date().isoformat()}",
-            headline=ed["headline"],
-            summary=ed["summary"],
-            scam_type=ed["scam_type"],
-            severity=ed["severity"],
-            region=ed["region"],
-            source=ed["source"],
-            reports_in_period=0,
-            sample_phones=[],
-            sample_urls=[],
-            week_starting=week_start.date().isoformat(),
-        ))
+        items.append(
+            ScamNewsItem(
+                id=f"editorial-{ed['scam_type']}-{week_start.date().isoformat()}",
+                headline=ed["headline"],
+                summary=ed["summary"],
+                scam_type=ed["scam_type"],
+                severity=ed["severity"],
+                region=ed["region"],
+                source=ed["source"],
+                reports_in_period=0,
+                sample_phones=[],
+                sample_urls=[],
+                week_starting=week_start.date().isoformat(),
+            )
+        )
 
     # ── Top city by volume (nation-wide) ────────────────────────────────
-    city_q = select(
-        CommunityScamReport.city,
-        func.count(CommunityScamReport.id).label("cnt"),
-    ).where(
-        CommunityScamReport.is_active.is_(True),
-        CommunityScamReport.created_at >= week_start,
-        CommunityScamReport.city.isnot(None),
-    ).group_by(CommunityScamReport.city).order_by(func.count(CommunityScamReport.id).desc()).limit(1)
+    city_q = (
+        select(
+            CommunityScamReport.city,
+            func.count(CommunityScamReport.id).label("cnt"),
+        )
+        .where(
+            CommunityScamReport.is_active.is_(True),
+            CommunityScamReport.created_at >= week_start,
+            CommunityScamReport.city.isnot(None),
+        )
+        .group_by(CommunityScamReport.city)
+        .order_by(func.count(CommunityScamReport.id).desc())
+        .limit(1)
+    )
     city_row = (await db.execute(city_q)).first()
     top_city = city_row[0] if city_row else None
 
@@ -406,7 +440,9 @@ async def upvote_report(
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
-        select(CommunityScamReport).where(CommunityScamReport.id == uuid.UUID(report_id))
+        select(CommunityScamReport).where(
+            CommunityScamReport.id == uuid.UUID(report_id)
+        )
     )
     report = result.scalar_one_or_none()
     if not report:

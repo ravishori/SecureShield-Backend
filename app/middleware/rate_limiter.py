@@ -153,7 +153,9 @@ def check_otp_send_rate(identifier: str) -> None:
         HTTPException 429 — if limit exceeded.
     """
     key = f"otp_send:{identifier}"
-    if not rate_limiter.is_allowed(key, max_hits=settings.OTP_SEND_LIMIT, window_seconds=3600):
+    if not rate_limiter.is_allowed(
+        key, max_hits=settings.OTP_SEND_LIMIT, window_seconds=3600
+    ):
         logger.warning(f"OTP send rate limit exceeded for: {identifier[:6]}***")
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -174,7 +176,9 @@ def check_otp_verify_rate(identifier: str) -> None:
         HTTPException 429 — if limit exceeded.
     """
     key = f"otp_verify:{identifier}"
-    if not rate_limiter.is_allowed(key, max_hits=settings.OTP_VERIFY_LIMIT, window_seconds=900):
+    if not rate_limiter.is_allowed(
+        key, max_hits=settings.OTP_VERIFY_LIMIT, window_seconds=900
+    ):
         logger.warning(f"OTP verify rate limit exceeded for: {identifier[:6]}***")
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -215,14 +219,18 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         )
 
         if not allowed:
-            logger.warning(f"API rate limit hit for IP: {client_ip} on {request.url.path}")
-            body = json.dumps({
-                "detail": (
-                    f"Rate limit exceeded. Maximum {settings.API_RATE_LIMIT} requests "
-                    f"per minute allowed per IP address."
-                ),
-                "error": "rate_limit_exceeded",
-            })
+            logger.warning(
+                f"API rate limit hit for IP: {client_ip} on {request.url.path}"
+            )
+            body = json.dumps(
+                {
+                    "detail": (
+                        f"Rate limit exceeded. Maximum {settings.API_RATE_LIMIT} requests "
+                        f"per minute allowed per IP address."
+                    ),
+                    "error": "rate_limit_exceeded",
+                }
+            )
             return Response(
                 content=body,
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,

@@ -44,7 +44,9 @@ class FirDraftRequest(BaseModel):
     complainant_name: str = Field(..., min_length=1, max_length=150)
     complainant_phone: str = Field(..., min_length=3, max_length=30)
     amount_lost: Optional[str] = Field(None, max_length=50)
-    language: Optional[str] = Field("en", max_length=8, pattern=r"^[A-Za-z]{2,3}(-[A-Za-z]{2,4})?$")
+    language: Optional[str] = Field(
+        "en", max_length=8, pattern=r"^[A-Za-z]{2,3}(-[A-Za-z]{2,4})?$"
+    )
 
 
 @router.post("/create-room", response_model=RoomResponse)
@@ -61,6 +63,7 @@ async def create_video_room(
     room_url = f"https://meet.jit.si/{room_id}"
 
     from datetime import timedelta
+
     expires_at = (datetime.utcnow() + timedelta(hours=2)).isoformat()
 
     instructions_map = {
@@ -90,7 +93,9 @@ async def create_video_room(
         room_url=room_url,
         call_type=request.call_type,
         expires_at=expires_at,
-        instructions=instructions_map.get(request.call_type, instructions_map["police_report"]),
+        instructions=instructions_map.get(
+            request.call_type, instructions_map["police_report"]
+        ),
     )
 
 
@@ -119,7 +124,9 @@ async def generate_fir(
     # The draft is stored as a real file (it used to be a row pointing at a file that never existed).
     from app.routers.evidence import UPLOAD_DIR as EVIDENCE_DIR
 
-    fir_path, fir_size = save_text(EVIDENCE_DIR, result["fir_draft"], name="fir_draft.txt")
+    fir_path, fir_size = save_text(
+        EVIDENCE_DIR, result["fir_draft"], name="fir_draft.txt"
+    )
     evidence = Evidence(
         user_id=current_user.id,
         title=f"FIR Draft - {request.incident_type}",
@@ -139,7 +146,10 @@ async def generate_fir(
         "case_id": evidence.case_id,
         "police_stations": [
             {"name": "Cybercrime Police Station", "city": request.incident_location},
-            {"name": "National Cybercrime Reporting Portal", "url": "https://cybercrime.gov.in/"},
+            {
+                "name": "National Cybercrime Reporting Portal",
+                "url": "https://cybercrime.gov.in/",
+            },
         ],
         "helpline": "1930",
     }
@@ -169,7 +179,9 @@ async def generate_fir_streaming(
     # display them as soon as the first chunk arrives. The evidence row
     # is committed only after the stream finishes successfully.
     check_ai_rate(current_user)
-    case_id = f"FIR-{datetime.utcnow().strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
+    case_id = (
+        f"FIR-{datetime.utcnow().strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
+    )
 
     async def event_stream():
         full_text_parts: list[str] = []
@@ -178,22 +190,20 @@ async def generate_fir_streaming(
 
         # First event: tell the client the case_id so it can render the
         # header immediately, before any FIR text arrives.
-        yield (
-            "data: " + json.dumps({"case_id": case_id, "started": True}) + "\n\n"
-        )
+        yield ("data: " + json.dumps({"case_id": case_id, "started": True}) + "\n\n")
 
         try:
             async for event in stream_fir_draft(
-                incident_type      = request.incident_type,
-                description        = request.description,
-                incident_date      = request.incident_date,
-                incident_location  = request.incident_location,
-                suspect_info       = request.suspect_info,
-                evidence_summary   = request.evidence_summary,
-                complainant_name   = request.complainant_name,
-                complainant_phone  = request.complainant_phone,
-                amount_lost        = request.amount_lost,
-                language           = request.language or "en",
+                incident_type=request.incident_type,
+                description=request.description,
+                incident_date=request.incident_date,
+                incident_location=request.incident_location,
+                suspect_info=request.suspect_info,
+                evidence_summary=request.evidence_summary,
+                complainant_name=request.complainant_name,
+                complainant_phone=request.complainant_phone,
+                amount_lost=request.amount_lost,
+                language=request.language or "en",
             ):
                 # Forward delta + done events verbatim
                 if "delta" in event:
@@ -210,12 +220,18 @@ async def generate_fir_streaming(
             # Exception text is NOT sent to the client (it can carry internals/URLs/keys); the type
             # is logged for operators.
             logger.error("[FIR-stream] failed: %s", type(e).__name__)
-            yield "data: " + json.dumps({
-                "error": "stream_failed",
-                "done":  True,
-                "fir_draft": "".join(full_text_parts) or "(no content)",
-                "note": "The draft could not be completed. Review what was generated and add any missing details.",
-            }) + "\n\n"
+            yield (
+                "data: "
+                + json.dumps(
+                    {
+                        "error": "stream_failed",
+                        "done": True,
+                        "fir_draft": "".join(full_text_parts) or "(no content)",
+                        "note": "The draft could not be completed. Review what was generated and add any missing details.",
+                    }
+                )
+                + "\n\n"
+            )
 
         # Persist evidence row (best effort — never let DB write break the
         # stream after the user has already received content).
@@ -223,16 +239,18 @@ async def generate_fir_streaming(
         try:
             from app.routers.evidence import UPLOAD_DIR as EVIDENCE_DIR
 
-            fir_path, fir_size = save_text(EVIDENCE_DIR, full_text, name="fir_draft.txt")
+            fir_path, fir_size = save_text(
+                EVIDENCE_DIR, full_text, name="fir_draft.txt"
+            )
             evidence = Evidence(
-                user_id          = current_user.id,
-                title            = f"FIR Draft - {request.incident_type}",
-                description      = f"AI-generated FIR draft for {request.incident_type} incident on {request.incident_date}",
-                file_path        = fir_path,
-                file_type        = FileType.document,
-                file_size_bytes  = fir_size,
-                is_encrypted     = False,
-                case_id          = case_id,
+                user_id=current_user.id,
+                title=f"FIR Draft - {request.incident_type}",
+                description=f"AI-generated FIR draft for {request.incident_type} incident on {request.incident_date}",
+                file_path=fir_path,
+                file_type=FileType.document,
+                file_size_bytes=fir_size,
+                is_encrypted=False,
+                case_id=case_id,
             )
             db.add(evidence)
             await db.commit()
@@ -244,22 +262,28 @@ async def generate_fir_streaming(
             last_note = f"{last_note} (Note: the draft could not be saved to your Evidence Locker.)"
 
         # Final summary event with the persisted IDs.
-        yield "data: " + json.dumps({
-            "complete":    True,
-            "case_id":     case_id,
-            "evidence_id": evidence_id,
-            "note":        last_note,
-            "had_error":   had_error,
-        }) + "\n\n"
+        yield (
+            "data: "
+            + json.dumps(
+                {
+                    "complete": True,
+                    "case_id": case_id,
+                    "evidence_id": evidence_id,
+                    "note": last_note,
+                    "had_error": had_error,
+                }
+            )
+            + "\n\n"
+        )
 
     return StreamingResponse(
         event_stream(),
         media_type="text/event-stream",
         headers={
             # Disable proxy/CDN buffering so chunks reach the client instantly.
-            "Cache-Control":     "no-cache, no-transform",
+            "Cache-Control": "no-cache, no-transform",
             "X-Accel-Buffering": "no",
-            "Connection":        "keep-alive",
+            "Connection": "keep-alive",
         },
     )
 
@@ -276,11 +300,23 @@ async def get_police_contacts(
         "national_emergency": "112",
         "cybercrime_portal": "https://cybercrime.gov.in/",
         "contacts": [
-            {"name": "National Cybercrime Reporting Portal", "url": "https://cybercrime.gov.in/", "type": "online"},
+            {
+                "name": "National Cybercrime Reporting Portal",
+                "url": "https://cybercrime.gov.in/",
+                "type": "online",
+            },
             {"name": "Cybercrime Helpline", "phone": "1930", "type": "phone"},
-            {"name": "Mumbai Cybercrime Cell", "phone": "022-24164000", "type": "phone"},
+            {
+                "name": "Mumbai Cybercrime Cell",
+                "phone": "022-24164000",
+                "type": "phone",
+            },
             {"name": "Delhi Cybercrime Cell", "phone": "011-23490200", "type": "phone"},
-            {"name": "Bengaluru Cybercrime Cell", "phone": "080-22943050", "type": "phone"},
+            {
+                "name": "Bengaluru Cybercrime Cell",
+                "phone": "080-22943050",
+                "type": "phone",
+            },
         ],
         "what_to_bring": [
             "Government ID proof (Aadhaar/PAN)",

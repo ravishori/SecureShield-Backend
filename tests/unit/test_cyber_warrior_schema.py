@@ -23,6 +23,7 @@ from app.schemas.cyber_warrior import (
 
 # ─── Age helper ──────────────────────────────────────────────────────────
 
+
 class TestAgeInYears:
     @pytest.mark.unit
     def test_exact_18_today(self):
@@ -44,6 +45,7 @@ class TestAgeInYears:
 
 
 # ─── Baseline payload ────────────────────────────────────────────────────
+
 
 def _adult_dob() -> date:
     """A birth date comfortably over 18."""
@@ -80,6 +82,7 @@ def _valid_payload(**overrides):
 
 
 # ─── WarriorApplicationCreate ────────────────────────────────────────────
+
 
 class TestWarriorApplicationCreate:
     @pytest.mark.unit
@@ -119,9 +122,7 @@ class TestWarriorApplicationCreate:
     @pytest.mark.unit
     def test_absurdly_old_dob_rejected(self):
         with pytest.raises(ValidationError, match="implausible"):
-            WarriorApplicationCreate(
-                **_valid_payload(date_of_birth=date(1800, 1, 1))
-            )
+            WarriorApplicationCreate(**_valid_payload(date_of_birth=date(1800, 1, 1)))
 
     # ── Consent ─────────────────────────────────────────────────────────
     @pytest.mark.unit
@@ -147,9 +148,7 @@ class TestWarriorApplicationCreate:
     @pytest.mark.security
     def test_cannot_request_admin_role(self):
         with pytest.raises(ValidationError, match="preferred_role"):
-            WarriorApplicationCreate(
-                **_valid_payload(preferred_role=WarriorRole.admin)
-            )
+            WarriorApplicationCreate(**_valid_payload(preferred_role=WarriorRole.admin))
 
     @pytest.mark.unit
     @pytest.mark.security
@@ -186,16 +185,13 @@ class TestWarriorApplicationCreate:
     @pytest.mark.unit
     def test_availability_bounds(self):
         with pytest.raises(ValidationError):
-            WarriorApplicationCreate(
-                **_valid_payload(availability_hours_per_week=200)
-            )
+            WarriorApplicationCreate(**_valid_payload(availability_hours_per_week=200))
         with pytest.raises(ValidationError):
-            WarriorApplicationCreate(
-                **_valid_payload(availability_hours_per_week=0)
-            )
+            WarriorApplicationCreate(**_valid_payload(availability_hours_per_week=0))
 
 
 # ─── Approval schema ────────────────────────────────────────────────────
+
 
 class TestApplicationApprove:
     @pytest.mark.unit
@@ -220,6 +216,7 @@ class TestApplicationApprove:
 
 
 # ─── Rejection schema ───────────────────────────────────────────────────
+
 
 class TestApplicationReject:
     @pytest.mark.unit

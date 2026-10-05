@@ -45,26 +45,38 @@ async def _error_log_blob(db) -> str:
     return "\n".join(rows)
 
 
-async def test_register_with_failing_delivery_never_logs_the_otp(client, db, captured, capsys):
+async def test_register_with_failing_delivery_never_logs_the_otp(
+    client, db, captured, capsys
+):
     email = "otp-leak-check@example.com"
-    r = await client.post("/api/v1/auth/register", json={"first_name": "Leak", "email": email})
+    r = await client.post(
+        "/api/v1/auth/register", json={"first_name": "Leak", "email": email}
+    )
     assert r.status_code == 200
 
-    code = (await db.execute(text("select code from otps where email=:e"), {"e": email})).scalar_one()
+    code = (
+        await db.execute(text("select code from otps where email=:e"), {"e": email})
+    ).scalar_one()
     assert len(code) >= 4
 
     out = capsys.readouterr()
     blob = "\n".join(captured.lines) + out.out + out.err + await _error_log_blob(db)
-    assert any("OTP delivery failed" in line for line in captured.lines), "failure path not exercised"
+    assert any("OTP delivery failed" in line for line in captured.lines), (
+        "failure path not exercised"
+    )
     assert code not in blob
     assert email not in blob
 
 
-async def test_wrong_code_and_malformed_verify_do_not_log_submitted_code(client, db, captured, capsys):
+async def test_wrong_code_and_malformed_verify_do_not_log_submitted_code(
+    client, db, captured, capsys
+):
     email = "otp-verify-check@example.com"
     await client.post("/api/v1/auth/register", json={"first_name": "V", "email": email})
 
-    bad = await client.post("/api/v1/auth/verify-otp", json={"identifier": email, "code": CODE_WRONG})
+    bad = await client.post(
+        "/api/v1/auth/verify-otp", json={"identifier": email, "code": CODE_WRONG}
+    )
     assert bad.status_code == 400
     # 422: body without identifier -> validation error echoing the input
     invalid = await client.post("/api/v1/auth/verify-otp", json={"code": CODE_WRONG})

@@ -11,18 +11,19 @@ Formula (weights sum to 1.0):
   34–66 → warning
   67–100→ danger
 """
+
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import List
 
-_PERM_W   = 0.35
+_PERM_W = 0.35
 _SOURCE_W = 0.25
-_CLONE_W  = 0.30
-_BEHAV_W  = 0.10
+_CLONE_W = 0.30
+_BEHAV_W = 0.10
 
 _KNOWN_STORES = {
-    "com.android.vending",          # Google Play
-    "com.amazon.venezia",           # Amazon Appstore
+    "com.android.vending",  # Google Play
+    "com.amazon.venezia",  # Amazon Appstore
     "com.sec.android.app.samsungapps",
     "org.fdroid.fdroid",
     "com.huawei.appmarket",
@@ -32,22 +33,22 @@ _KNOWN_STORES = {
 
 @dataclass
 class RiskResult:
-    score:  int             # 0-100 aggregate risk score
-    level:  str             # safe / warning / danger
-    tags:   List[str] = field(default_factory=list)   # human-readable signals
+    score: int  # 0-100 aggregate risk score
+    level: str  # safe / warning / danger
+    tags: List[str] = field(default_factory=list)  # human-readable signals
 
     # Component breakdown (useful for UI detail views)
-    perm_contribution:   int = 0
+    perm_contribution: int = 0
     source_contribution: int = 0
-    clone_contribution:  int = 0
-    behav_contribution:  int = 0
+    clone_contribution: int = 0
+    behav_contribution: int = 0
 
 
 def compute_risk(
     dangerous_perm_count: int,
     is_unknown_source: bool,
     installer: str | None,
-    clone_probability: int,     # 0-100 (from clone analyzer)
+    clone_probability: int,  # 0-100 (from clone analyzer)
     has_overlay: bool = False,
     has_accessibility: bool = False,
 ) -> RiskResult:
@@ -60,10 +61,12 @@ def compute_risk(
     tags: List[str] = []
 
     # ── Permission component (0-35 pts) ──────────────────────────────────────
-    perm_norm  = min(1.0, dangerous_perm_count / 5.0)
-    perm_pts   = int(perm_norm * 100 * _PERM_W)
+    perm_norm = min(1.0, dangerous_perm_count / 5.0)
+    perm_pts = int(perm_norm * 100 * _PERM_W)
     if dangerous_perm_count >= 5:
-        tags.append(f"Requests {dangerous_perm_count} sensitive permissions (very high)")
+        tags.append(
+            f"Requests {dangerous_perm_count} sensitive permissions (very high)"
+        )
     elif dangerous_perm_count >= 3:
         tags.append(f"Requests {dangerous_perm_count} sensitive permissions")
     elif dangerous_perm_count >= 1:
@@ -83,7 +86,9 @@ def compute_risk(
     # ── Clone component (0-30 pts) ─────────────────────────────────────────────
     clone_pts = int(clone_probability * _CLONE_W)
     if clone_probability >= 85:
-        tags.append("Very high similarity to a known legitimate app — likely fake/clone")
+        tags.append(
+            "Very high similarity to a known legitimate app — likely fake/clone"
+        )
     elif clone_probability >= 65:
         tags.append("Significant similarity to a known legitimate app")
     elif clone_probability >= 40:

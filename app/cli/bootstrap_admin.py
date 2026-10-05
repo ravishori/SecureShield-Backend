@@ -71,14 +71,18 @@ async def bootstrap_first_admin(
     human-readable, secret-free summary. Raises ``BootstrapError``."""
     email = email.strip().lower()
     if _age_in_years(date_of_birth, today) < MIN_WARRIOR_AGE_YEARS:
-        raise BootstrapError(f"Date of birth must make the person at least {MIN_WARRIOR_AGE_YEARS}.")
+        raise BootstrapError(
+            f"Date of birth must make the person at least {MIN_WARRIOR_AGE_YEARS}."
+        )
 
     # Serialise concurrent runs for the duration of this transaction.
     await db.execute(text("SELECT pg_advisory_xact_lock(:k)"), {"k": _LOCK_KEY})
 
     existing_admin = (
         await db.execute(
-            select(WarriorProfile.id).where(WarriorProfile.role == WarriorRole.admin).limit(1)
+            select(WarriorProfile.id)
+            .where(WarriorProfile.role == WarriorRole.admin)
+            .limit(1)
         )
     ).first()
     if existing_admin is not None:
@@ -87,20 +91,28 @@ async def bootstrap_first_admin(
             "create further admins through the audited approve flow."
         )
 
-    user = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
+    user = (
+        await db.execute(select(User).where(User.email == email))
+    ).scalar_one_or_none()
     if user is None:
-        raise BootstrapError("No registered user with that email. Register through the app first.")
+        raise BootstrapError(
+            "No registered user with that email. Register through the app first."
+        )
     if not user.is_active:
         raise BootstrapError("That user account is not active.")
 
     has_profile = (
-        await db.execute(select(WarriorProfile.id).where(WarriorProfile.user_id == user.id))
+        await db.execute(
+            select(WarriorProfile.id).where(WarriorProfile.user_id == user.id)
+        )
     ).first()
     if has_profile is not None:
         raise BootstrapError("That user already has a warrior profile.")
 
     display_name = (
-        user.full_name or " ".join(p for p in (user.first_name, user.last_name) if p) or "Admin"
+        user.full_name
+        or " ".join(p for p in (user.first_name, user.last_name) if p)
+        or "Admin"
     )
     plan = f"Grant role 'admin' to user {_mask_email(email)} (display name: {display_name!r})."
     if not execute:
@@ -129,10 +141,16 @@ async def bootstrap_first_admin(
 
 
 def _parse(argv: list[str] | None) -> argparse.Namespace:
-    ap = argparse.ArgumentParser(description="One-time bootstrap of the first Cyber Warriors admin")
+    ap = argparse.ArgumentParser(
+        description="One-time bootstrap of the first Cyber Warriors admin"
+    )
     ap.add_argument("--email", required=True)
-    ap.add_argument("--date-of-birth", required=True, type=date.fromisoformat, metavar="YYYY-MM-DD")
-    ap.add_argument("--confirm", metavar="EMAIL", help="repeat the email to actually apply")
+    ap.add_argument(
+        "--date-of-birth", required=True, type=date.fromisoformat, metavar="YYYY-MM-DD"
+    )
+    ap.add_argument(
+        "--confirm", metavar="EMAIL", help="repeat the email to actually apply"
+    )
     return ap.parse_args(argv)
 
 
@@ -145,7 +163,14 @@ async def _run(args: argparse.Namespace) -> int:
         return 2
     async with AsyncSessionLocal() as db:
         try:
-            print(await bootstrap_first_admin(db, email=args.email, date_of_birth=args.date_of_birth, execute=execute))
+            print(
+                await bootstrap_first_admin(
+                    db,
+                    email=args.email,
+                    date_of_birth=args.date_of_birth,
+                    execute=execute,
+                )
+            )
             return 0
         except BootstrapError as exc:
             await db.rollback()

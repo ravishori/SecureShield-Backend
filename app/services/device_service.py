@@ -116,9 +116,7 @@ async def send_new_device_alert(
     """
     recipient = user.email
     if not recipient:
-        logger.info(
-            f"Skipping new-device alert for user {user.id} — no email on file"
-        )
+        logger.info(f"Skipping new-device alert for user {user.id} — no email on file")
         return
 
     timestamp_utc = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
@@ -262,7 +260,9 @@ async def send_new_device_alert(
     </html>
     """
 
-    subject = f"[Security Alert] New device login — {display_device} ({display_platform})"
+    subject = (
+        f"[Security Alert] New device login — {display_device} ({display_platform})"
+    )
 
     try:
         msg = MIMEMultipart("alternative")
@@ -283,6 +283,4 @@ async def send_new_device_alert(
         )
     except Exception as exc:
         # Never propagate — security alert failure must not break the login flow
-        logger.error(
-            f"Failed to send new-device alert to user {user.id}: {exc}"
-        )
+        logger.error(f"Failed to send new-device alert to user {user.id}: {exc}")

@@ -46,7 +46,15 @@ def mailer(monkeypatch):
 
 
 async def _rows(db):
-    return (await db.execute(text("select endpoint, extra, t::text as raw from error_logs t"))).mappings().all()
+    return (
+        (
+            await db.execute(
+                text("select endpoint, extra, t::text as raw from error_logs t")
+            )
+        )
+        .mappings()
+        .all()
+    )
 
 
 def _wait(pred, timeout=3.0):
@@ -56,14 +64,18 @@ def _wait(pred, timeout=3.0):
     return pred()
 
 
-async def test_query_string_values_are_not_persisted_but_names_are(client, db, boom_routes, mailer):
+async def test_query_string_values_are_not_persisted_but_names_are(
+    client, db, boom_routes, mailer
+):
     await client.get(f"/__boom?identifier={QUERY_SECRET}&token=SENTINEL-QTOKEN")
     row = (await _rows(db))[0]
     assert QUERY_SECRET not in row["raw"] and "SENTINEL-QTOKEN" not in row["raw"]
     assert sorted(row["extra"]["query_params"]) == ["identifier", "token"]
 
 
-async def test_path_parameters_are_logged_as_route_template(client, db, boom_routes, mailer):
+async def test_path_parameters_are_logged_as_route_template(
+    client, db, boom_routes, mailer
+):
     await client.get(f"/__boom/share/{SHARE_TOKEN}")
     assert _wait(lambda: len(mailer) == 1)
     row = (await _rows(db))[0]
@@ -96,7 +108,9 @@ async def test_sqlalchemy_errors_do_not_embed_bound_parameters():
     from sqlalchemy.exc import ProgrammingError
     from sqlalchemy.ext.asyncio import create_async_engine
 
-    from app.database import engine as app_engine  # pytest-asyncio keeps original import
+    from app.database import (
+        engine as app_engine,
+    )  # pytest-asyncio keeps original import
     import os
 
     url = os.environ["TEST_DATABASE_URL"]
@@ -111,7 +125,9 @@ async def test_sqlalchemy_errors_do_not_embed_bound_parameters():
             async with hidden.connect() as c:
                 await c.execute(stmt, {"c": "SENTINEL-OTP-482910"})
         assert "SENTINEL-OTP-482910" in str(ei_visible.value)  # the problem is real
-        assert "SENTINEL-OTP-482910" not in str(ei_hidden.value)  # and the setting fixes it
+        assert "SENTINEL-OTP-482910" not in str(
+            ei_hidden.value
+        )  # and the setting fixes it
     finally:
         await visible.dispose()
         await hidden.dispose()

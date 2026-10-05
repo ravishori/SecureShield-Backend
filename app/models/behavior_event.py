@@ -22,10 +22,18 @@ class BehaviorEventType(str, enum.Enum):
 class BehaviorEvent(Base):
     __tablename__ = "behavior_events"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
-    event_type: Mapped[BehaviorEventType] = mapped_column(SAEnum(BehaviorEventType), nullable=False)
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True
+    )
+    event_type: Mapped[BehaviorEventType] = mapped_column(
+        SAEnum(BehaviorEventType), nullable=False
+    )
     risk_contribution: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     details: Mapped[str | None] = mapped_column(Text, nullable=True)
     extra_data: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
-    occurred_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    occurred_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, nullable=False, index=True
+    )
