@@ -20,7 +20,11 @@ venv/
 logs/
 *.log
 *.dump
+*.sha256
 *.backup
+
+# User uploads (evidence / recordings) — live on a persistent volume, never in Git
+uploads/
 
 # Local test / scratch artifacts
 test_azure_db.py
