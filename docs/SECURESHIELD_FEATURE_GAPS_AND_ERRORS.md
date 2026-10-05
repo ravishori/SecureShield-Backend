@@ -137,7 +137,7 @@ Local leftovers to clean after rotation: stale env backups, temp files holding l
 |---|---|---|---|
 | `/ready` returns database and user names | OPEN | LOW | Minor information disclosure on a public URL |
 | Staging smoke data | **RESOLVED** | was MEDIUM | Inventoried read-only, then removed (section 14). Staging currently holds no users, no admin, no uploaded files. |
-| Local credential file uploaded to Railway (incident) | OPEN | LOW-MEDIUM | During the 2026-10-05 candidate deploy a `ci_env.sh` helper containing the **local test-database URL (localhost, `postgres` role)** was in the uploaded source folder. It is not in the image (the Dockerfile copies only `app/`, `alembic/` and a few files) and an immediate clean redeploy removed it from the live deployment, but Railway keeps the earlier source archive in the (private) project. Impact: a localhost-only credential reached a third-party store. Fix: change the local `postgres` password (already on the deferred rotation list; it equals the old Azure password) and always deploy from a `git archive` export. |
+| Local credential file uploaded to Railway (incident, FG-036) | OPEN (mitigated) | LOW-MEDIUM | During the 2026-10-05 candidate deploy a `ci_env.sh` helper containing the **local test-database URL (localhost, `postgres` role)** was in the uploaded source folder. It was never in the image (the Dockerfile copies only `app/`, `alembic/`, `alembic.ini`, `requirements.txt`). A clean redeploy replaced the live deployment. **Pre-push gate evidence:** a scan of the live container found no `ci_env*` or `.env*` file anywhere on the image and no credential shapes under `/app`; the two scratch copies of the helper were securely removed; `.gitignore` and `.dockerignore` now exclude `ci_env*`, `*_env.sh`, key/certificate material, `.env*` (any depth in `.dockerignore`), shell scripts, SQL, logs and dumps (commit `chore(security): block credential-bearing files...`); a Docker-semantics simulation of the build context contains no forbidden file. **Not done / unknown:** Railway keeps the earlier source archive (and deployment history) in the private project; there is no evidence it has been purged, so it must be treated as still existing. Fix still recommended: change the local `postgres` password (credential rotation is DEFERRED) and always deploy from a `git archive` export. |
 | Staging API is public | OPEN | LOW | `secureshield-api-production-73ea.up.railway.app` (environment is named `production` inside the staging project; confusing, not an actual production environment) |
 | Account deletion was PARTIAL but claimed full deletion | **RESOLVED** | was HIGH (privacy) | `DELETE /auth/me` now erases every user-linked table and the uploaded files, anonymises `error_logs`, and keeps only an inert tombstone plus the append-only warrior audit trail; the response states what is retained. 7 integration tests (all tables, physical files, share tokens, OTPs, devices, family links, bystander isolation, repeat deletion, post-deletion access, path-traversal guard, atomic rollback) and a live staging run (files on the volume 1+1 -> 0+0). See section 15. |
 | Elderly guardian alert logs guardian PII and delivers nothing | OPEN | MEDIUM | `elderly_protection.py` `_deliver_guardian_alert` is a TODO stub: it writes the guardian's full phone/e-mail and 120 characters of the alert to the INFO log and sends nothing. Fix: implement delivery through the chosen OTP/e-mail/SMS transports, log only masked identifiers. |
@@ -382,7 +382,7 @@ are UNREVIEWED.
 | Environment naming | LOW | Railway's default environment inside `secureshield-staging` is called `production` |
 | Single replica | known | in-memory rate limiter, local-disk uploads |
 | Backups / disaster recovery | **NOT IMPLEMENTED** | see section 3 |
-| Secret scanning in CI | IMPLEMENTED (current tree) / history scan PENDING | The workflow runs a pinned, checksum-verified gitleaks 8.21.2 with `--no-git` and the project rules in `.gitleaks.toml` (default rules miss Anthropic keys; custom rules added, canary-tested; an SMTP rule bug that read the next line as a value was fixed). History is not scanned in CI because it still contains secrets committed before rotation (FG-020). Not yet run on GitHub. |
+| Secret scanning in CI | IMPLEMENTED (current tree) / history scan PENDING | The workflow runs a pinned, checksum-verified gitleaks 8.21.2 with `--no-git` and the project rules in `.gitleaks.toml` (default rules miss Anthropic keys; custom rules added, canary-tested; an SMTP rule bug that read the next line as a value was fixed). The allowlist is exact-value only (deliberate fake fixtures and the `YOUR_*` placeholder convention): there is NO path allowlist, so a real secret anywhere (`app/`, `scripts/`, `tests/`, `.github/`, Docker/Railway files, docs) is reported; verified with 5 secret types x 10 locations. History is not scanned in CI because it still contains secrets committed before rotation (FG-020). Not yet run on GitHub. |
 
 ---
 
@@ -527,7 +527,7 @@ section 2 of this document, "s16" section 16, and so on.
 | FG-033 | Security | Exception text / tracebacks may carry secrets/PII | RESOLVED (heuristic) | was MEDIUM | 3 real leaks reproduced then fixed (s2) | `log_scrubber.py`, `logger_service` | scrubbed + bounded | review residual patterns over time | Yes (32) | No | closed with residual risk | periodic review |
 | FG-034 | Security | `error_logs` retention | OPEN | MEDIUM | s2 | `main.py` startup purge | 90 days, no PII policy | define retention/export | no | No | decision needed | owner |
 | FG-035 | Security | Admin token compared with `!=` | OPEN | LOW | s2 | `admin_errors.py` | not constant-time | `hmac.compare_digest` | no | No | later | - |
-| FG-036 | Security | Local DB URL file uploaded to Railway source archive (incident) | OPEN | LOW-MEDIUM | s2 | deploy process | removed from live deployment; old archive remains | change local password; deploy only `git archive` exports | n/a | No | recommended soon | owner |
+| FG-036 | Security | Local DB URL file uploaded to Railway source archive (incident) | OPEN (mitigated) | LOW-MEDIUM | s2, s18 | deploy process | live container verified clean; scratch copies removed; ignore rules committed; historical Railway source archive NOT purged (no evidence) | change the local password (deferred rotation); deploy only `git archive` exports | context simulation + live container scan | No | recommended soon | owner |
 | FG-037 | Security | `/ready` returns database and role names | OPEN | LOW | code | `main.py` | minor disclosure | return only status | no | No | later | - |
 | FG-038 | Security | AI errors expose config hints to users | UNREVIEWED | MEDIUM | `ai_service` (s16) | unreviewed file | hints in chat reply | generic messages | no | No | deferred | with AI group |
 | FG-040 | Privacy | Account deletion incomplete / false claim | RESOLVED | was HIGH | 7 tests + live volume test (s15) | `account_erasure.py` | full erasure, explicit retention | owner decisions on audit retention | Yes | No | closed | retention decisions |
@@ -563,9 +563,26 @@ section 2 of this document, "s16" section 16, and so on.
 | FG-112 | Flutter | analyze 639 issues (0 errors) | OPEN | LOW | s11 | app code | infos/warnings | clean up | analyze | No | later | - |
 | FG-113 | Flutter | Device verification partial | PARTIAL | MEDIUM | s11 | app | register/login/profile/logout done | refresh path, uploads, deletion UI | partly | Yes for release | continue | - |
 | FG-120 | Deploy | Git-based deployment | NOT IMPLEMENTED | HIGH | s12 | Railway | CLI uploads only | push branch, connect Railway | n/a | **Yes** | awaiting approval | owner |
-| FG-121 | Deploy | CI on GitHub | NOT IMPLEMENTED | MEDIUM | local reproduction only | workflow | not run | push, observe | local Yes | Yes (reproducibility) | awaiting push | - |
+| FG-121 | Deploy | CI on GitHub | NOT IMPLEMENTED (workflow ready, **not yet run - push required**) | MEDIUM | local reproduction with the workflow's own environment (ruff, `alembic upgrade head`, pytest 300 passed, gitleaks command identical); the workflow now also triggers on pushes to `staging/**` (before, only `main` pushes and pull requests ran it, so pushing the staging branch alone would have run nothing) | `.github/workflows/backend-ci.yml` | not run | push the branch, observe the run | local Yes | Yes (reproducibility) | awaiting push approval | owner |
 | FG-122 | Deploy | `railway.toml` deprecation | DEFERRED | LOW | cutoff 2026-12-01 | repo | works | `railway config migrate --service secureshield-api` | n/a | No | after Git deploy | - |
 | FG-123 | Deploy | Railway environment named `production` inside the staging project | OPEN | LOW | s12 | Railway | confusing | rename | n/a | No | later | - |
+
+---
+
+## 18. Pre-push security gate record (2026-10-05)
+
+Verification-only gate; no push, no Railway Git connection, no credential rotation, no admin created.
+
+| Gate | Result |
+|---|---|
+| Git | branch `staging/railway-snapshot`, linear history, no merges/amend/rebase (branch reflog shows only commit batches), backup refs present, `origin` has no staging branch |
+| Deployment contexts | repository, Docker context (simulated with Docker semantics), CI checkout, Railway source and the live container contain no `ci_env*`, `.env*`, key files, dumps or credential shapes; explicit ignore rules added |
+| Credential audit of the committed tree | no real active credential; matches are placeholders, test fixtures, documentation references and one personal e-mail address used as a masking example in a pre-existing docstring and in tests (not a secret; WARN) |
+| Gitleaks (CI command, pinned 8.21.2) | current tree clean; custom rules catch Anthropic/Google/Twilio/SMTP/Azure-DB canaries in 10 location classes; empty values and newline boundaries give no false positives; allowlist is exact-value only |
+| Backend suite (CI environment, Python 3.11) | 300 passed; ruff clean; Alembic head `l7m8n9o0p1q2` |
+| Staging (read-only) | 29 tables, 0 users, 0 admins, 0 uploaded files, 0 user-data rows, reference data 11 / 22 / 23,192, `error_logs` 29 rows with no credential patterns, app role least-privilege |
+| GitHub CI | **NOT YET RUN - PUSH REQUIRED** |
+| Historical secrets in Git history | **YES** (rotation deferred; history not rewritten) |
 
 ---
 
