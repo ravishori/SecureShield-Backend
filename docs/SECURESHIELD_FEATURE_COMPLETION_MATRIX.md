@@ -112,7 +112,7 @@ persisted as files.
   detection for the Flutter folder (`Get-MpThreatDetection`), so quarantine is not the cause.
 * The fix is `flutter precache --force` (downloads the artifact from Google storage). I did **not** run it
   because it is a download that was not authorised. The `--no-tree-shake-icons` flag is therefore a **workaround**
-  that makes the APK larger (108 MB universal APK; 70.9 MB AAB at last build) and must not be treated as the fix.
+  that makes the APK larger (108.1 MB universal APK; 71.0 MB AAB, rebuilt after the final code changes) and must not be treated as the fix.
 
 ## Not done (explicitly)
 
