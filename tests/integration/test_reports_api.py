@@ -48,7 +48,14 @@ async def add_device_scans(session_factory, user, n, token):
         s.add(d)
         await s.flush()
         for i in range(n):
-            s.add(AppScan(device_id=d.id, package_name=f"p{i}", app_name=f"a{i}"))
+            s.add(
+                AppScan(
+                    user_id=user.id,
+                    device_id=d.id,
+                    package_name=f"p{i}",
+                    app_name=f"a{i}",
+                )
+            )
         await s.commit()
 
 

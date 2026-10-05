@@ -8,7 +8,6 @@ from sqlalchemy.exc import IntegrityError
 from typing import List
 
 from app.database import get_db
-from app.models.device import Device
 from app.models.user import User
 from app.models.security_report import SecurityReport
 from app.models.alert import Alert
@@ -48,10 +47,8 @@ async def generate_daily_report(
     apps_result = await db.execute(
         select(func.count())
         .select_from(AppScan)
-        # AppScan is attributed to a user through its device; never count other users' scans.
-        .join(Device, Device.id == AppScan.device_id)
         .where(
-            Device.user_id == user_id,
+            AppScan.user_id == user_id,
             AppScan.scanned_at >= start,
             AppScan.scanned_at < end,
         )

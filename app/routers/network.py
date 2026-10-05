@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List
@@ -6,6 +6,7 @@ import uuid
 
 from app.database import get_db
 from app.models.user import User
+from app.models.device import Device
 from app.models.network_activity import NetworkActivity
 from app.schemas.network_activity import (
     NetworkActivityBatchRequest,
@@ -50,6 +51,15 @@ async def log_activity(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    owned = (
+        await db.execute(
+            select(Device.id).where(
+                Device.id == request.device_id, Device.user_id == current_user.id
+            )
+        )
+    ).first()
+    if not owned:
+        raise HTTPException(status_code=404, detail="Device not found")
     logged = 0
     for activity in request.activities:
         is_sus, risk_reason = is_suspicious_activity(
@@ -79,9 +89,19 @@ async def get_suspicious(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    query = select(NetworkActivity).where(NetworkActivity.is_suspicious.is_(True))
+    # Activity belongs to a user through its device.
+    query = (
+        select(NetworkActivity)
+        .join(Device, Device.id == NetworkActivity.device_id)
+        .where(
+            NetworkActivity.is_suspicious.is_(True), Device.user_id == current_user.id
+        )
+    )
     if device_id:
-        query = query.where(NetworkActivity.device_id == uuid.UUID(device_id))
+        try:
+            query = query.where(NetworkActivity.device_id == uuid.UUID(device_id))
+        except ValueError:
+            raise HTTPException(status_code=404, detail="Device not found")
     query = query.order_by(NetworkActivity.logged_at.desc()).limit(50)
     result = await db.execute(query)
     return result.scalars().all()

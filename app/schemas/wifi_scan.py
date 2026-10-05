@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List
 import uuid
 from datetime import datetime
@@ -6,10 +6,10 @@ from datetime import datetime
 
 class WifiScanRequest(BaseModel):
     device_id: Optional[uuid.UUID] = None
-    ssid: Optional[str] = None
-    bssid: Optional[str] = None
-    signal_strength: Optional[int] = None
-    encryption_type: Optional[str] = None
+    ssid: Optional[str] = Field(None, max_length=255)
+    bssid: Optional[str] = Field(None, max_length=50)
+    signal_strength: Optional[int] = Field(None, ge=-200, le=100)
+    encryption_type: Optional[str] = Field(None, max_length=50)
 
 
 class WifiScanResponse(BaseModel):

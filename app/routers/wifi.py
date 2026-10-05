@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List
@@ -30,6 +30,7 @@ async def scan_wifi(
     )
 
     scan = WifiScan(
+        user_id=current_user.id,
         device_id=None,  # device_id is optional — not required for wifi scans
         ssid=request.ssid,
         bssid=request.bssid,
@@ -67,8 +68,16 @@ async def get_history(
 ):
     import uuid
 
-    query = select(WifiScan).order_by(WifiScan.scanned_at.desc()).limit(50)
+    query = (
+        select(WifiScan)
+        .where(WifiScan.user_id == current_user.id)
+        .order_by(WifiScan.scanned_at.desc())
+        .limit(50)
+    )
     if device_id:
-        query = query.where(WifiScan.device_id == uuid.UUID(device_id))
+        try:
+            query = query.where(WifiScan.device_id == uuid.UUID(device_id))
+        except ValueError:
+            raise HTTPException(status_code=404, detail="Device not found")
     result = await db.execute(query)
     return result.scalars().all()

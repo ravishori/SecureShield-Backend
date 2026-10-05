@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Path
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List
@@ -77,7 +77,7 @@ async def get_history(
 
 @router.post("/block/{number}")
 async def block_number(
-    number: str,
+    number: str = Path(..., min_length=1, max_length=20),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -88,8 +88,9 @@ async def block_number(
             ScamCall.caller_number == number,
         )
         .order_by(ScamCall.detected_at.desc())
+        .limit(1)
     )
-    scam_call = result.scalar_one_or_none()
+    scam_call = result.scalars().first()
 
     if scam_call:
         scam_call.is_blocked = True

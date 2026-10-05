@@ -1,21 +1,21 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List
 import uuid
 from datetime import datetime
 
 
 class NetworkActivityLog(BaseModel):
-    app_package: Optional[str] = None
-    app_name: Optional[str] = None
-    bytes_sent: int = 0
-    bytes_received: int = 0
-    destination_ip: Optional[str] = None
-    destination_domain: Optional[str] = None
+    app_package: Optional[str] = Field(None, max_length=255)
+    app_name: Optional[str] = Field(None, max_length=255)
+    bytes_sent: int = Field(0, ge=0)
+    bytes_received: int = Field(0, ge=0)
+    destination_ip: Optional[str] = Field(None, max_length=64)
+    destination_domain: Optional[str] = Field(None, max_length=255)
 
 
 class NetworkActivityBatchRequest(BaseModel):
     device_id: uuid.UUID
-    activities: List[NetworkActivityLog]
+    activities: List[NetworkActivityLog] = Field(..., max_length=500)
 
 
 class NetworkActivityResponse(BaseModel):

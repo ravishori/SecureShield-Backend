@@ -127,6 +127,8 @@ async def erase_user_data(
     await _del(db, "devices", delete(Device).where(Device.user_id == uid), result)
 
     for name, model in (
+        ("app_scans_by_user", AppScan),
+        ("wifi_scans_by_user", WifiScan),
         ("evidence", Evidence),
         ("recordings", Recording),
         ("ai_conversations", AiConversation),

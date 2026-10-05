@@ -34,6 +34,7 @@ async def scan_apps(
         removal_reason = get_removal_reason(risk_level, threat_tags, is_malicious)
 
         scan = AppScan(
+            user_id=current_user.id,
             device_id=None,  # device_id optional — not required for app scans
             package_name=app_info.package_name,
             app_name=app_info.app_name,
@@ -84,15 +85,22 @@ async def scan_apps(
     )
 
 
+def _uuid_or_404(value: str, what: str) -> uuid.UUID:
+    try:
+        return uuid.UUID(value)
+    except ValueError:
+        raise HTTPException(status_code=404, detail=f"{what} not found")
+
+
 @router.get("/results", response_model=List[AppScanResult])
 async def get_scan_results(
     device_id: str = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    query = select(AppScan)
+    query = select(AppScan).where(AppScan.user_id == current_user.id)
     if device_id:
-        query = query.where(AppScan.device_id == uuid.UUID(device_id))
+        query = query.where(AppScan.device_id == _uuid_or_404(device_id, "Device"))
     query = query.order_by(AppScan.scanned_at.desc()).limit(100)
     result = await db.execute(query)
     return result.scalars().all()
@@ -104,7 +112,12 @@ async def get_scan_result(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(AppScan).where(AppScan.id == uuid.UUID(scan_id)))
+    result = await db.execute(
+        select(AppScan).where(
+            AppScan.id == _uuid_or_404(scan_id, "Scan result"),
+            AppScan.user_id == current_user.id,
+        )
+    )
     scan = result.scalar_one_or_none()
     if not scan:
         raise HTTPException(status_code=404, detail="Scan result not found")
@@ -120,9 +133,10 @@ async def check_for_spyware(
     """Returns all apps identified as spyware or critical risk with removal guidance."""
     query = select(AppScan).where(
         AppScan.is_malicious.is_(True),
+        AppScan.user_id == current_user.id,
     )
     if device_id:
-        query = query.where(AppScan.device_id == uuid.UUID(device_id))
+        query = query.where(AppScan.device_id == _uuid_or_404(device_id, "Device"))
     query = query.order_by(AppScan.scanned_at.desc()).limit(20)
     result = await db.execute(query)
     spyware_apps = result.scalars().all()
