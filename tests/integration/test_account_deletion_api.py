@@ -108,8 +108,11 @@ def _upload_dirs(tmp_path, monkeypatch):
 async def _populate(session_factory, client, headers, user, upload_dirs):
     """Give ``user`` data in every user-linked table; returns identifiers for assertions."""
     info = {}
+
     def listing():
-        return {p for d in ("evidence", "recordings") for p in (upload_dirs / d).iterdir()}
+        return {
+            p for d in ("evidence", "recordings") for p in (upload_dirs / d).iterdir()
+        }
 
     before = listing()
     r = await client.post(
