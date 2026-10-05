@@ -68,7 +68,7 @@ cannot be reversed - PostgreSQL cannot drop enum values - and is harmless to lea
 
 ## Not automated (owner actions)
 
-* A schedule (Railway cron / GitHub Actions with a read-only DB credential and an object-storage target).
+* Enabling the schedule: `.github/workflows/db-backup.yml` is written but **disabled** (needs repo variable `BACKUP_ENABLED=true` and secrets `BACKUP_DATABASE_URL`, `BACKUP_ENCRYPTION_PASSPHRASE`). It dumps with a PGDG-18 client, proves the dump restores into a scratch Postgres 18 service, encrypts it (AES-256, PBKDF2) and keeps it 14 days as an artifact. **Never run on GitHub** - validated for YAML syntax only.
   No credential was created or rotated by this work.
 * Off-site storage and encryption keys for the dumps.
 * Evidence-volume backups (Railway dashboard setting; plan dependent).

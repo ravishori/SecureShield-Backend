@@ -1,0 +1,68 @@
+name: db-backup
+
+# Scheduled logical backup + restore proof. DISABLED until the owner opts in:
+#   * repository variable  BACKUP_ENABLED = true
+#   * secret BACKUP_DATABASE_URL            (read-only role: GRANT pg_read_all_data)
+#   * secret BACKUP_ENCRYPTION_PASSPHRASE   (long random string kept in the owner's password manager)
+# The dump never leaves the runner unencrypted. GitHub artifacts are a convenience store (14 days); for
+# real retention copy them to object storage you control. See docs/BACKUP_AND_RECOVERY.md.
+on:
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    if: ${{ vars.BACKUP_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    services:
+      scratch:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install client tools
+        run: |
+          # pg_dump must be at least as new as the server (Railway runs PostgreSQL 18): use the PGDG repository.
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -sSfL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update -y
+          sudo apt-get install -y postgresql-client-18
+          python -m pip install sqlalchemy asyncpg
+      - name: Dump
+        env:
+          BACKUP_DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}
+        run: python scripts/db_backup.py --out backups --keep 1
+      - name: Prove the dump restores (scratch Postgres service, always dropped)
+        env:
+          RESTORE_ADMIN_URL: postgresql://postgres:postgres@localhost:5432/postgres
+        run: python scripts/db_restore_check.py "$(ls backups/secureshield-*.dump | tail -1)"
+      - name: Encrypt
+        env:
+          PASS: ${{ secrets.BACKUP_ENCRYPTION_PASSPHRASE }}
+        run: |
+          f="$(ls backups/secureshield-*.dump | tail -1)"
+          openssl enc -aes-256-cbc -pbkdf2 -iter 600000 -salt -in "$f" -out "$f.enc" -pass env:PASS
+          rm -f "$f"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: secureshield-db-backup
+          path: backups/*.enc
+          retention-days: 14
+          if-no-files-found: error
