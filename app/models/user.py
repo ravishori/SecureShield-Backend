@@ -69,7 +69,9 @@ class OTP(Base):
     # One of phone/email must be set — enforced in application layer
     phone: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
     email: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
-    code: Mapped[str] = mapped_column(String(10), nullable=False)
+    code: Mapped[str] = mapped_column(
+        String(64), nullable=False
+    )  # HMAC of the code, never plaintext
     expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     is_used: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(

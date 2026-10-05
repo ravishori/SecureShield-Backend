@@ -9,7 +9,6 @@ All exceptions are caught, logged (file + DB + email alert), and
 re-raised as clean HTTP errors.
 """
 
-import random
 import uuid
 from datetime import datetime, timedelta
 
@@ -49,6 +48,7 @@ from app.services.google_auth import (
     GoogleNotConfigured,
     verify_google_id_token,
 )
+from app.services.otp_codes import generate_code, hash_code
 from app.services.otp_service import deliver_otp, _normalize_phone
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -275,14 +275,14 @@ async def register_user(
         await db.flush()  # get user.id without committing yet
 
         # ── Generate OTP (single code, dual delivery) ──────────────────────
-        code = str(random.randint(100000, 999999))
+        code = generate_code()
         expires_at = datetime.utcnow() + timedelta(minutes=10)
 
         # One OTP record with both channels populated (whichever apply)
         otp = OTP(
             email=email_lower,
             phone=normalized_phone,
-            code=code,
+            code=hash_code(code),
             expires_at=expires_at,
         )
         db.add(otp)
@@ -346,7 +346,7 @@ async def send_otp(
     check_otp_send_rate(request.identifier)
 
     try:
-        code = str(random.randint(100000, 999999))
+        code = generate_code()
         expires_at = datetime.utcnow() + timedelta(minutes=10)
 
         identifier = request.identifier
@@ -377,14 +377,14 @@ async def send_otp(
             otp = OTP(
                 email=identifier.lower(),
                 phone=other_phone,
-                code=code,
+                code=hash_code(code),
                 expires_at=expires_at,
             )
         else:
             otp = OTP(
                 phone=identifier,
                 email=other_email,
-                code=code,
+                code=hash_code(code),
                 expires_at=expires_at,
             )
 
@@ -479,7 +479,7 @@ async def verify_otp(
             select(OTP)
             .where(
                 otp_filter,
-                OTP.code == request.code,
+                OTP.code == hash_code(request.code),
                 OTP.is_used.is_(False),  # noqa: E712
                 OTP.expires_at > datetime.utcnow(),
             )

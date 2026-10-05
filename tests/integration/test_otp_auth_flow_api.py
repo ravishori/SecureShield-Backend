@@ -46,6 +46,11 @@ async def _otp_row(db, email):
     )
 
 
+def _delivered_code(delivered, identifier):
+    """The code the user actually received (the DB only keeps an HMAC of it)."""
+    return [c for i, c in delivered if i == identifier][-1]
+
+
 async def _register(client, email):
     r = await client.post(REGISTER, json={"first_name": "Test", "email": email})
     assert r.status_code == 200, r.text
@@ -56,18 +61,20 @@ async def test_otp_generation_stores_code_with_ttl_and_delivers_same_code(
 ):
     await _register(client, "gen@example.com")
     row = await _otp_row(db, "gen@example.com")
-    assert row.code.isdigit() and len(row.code) == 6 and not row.is_used
+    sent_code = _delivered_code(delivered, "gen@example.com")
+    assert sent_code.isdigit() and len(sent_code) == 6 and not row.is_used
+    assert row.code != sent_code and len(row.code) == 64  # only an HMAC is stored
     assert (
         timedelta(minutes=5)
         < row.expires_at - datetime.utcnow()
         <= timedelta(minutes=15)
     )
-    assert ("gen@example.com", row.code) in delivered
+    assert ("gen@example.com", sent_code) in delivered
 
 
 async def test_verify_success_returns_tokens_and_burns_otp(client, db, delivered):
     await _register(client, "ok@example.com")
-    code = (await _otp_row(db, "ok@example.com")).code
+    code = _delivered_code(delivered, "ok@example.com")
     r = await client.post(VERIFY, json={"identifier": "ok@example.com", "code": code})
     assert (
         r.status_code == 200 and r.json()["access_token"] and r.json()["refresh_token"]
@@ -88,8 +95,8 @@ async def test_verify_success_returns_tokens_and_burns_otp(client, db, delivered
 
 async def test_wrong_and_expired_codes_rejected(client, db, delivered, session_factory):
     await _register(client, "bad@example.com")
-    row = await _otp_row(db, "bad@example.com")
-    wrong = "000000" if row.code != "000000" else "111111"
+    real = _delivered_code(delivered, "bad@example.com")
+    wrong = "000000" if real != "000000" else "111111"
     assert (
         await client.post(VERIFY, json={"identifier": "bad@example.com", "code": wrong})
     ).status_code == 400
@@ -101,17 +108,15 @@ async def test_wrong_and_expired_codes_rejected(client, db, delivered, session_f
         )
         await s.commit()
     assert (
-        await client.post(
-            VERIFY, json={"identifier": "bad@example.com", "code": row.code}
-        )
+        await client.post(VERIFY, json={"identifier": "bad@example.com", "code": real})
     ).status_code == 400
 
 
 async def test_code_for_one_identifier_does_not_work_for_another(client, db, delivered):
     await _register(client, "a@example.com")
     await _register(client, "b@example.com")
-    code_a = (await _otp_row(db, "a@example.com")).code
-    code_b = (await _otp_row(db, "b@example.com")).code
+    code_a = _delivered_code(delivered, "a@example.com")
+    code_b = _delivered_code(delivered, "b@example.com")
     if code_a != code_b:  # random 6-digit codes: only meaningful when they differ
         r = await client.post(
             VERIFY, json={"identifier": "b@example.com", "code": code_a}
@@ -130,7 +135,7 @@ async def test_delivery_failure_on_login_returns_503_and_leaks_nothing(
     monkeypatch.setattr("app.routers.auth.deliver_otp", _down)
     r = await client.post(SEND, json={"identifier": "fail@example.com"})
     assert r.status_code == 503
-    code = (await _otp_row(db, "fail@example.com")).code
+    code = _delivered_code(delivered, "fail@example.com")
     assert code not in r.text
 
 
@@ -139,3 +144,36 @@ async def test_health_and_ready_execute_a_real_query(client):
     r = await client.get("/ready")
     assert r.status_code == 200 and r.json()["status"] == "ready"
     assert r.json()["database"]  # came from SELECT current_database()
+
+
+async def test_stored_otp_is_not_the_plaintext_code_and_generation_is_csprng(
+    client, db, delivered, monkeypatch
+):
+    import app.services.otp_codes as oc
+
+    await _register(client, "hash@example.com")
+    code = _delivered_code(delivered, "hash@example.com")
+    row = await _otp_row(db, "hash@example.com")
+    assert code not in row.code and row.code == oc.hash_code(code)
+    # a different SECRET_KEY must produce a different digest (keyed, not a bare SHA-256)
+    before = oc.hash_code(code)
+    monkeypatch.setattr(
+        oc.settings, "SECRET_KEY", "another-secret-key-value-1234567890"
+    )
+    assert oc.hash_code(code) != before
+
+
+def test_generated_codes_are_six_digits_and_use_secrets():
+    import inspect
+
+    import app.routers.auth as auth
+    import app.services.otp_codes as oc
+
+    codes = {oc.generate_code() for _ in range(300)}
+    assert (
+        all(len(c) == 6 and c.isdigit() and c[0] != "0" for c in codes)
+        and len(codes) > 250
+    )
+    assert "random." not in inspect.getsource(
+        auth
+    ) and "randbelow" in inspect.getsource(oc)
