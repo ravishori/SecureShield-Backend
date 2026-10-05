@@ -11,6 +11,7 @@ from app.routers import community_scam, message_analyzer, video_call
 from app.routers import app_monitor, clone_detection, elderly_protection
 from app.routers import admin_errors
 from app.routers import cyber_warrior
+from app.middleware.access_log import install_access_log_redaction
 from app.middleware.error_handler import GlobalErrorHandlerMiddleware, register_exception_handlers
 from app.middleware.rate_limiter import RateLimitMiddleware
 from app.services.logger_service import get_logger
@@ -18,6 +19,10 @@ from app.config import settings
 from app.startup_checks import run_startup_checks
 
 logger = get_logger(__name__)
+
+# uvicorn's access log prints the full request target (query values, share tokens in paths);
+# mask those before any handler formats the line.
+install_access_log_redaction()
 
 app = FastAPI(
     title="SecureShield AI API",
