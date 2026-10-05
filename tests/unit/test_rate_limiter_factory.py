@@ -5,7 +5,6 @@ limiter can swap in later without touching call sites. These tests
 guard the swap boundary.
 """
 
-import os
 
 import pytest
 

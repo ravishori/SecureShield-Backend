@@ -87,7 +87,7 @@ async def get_member_alerts(
         select(FamilyMember).where(
             FamilyMember.id == uuid.UUID(member_id),
             FamilyMember.user_id == current_user.id,
-            FamilyMember.can_view_alerts == True,
+            FamilyMember.can_view_alerts.is_(True),
         )
     )
     member = result.scalar_one_or_none()

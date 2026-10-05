@@ -55,7 +55,7 @@ async def test_register_with_failing_delivery_never_logs_the_otp(client, db, cap
 
     out = capsys.readouterr()
     blob = "\n".join(captured.lines) + out.out + out.err + await _error_log_blob(db)
-    assert any("OTP delivery failed" in l for l in captured.lines), "failure path not exercised"
+    assert any("OTP delivery failed" in line for line in captured.lines), "failure path not exercised"
     assert code not in blob
     assert email not in blob
 

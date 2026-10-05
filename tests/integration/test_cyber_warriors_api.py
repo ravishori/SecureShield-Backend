@@ -271,7 +271,9 @@ class TestOwnApplicationAndProfile:
         b = await client.get(MY_PROFILE, headers=auth_headers(pending))
         assert a.status_code == b.status_code == 403
         # Bodies are identical apart from the per-request correlation id.
-        strip = lambda body: {k: v for k, v in body.items() if k != "request_id"}
+        def strip(body):
+            return {k: v for k, v in body.items() if k != "request_id"}
+
         assert strip(a.json()) == strip(b.json())
 
     async def test_suspended_warrior_denied(

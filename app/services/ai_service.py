@@ -358,7 +358,7 @@ TO: <comma-separated list of recommended recipient emails>"""
             "to_addresses": to_addresses,
         }
 
-    except Exception as e:
+    except Exception:
         fallback_body = (
             f"Dear Cybercrime Authority,\n\n"
             f"I am writing to report a cybercrime incident.\n\n"

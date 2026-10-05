@@ -89,7 +89,7 @@ async def submit_application(
     existing_profile = await db.execute(
         select(WarriorProfile).where(
             WarriorProfile.user_id == current_user.id,
-            WarriorProfile.is_active == True,  # noqa: E712
+            WarriorProfile.is_active.is_(True),  # noqa: E712
         )
     )
     if existing_profile.scalar_one_or_none():

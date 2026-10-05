@@ -69,7 +69,7 @@ async def get_suspicious(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    query = select(NetworkActivity).where(NetworkActivity.is_suspicious == True)
+    query = select(NetworkActivity).where(NetworkActivity.is_suspicious.is_(True))
     if device_id:
         query = query.where(NetworkActivity.device_id == uuid.UUID(device_id))
     query = query.order_by(NetworkActivity.logged_at.desc()).limit(50)

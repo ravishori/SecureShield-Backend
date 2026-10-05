@@ -9,7 +9,6 @@ Also registers FastAPI exception handlers for common HTTP errors
 so every error path goes through the same logging pipeline.
 """
 
-import traceback
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError

@@ -9,9 +9,6 @@ Endpoints:
 """
 from __future__ import annotations
 
-import uuid
-from datetime import datetime
-from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func, desc

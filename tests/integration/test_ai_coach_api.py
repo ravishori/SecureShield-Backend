@@ -8,7 +8,6 @@ import uuid
 from types import SimpleNamespace
 
 import pytest
-from sqlalchemy import select
 
 from app.models.ai_conversation import AiConversation, ConversationRole
 

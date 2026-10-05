@@ -1,7 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
-from typing import List
 import uuid
 
 from app.database import get_db
@@ -24,14 +23,14 @@ async def list_alerts(
     count_result = await db.execute(
         select(func.count()).select_from(Alert).where(
             Alert.user_id == current_user.id,
-            Alert.is_dismissed == False,
+            Alert.is_dismissed.is_(False),
         )
     )
     total = count_result.scalar()
 
     result = await db.execute(
         select(Alert)
-        .where(Alert.user_id == current_user.id, Alert.is_dismissed == False)
+        .where(Alert.user_id == current_user.id, Alert.is_dismissed.is_(False))
         .order_by(Alert.created_at.desc())
         .offset(offset)
         .limit(page_size)

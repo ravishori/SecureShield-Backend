@@ -113,7 +113,7 @@ async def check_for_spyware(
 ):
     """Returns all apps identified as spyware or critical risk with removal guidance."""
     query = select(AppScan).where(
-        AppScan.is_malicious == True,
+        AppScan.is_malicious.is_(True),
     )
     if device_id:
         query = query.where(AppScan.device_id == uuid.UUID(device_id))

@@ -1,5 +1,4 @@
 import os
-import uuid
 import secrets
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form

@@ -156,7 +156,7 @@ async def get_summary(
     total   = (await db.execute(base)).scalar_one()
     danger  = (await db.execute(base.where(AppInstallEvent.risk_level == "danger"))).scalar_one()
     warning = (await db.execute(base.where(AppInstallEvent.risk_level == "warning"))).scalar_one()
-    clones  = (await db.execute(base.where(AppInstallEvent.flagged_as_clone == True))).scalar_one()
+    clones  = (await db.execute(base.where(AppInstallEvent.flagged_as_clone.is_(True)))).scalar_one()
 
     return {
         "total_monitored": total,

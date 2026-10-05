@@ -19,7 +19,6 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from app.models.cyber_warrior import (
     ApplicationStatus,
-    AuditAction,
     WarriorRole,
 )
 

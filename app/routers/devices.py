@@ -53,7 +53,7 @@ async def list_devices(
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
-        select(Device).where(Device.user_id == current_user.id, Device.is_active == True)
+        select(Device).where(Device.user_id == current_user.id, Device.is_active.is_(True))
     )
     return result.scalars().all()
 

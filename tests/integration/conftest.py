@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import os
 import uuid
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from typing import AsyncIterator, Callable
 
 import httpx

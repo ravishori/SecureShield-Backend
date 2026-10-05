@@ -16,7 +16,7 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -442,7 +442,7 @@ async def verify_otp(
             .where(
                 otp_filter,
                 OTP.code == request.code,
-                OTP.is_used == False,  # noqa: E712
+                OTP.is_used.is_(False),  # noqa: E712
                 OTP.expires_at > datetime.utcnow(),
             )
             .order_by(OTP.created_at.desc())
@@ -585,13 +585,20 @@ async def update_profile(
             current_user.alt_phone = request.alt_phone
         if request.senior_mode is not None:
             current_user.senior_mode = request.senior_mode
-        if request.flat_no  is not None: current_user.flat_no  = request.flat_no
-        if request.building is not None: current_user.building = request.building
-        if request.street   is not None: current_user.street   = request.street
-        if request.city     is not None: current_user.city     = request.city
-        if request.state    is not None: current_user.state    = request.state
-        if request.country  is not None: current_user.country  = request.country
-        if request.pin_code is not None: current_user.pin_code = request.pin_code
+        if request.flat_no is not None:
+            current_user.flat_no = request.flat_no
+        if request.building is not None:
+            current_user.building = request.building
+        if request.street is not None:
+            current_user.street = request.street
+        if request.city is not None:
+            current_user.city = request.city
+        if request.state is not None:
+            current_user.state = request.state
+        if request.country is not None:
+            current_user.country = request.country
+        if request.pin_code is not None:
+            current_user.pin_code = request.pin_code
         current_user.updated_at = datetime.utcnow()
         await db.commit()
         await db.refresh(current_user)

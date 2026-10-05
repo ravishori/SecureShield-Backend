@@ -137,7 +137,7 @@ async def _deliver_guardian_alert(
         f"Reason: {tags_text}\n"
         + (f"Verdict: {clone_verdict.replace('_', ' ').title()}\n" if clone_verdict else "")
         + "\nPlease check their device and help them remove it if it looks suspicious.\n"
-        f"– SecureShield AI"
+        "– SecureShield AI"
     )
 
     if guardian_phone:

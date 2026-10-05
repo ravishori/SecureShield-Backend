@@ -72,14 +72,16 @@ class TestCreateToken:
         claiming `alg=none` and verify the DECODER also refuses it, which
         is the defence that matters at the HTTP boundary.
         """
-        import base64, json
+        import base64
+        import json
 
         header = {"alg": "none", "typ": "JWT"}
         payload = {"sub": "attacker",
                    "exp": int((datetime.now(timezone.utc)
                                + timedelta(hours=1)).timestamp())}
-        b64 = lambda d: base64.urlsafe_b64encode(
-            json.dumps(d).encode()).rstrip(b"=").decode()
+        def b64(d):
+            return base64.urlsafe_b64encode(json.dumps(d).encode()).rstrip(b"=").decode()
+
         forged = f"{b64(header)}.{b64(payload)}."  # empty signature
 
         with pytest.raises(JWTError):
