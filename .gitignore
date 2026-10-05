@@ -56,3 +56,4 @@ package.json
 package-lock.json
 .railway/README.md
 backups/
+e2e_outbox.log

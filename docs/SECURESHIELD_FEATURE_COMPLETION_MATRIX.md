@@ -45,8 +45,8 @@ BLOCKED = cannot progress without an external input; RED = not implemented.
 
 | # | Feature | IMPLEMENTED | INTEGRATED | TESTED | E2E | EXTERNAL | BLOCKED / remaining gap | Status |
 |---|---|---|---|---|---|---|---|---|
-| 1 | Authentication & onboarding | yes (OTP, register, refresh rotation, Google ID-token verify) | yes (OTP, register, refresh); **Google: no** (no client plugin, `/auth/google` path fixed only) | unit + backend-int (OTP flow, hashing, rotation, Google with signed tokens) | no (release APK reaches welcome screen only) | no | **Live OTP delivery**: Resend needs API key + verified domain; Twilio fails 20003. **Google**: needs OAuth client IDs + plugin. Pre-rotation refresh tokens force one re-login | AMBER / BLOCKED (delivery, Google) |
-| 2 | Security dashboard | yes | yes (home screen loads `/reports/daily` and shows the server `security_score`) | backend-int (reports); no Flutter test | no | no | device E2E | AMBER |
+| 1 | Authentication & onboarding | yes (OTP, register, refresh rotation, Google ID-token verify) | yes (OTP, register, refresh); **Google: no** (no client plugin, `/auth/google` path fixed only) | unit + backend-int (OTP flow, hashing, rotation, Google with signed tokens) | **local E2E**: phone login with OTP (hashed at rest) on the emulator against the local backend succeeded; rotation/refresh not driven; release APK reaches welcome screen | no | **Live OTP delivery**: Resend needs API key + verified domain; Twilio fails 20003. **Google**: needs OAuth client IDs + plugin. Pre-rotation refresh tokens force one re-login | AMBER / BLOCKED (delivery, Google) |
+| 2 | Security dashboard | yes | yes (home screen loads `/reports/daily` and shows the server `security_score`) | backend-int (reports); no Flutter test | **local E2E**: after login the emulator showed score 100 from the real local backend | no | threat-count states not driven | AMBER |
 | 3 | Alerts | yes | yes (`AlertsApi`) | backend-int | no | no | device E2E | AMBER |
 | 4 | Settings & profile (theme, senior mode, language) | yes | yes | flutter (6-language key parity + render) + backend-int | no | no | Localization wired for ~56 of ~444 literals; rest English-only | AMBER |
 | 5 | App risk scanner | yes | yes | flutter (risk engine) + backend-int (isolation, bounds) | no | no | device E2E | AMBER |
@@ -64,8 +64,8 @@ BLOCKED = cannot progress without an external input; RED = not implemented.
 | 17 | Evidence locker | yes | yes (upload; download via `download_url` untested in client) | unit (format tamper/truncation) + backend-int | no | no | encryption disabled until `FILE_ENCRYPTION_KEY` is set; no rotation tooling | AMBER |
 | 18 | AI security coach | yes | yes | backend-int (fake Anthropic client) | no | **no** (real model never called) | real `ANTHROPIC_API_KEY` | AMBER |
 | 19 | Complaint e-mail generator | yes | yes (`/ai/generate-complaint-email`) | partial | no | no | as #18 | AMBER |
-| 20 | Family safety dashboard | yes (consent flow, dashboard) | yes (Invites tab, consent badges - **not run on a device**) | backend-int (10 tests) | no | no | device run; panic fan-out to family members not implemented | AMBER |
-| 21 | Panic button | yes (contacts SMS/e-mail) | yes (`/alerts/panic`) | backend-int (providers mocked) | no | **no** (nothing real sent) | working Twilio/Resend; BRD says family contacts - only emergency contacts notified | AMBER |
+| 20 | Family safety dashboard | yes (consent flow, dashboard) | yes (Invites tab, consent badges) | backend-int (10 tests) | **local E2E done 2026-10-06**: invitee logged in with OTP on the emulator, saw the invitation, tapped Accept -> backend `consent_status=accepted`; the inviter's `/family/dashboard` then showed the invitee's panic alert (unread 1, critical 1). Local harness, real app + real local PostgreSQL | no | adding a member / Kids tab / decline path not driven on a device; panic is not pushed to family members (they see it on their dashboard) | AMBER |
+| 21 | Panic button | yes (contacts SMS/e-mail) | yes (`/alerts/panic`; dialog text corrected to match behaviour) | backend-int (providers mocked) | **local E2E done 2026-10-06**: SOS tapped in the app on the emulator -> alert stored, SMS + e-mail to the user's emergency contact captured by the local harness outbox (not sent anywhere) | **no** (no real SMS/e-mail ever sent) | working Twilio/Resend; BRD says family contacts - only emergency contacts are messaged | AMBER |
 | 22 | Security reports | yes (daily/weekly/e-mail) | yes (daily, history, weekly); e-mail endpoint **not called by client** | backend-int (13 tests) | no | no | e-mail needs a provider; no scheduler | AMBER |
 | 23 | Consent manager | yes | yes | none | no | no | device-only, untested | AMBER |
 
@@ -112,3 +112,11 @@ persisted as files.
 
 No push, no deployment, no Railway change, no credential created or rotated, no admin created, no real third-party
 provider call, no GitHub CI run, no device E2E of the new client screens.
+
+## Local E2E harness (2026-10-06)
+
+`scripts/e2e_local_server.py` runs the real FastAPI app on a disposable, migrated local PostgreSQL database and replaces
+only outbound delivery (OTP / SMS / e-mail go to a git-ignored `e2e_outbox.log`). A **debug** build of the app on the
+Android emulator found it through the LAN probe (`10.0.2.2:8000`). Driven by hand through the UI: phone login with OTP,
+dashboard, Family -> Invites -> Accept, Alerts -> SOS. This is E2E for the app and backend together; it is **not** an
+external verification (no real provider, no Railway). The scratch database was dropped afterwards.
