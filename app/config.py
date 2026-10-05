@@ -129,6 +129,10 @@ class Settings(BaseSettings):
     ADMIN_TOKEN: str = ""
     SQL_ECHO: bool = False
 
+    # abuse.ch URLhaus requires an Auth-Key (free account) since 2025; without it the
+    # provider reports `no_api_key` and the scanner falls back to the other tiers.
+    URLHAUS_AUTH_KEY: str = ""
+
     # ============================================================
     # CORS (browser clients only; native Android does not need CORS)
     # ============================================================

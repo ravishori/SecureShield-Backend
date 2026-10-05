@@ -1,11 +1,21 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List, Any
 import uuid
 from datetime import datetime
 
 
 class LinkScanRequest(BaseModel):
-    url: str
+    url: str = Field(..., min_length=3, max_length=2048)
+
+    @field_validator("url")
+    @classmethod
+    def _clean_url(cls, v: str) -> str:
+        v = v.strip()
+        if not v or any(ord(c) < 32 for c in v):
+            raise ValueError("URL must be non-empty and contain no control characters")
+        if len(v) < 3:
+            raise ValueError("URL is too short")
+        return v
 
 
 class LinkScanResponse(BaseModel):
