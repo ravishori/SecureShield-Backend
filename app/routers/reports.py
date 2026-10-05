@@ -165,7 +165,7 @@ async def get_daily_report(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    today = date.today()
+    today = datetime.utcnow().date()  # all timestamps are UTC
     result = await db.execute(
         select(SecurityReport).where(
             SecurityReport.user_id == current_user.id,
@@ -208,7 +208,7 @@ async def email_daily_report(
             detail="You can e-mail at most 3 reports per hour.",
             headers={"Retry-After": "3600"},
         )
-    today = date.today()
+    today = datetime.utcnow().date()  # all timestamps are UTC
     existing = (
         (
             await db.execute(
@@ -306,7 +306,7 @@ async def get_weekly_insights(
     db: AsyncSession = Depends(get_db),
 ):
     """Returns a 7-day security trend analysis."""
-    today = date.today()
+    today = datetime.utcnow().date()  # all timestamps are UTC
     week_ago = today - timedelta(days=7)
 
     reports_result = await db.execute(
