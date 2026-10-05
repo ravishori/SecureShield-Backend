@@ -37,11 +37,11 @@ candidate and the staging deployment contain.
 | 1.3 | No working OTP transport at all (consequence of 1.1 + 1.2) | OPEN | **BLOCKER** | Yes |
 | 1.4 | OTP plaintext logging | RESOLVED | was HIGH | No |
 | 1.5 | Refresh token accepted as a bearer access token | **RESOLVED** | was HIGH | No |
-| 1.6 | OTP generated with `random.randint` (not a CSPRNG) | OPEN | MEDIUM | No |
-| 1.7 | OTP stored in plaintext in `otps.code` | OPEN | MEDIUM | No |
+| 1.6 | OTP generated with `random.randint` (not a CSPRNG) | **RESOLVED 2026-10-06** (`secrets.randbelow`) | was MEDIUM | No |
+| 1.7 | OTP stored in plaintext in `otps.code` | **RESOLVED 2026-10-06** (keyed HMAC, migration `q2r3s4t5u6v7`) | was MEDIUM | No |
 | 1.8 | Rate limiter is in-memory, per process | OPEN | MEDIUM | Single replica only |
 | 1.9 | `/auth/refresh` does not re-check the user is active | **RESOLVED** | was LOW | No |
-| 1.11 | No server-side refresh-token rotation / revocation (a used refresh token stays valid until expiry) | OPEN | MEDIUM | No |
+| 1.11 | No server-side refresh-token rotation / revocation | **RESOLVED 2026-10-06** (jti + family, replay revokes lineage, migration `r3s4t5u6v7w8`) | was MEDIUM | No |
 | 1.10 | OTP generation / verification / expiry / reuse / refresh | RESOLVED (verified) | — | No |
 
 **1.1 SMTP.** Evidence: Railway documents outbound SMTP as available only on Pro and above; from the
@@ -507,9 +507,9 @@ section 2 of this document, "s16" section 16, and so on.
 | FG-004 | Auth/OTP | OTP plaintext logging | RESOLVED | was HIGH | mutation-checked tests; staging logs clean (s1.4) | `otp_service` | metadata only | - | Yes (7) | No | closed | - |
 | FG-005 | Auth | Refresh token accepted as access token | RESOLVED | was HIGH | staging 200 before; 401 after; 17 tests; device test (s1.5) | `routers/auth.py` | typed tokens enforced | - | Yes | No | closed | - |
 | FG-006 | Auth | `/auth/refresh` ignored inactive/deleted users | RESOLVED | was LOW | tests (s1.9) | `routers/auth.py` | 401 | - | Yes | No | closed | - |
-| FG-007 | Auth | No refresh rotation/revocation | OPEN | MEDIUM | pinned by test (s1.11) | `routers/auth.py` | used refresh token stays valid 30 days | `jti` family store, rotate + reuse detection | pinned only | No | next auth phase | schedule |
-| FG-008 | Auth/OTP | OTP generated with `random.randint` | OPEN | MEDIUM | code (s1.6) | `routers/auth.py` | non-cryptographic PRNG | `secrets.randbelow` | no | No | next auth phase | - |
-| FG-009 | Auth/OTP | OTP stored in plaintext | OPEN | MEDIUM | model `otps.code` (s1.7) | `models/user.py` | equality compare | store HMAC, compare constant-time | no | No | next auth phase | - |
+| FG-007 | Auth | No refresh rotation/revocation | RESOLVED 2026-10-06 | MEDIUM | pinned by test (s1.11) | `routers/auth.py` | used refresh token stays valid 30 days | `jti` family store, rotate + reuse detection | pinned only | No | next auth phase | schedule |
+| FG-008 | Auth/OTP | OTP generated with `random.randint` | RESOLVED 2026-10-06 | MEDIUM | code (s1.6) | `routers/auth.py` | non-cryptographic PRNG | `secrets.randbelow` | no | No | next auth phase | - |
+| FG-009 | Auth/OTP | OTP stored in plaintext | RESOLVED 2026-10-06 | MEDIUM | model `otps.code` (s1.7) | `models/user.py` | equality compare | store HMAC, compare constant-time | no | No | next auth phase | - |
 | FG-010 | Auth | Rate limiter is in-memory | OPEN | MEDIUM | code (s1.8) | `middleware/rate_limiter.py` | per-process, resets on restart | Redis backend | factory tested | single replica only | keep 1 replica | - |
 | FG-020 | Security | Secrets in Git history | DEFERRED | HIGH | s2 | git history | exposed (repo now private) | rotate first, then history decision | gitleaks | **Yes** | deferred by owner | rotation phase |
 | FG-021 | Security | `SECRET_KEY` rotation | DEFERRED | HIGH | s2 | `config.py` | placeholder in history; staging uses its own | new random key | startup check | **Yes** (prod refuses placeholder) | deferred | rotation phase |
@@ -553,18 +553,18 @@ section 2 of this document, "s16" section 16, and so on.
 | FG-093 | Unreviewed | `urlhaus_service` (HTTP 401 without Auth-Key) | UNREVIEWED / BROKEN | MEDIUM | verified 401 | file | not committed | key or drop | no | No | DO NOT COMMIT | owner |
 | FG-094 | Unreviewed | `link_scanner` v2 | UNREVIEWED | MEDIUM | s16 | file | not committed | with threat-intel group | no | No | DEFER | - |
 | FG-095 | Unreviewed | `ai_service`, `ai_coach`, `ai_conversation` | UNREVIEWED | MEDIUM | s16 | files | not committed | generic errors, tests | no | No | DEFER | - |
-| FG-096 | Unreviewed | `video_call` streaming | UNREVIEWED | MEDIUM | s16 | file | not committed | generic client error | no | No | DEFER | - |
-| FG-097 | Unreviewed | `community_scam` news feed | UNREVIEWED | MEDIUM | s16 | file | not committed | moderation | no | No | DEFER | - |
-| FG-098 | Unreviewed | `emergency_contacts` PATCH + schema | UNREVIEWED | LOW | s16 | files | not committed | validation + tests | no | No | FIX-THEN-COMMIT | next |
+| FG-096 | Unreviewed | `video_call` streaming | RESOLVED 2026-10-06 (reviewed, hardened, committed) | MEDIUM | s16 | file | not committed | generic client error | no | No | DEFER | - |
+| FG-097 | Unreviewed | `community_scam` news feed | RESOLVED 2026-10-06 (corroboration threshold, escaped filter, tests) | MEDIUM | s16 | file | not committed | moderation | no | No | DEFER | - |
+| FG-098 | Unreviewed | `emergency_contacts` PATCH + schema | RESOLVED (committed `ef54a21`) | LOW | s16 | files | not committed | validation + tests | no | No | FIX-THEN-COMMIT | next |
 | FG-099 | Hygiene | `start.bat` | n/a | LOW | s16 | local file | untracked | - | n/a | No | do not commit | - |
 | FG-100 | Hygiene | `migrations/create_recordings_table.sql` deletion | RESOLVED (committed) | LOW | s16 | repo | superseded by Alembic | - | n/a | No | committed | - |
 | FG-110 | Flutter | HTTPS probe fix | RESOLVED | was MEDIUM | script + emulator log (s11) | `app_config.dart` | https override survives restart | - | Yes (device) | No | closed | commit by hunk in the Flutter repo |
 | FG-111 | Flutter | SDK corruption | RESOLVED | was MEDIUM | s11 | local SDK | repaired; leftovers on disk | delete `dart-sdk.broken`, `dart-sdk.old1`, `*.stamp.bak` later | n/a | No | closed | owner cleanup |
-| FG-112 | Flutter | analyze 639 issues (0 errors) | OPEN | LOW | s11 | app code | infos/warnings | clean up | analyze | No | later | - |
+| FG-112 | Flutter | analyze 639 issues (0 errors) | RESOLVED 2026-10-06 (0 issues) | LOW | s11 | app code | infos/warnings | clean up | analyze | No | later | - |
 | FG-113 | Flutter | Device verification partial | PARTIAL | MEDIUM | s11 | app | register/login/profile/logout done | refresh path, uploads, deletion UI | partly | Yes for release | continue | - |
 | FG-120 | Deploy | Git-based deployment | NOT IMPLEMENTED | HIGH | s12 | Railway | CLI uploads only | push branch, connect Railway | n/a | **Yes** | awaiting approval | owner |
 | FG-121 | Deploy | CI on GitHub | NOT IMPLEMENTED (workflow ready, **not yet run - push required**) | MEDIUM | local reproduction with the workflow's own environment (ruff, `alembic upgrade head`, pytest 300 passed, gitleaks command identical); the workflow now also triggers on pushes to `staging/**` (before, only `main` pushes and pull requests ran it, so pushing the staging branch alone would have run nothing) | `.github/workflows/backend-ci.yml` | not run | push the branch, observe the run | local Yes | Yes (reproducibility) | awaiting push approval | owner |
-| FG-122 | Deploy | `railway.toml` deprecation | DEFERRED | LOW | cutoff 2026-12-01 | repo | works | `railway config migrate --service secureshield-api` | n/a | No | after Git deploy | - |
+| FG-122 | Deploy | `railway.toml` deprecation | RESOLVED (replaced by `.railway/railway.ts` IaC) | LOW | cutoff 2026-12-01 | repo | works | `railway config migrate --service secureshield-api` | n/a | No | after Git deploy | - |
 | FG-123 | Deploy | Railway environment named `production` inside the staging project | OPEN | LOW | s12 | Railway | confusing | rename | n/a | No | later | - |
 
 ---
@@ -646,3 +646,69 @@ Verification-only gate; no push, no Railway Git connection, no credential rotati
 | Deployment | `railway.toml` deprecation | DEFERRED | - | No | cutoff 2026-12-01 | `railway config migrate` |
 | Ops | Backups / DR / monitoring / alerting | NOT IMPLEMENTED | - | Yes | alert e-mail blocked | plan |
 | Legacy | `otp_vault_entries` orphan table | LOW | - | No | no ORM model | drop migration |
+
+---
+
+## 19. Completion pass of 2026-10-06 (no push, no deployment, no credential change)
+
+Scope: local repository only. Totals at the end of the pass: backend **572 passed**, ruff 0.9.4 clean,
+`flutter analyze` clean, Flutter **26 passed**. Evidence levels: *impl* = code exists, *int* = integration-tested
+against real PostgreSQL, *e2e* = exercised on a device, *ext* = verified against the real external service.
+
+### 19.1 Security defects found and fixed in this pass
+
+| ID | Defect (all reproduced by a failing test first, unless noted) | Severity | Fix | Evidence |
+|---|---|---|---|---|
+| FG-130 | **Family: anyone could read another person's alerts** by adding their phone number with `can_view_alerts` (no consent) | HIGH | consent workflow (pending/accepted/declined), only the invitee can answer or revoke; migration `m8n9o0p1q2r3` resets existing links to pending | int (10 tests) |
+| FG-131 | **App-scan results, spyware check, Wi-Fi history and network "suspicious" returned every user's rows** (scans stored without owner); network writes accepted any device id | HIGH | `user_id` on `app_scans`/`wifi_scans` (migration `o0p1q2r3s4t5`), owner filters, device-ownership check; pre-existing orphan rows are never returned | int (9 tests) |
+| FG-132 | `/devices/register` returned another account's device record when the token matched | MEDIUM | 409 | int |
+| FG-133 | Daily report counted other users' app scans; was frozen after the first request of the day; duplicate rows possible; local/UTC day mismatch | MEDIUM | per-user count, refresh on read, unique (user, day) (migration `n9o0p1q2r3s4`), UTC dates | int (13 tests) |
+| FG-134 | `alerttype` DB enum lacked 7 members used by the code: job-offer, suspicious-message, cyberbullying alerts (and 4 more) failed with HTTP 500 in any migrated DB | HIGH | migration `p1q2r3s4t5u6`; schema-drift tests compare ORM enums/tables/columns with the migrated DB | int |
+| FG-135 | App-monitor sync created an `Alert` with non-existent enum members/columns (500 on every risky install); sync not idempotent | MEDIUM | fixed + dedupe | int |
+| FG-136 | Guardian alert only logged (TODO) and logged the guardian's phone/e-mail | MEDIUM | real SMS/e-mail delivery, no PII in logs, threshold, rate limit | int (mocked providers) |
+| FG-137 | Panic notified nobody | MEDIUM | SMS/e-mail to the user's emergency contacts | int (mocked providers) |
+| FG-138 | Evidence/recordings: whole-file reads, no size cap, unsanitised filenames, trusted DB paths, server path exposed, share link not revocable and always served as `audio/aac` | MEDIUM | streaming + caps, sanitising, path containment, owner-only download, revoke | int (22 tests) |
+| FG-139 | Message analyzer: unbounded inputs, blocking sync AI call on the event loop, exception text returned to the client | MEDIUM | bounds, async + timeout, generic note, magic-byte check, shared AI rate limit | int |
+| FG-140 | Alembic `fileConfig()` disabled all existing loggers when migrations ran in-process | LOW | `disable_existing_loggers=False` | made an AI-logging test order-dependent |
+| FG-141 | Release app allowed cleartext HTTP, `allowBackup` on, unused `SEND_SMS`/`REQUEST_INSTALL_PACKAGES` declared | MEDIUM | network security config (release HTTPS-only), `allowBackup=false`, permissions removed | build + emulator launch |
+| FG-142 | Client ignored the rotated refresh token and could fire concurrent refreshes (would trip replay detection) | MEDIUM | store new token, single in-flight refresh | analyze only (no device test) |
+| FG-143 | `ADMIN_TOKEN` compared with `!=` | LOW | `hmac.compare_digest` | int |
+
+### 19.2 Previously open items now implemented
+
+OTP CSPRNG + HMAC at rest (FG-008/009), refresh rotation (FG-007), Google ID-token verification (backend),
+Resend HTTPS e-mail adapter, admin stats/user control, family dashboard, daily-report e-mail, evidence
+encryption at rest (code), backup/restore tooling, localization wiring (partial), `flutter analyze` clean.
+
+### 19.3 Remaining items by verification level
+
+| Item | impl | int | e2e | ext | Blocker |
+|---|---|---|---|---|---|
+| Live OTP e-mail (Resend) | yes | mocked | no | no | API key + verified sender domain (owner) |
+| Live OTP SMS (Twilio) | yes | mocked | no | no | valid Twilio credentials; India DLT registration |
+| Google Sign-In | backend yes | yes (signed test tokens) | no | no | OAuth client IDs; client plugin not added |
+| Safe Browsing / URLhaus | yes | mocked | no | no | API keys on the target environment |
+| Anthropic AI features | yes | fake client | no | no | real key + spend |
+| Panic / guardian / report SMS+e-mail | yes | mocked | no | no | working providers |
+| Evidence encryption | yes | yes | no | no | `FILE_ENCRYPTION_KEY` (owner), rotation tooling not built |
+| Localization (all screens) | partial (~56 of ~444 literals) | n/a | no | no | none - independent work remains |
+| Family/Invites client UI | yes | backend yes | **no** | no | device run |
+| Network-activity producer (client) | **no** | backend yes | no | no | independent work remains |
+| Admin UI / per-admin audit trail | no | endpoints yes | no | no | independent work remains; no admin may be created without approval |
+| Backups schedule + off-site storage | tooling yes | local restore verified | no | no | owner/Railway action |
+| Android upload signing | config yes | n/a | no | no | keystore (owner); **current artifacts use the debug key** |
+| Flutter SDK `font-subset` artifact | n/a | n/a | n/a | n/a | `flutter precache --force` (download, not authorised); builds use `--no-tree-shake-icons` |
+| Railway staging verification (migrate + `/health` + SHA) | config yes | no | no | **no** | push not authorised; only environment is named `production` |
+| GitHub CI run / real gitleaks | workflow yes | no | no | no | push required |
+| Historical secrets in Git history | n/a | n/a | n/a | n/a | rotation DEFERRED by the owner |
+
+### 19.4 Migrations created in this pass (head `r3s4t5u6v7w8`; none applied outside the local test database)
+
+| Revision | Purpose | Data impact |
+|---|---|---|
+| `m8n9o0p1q2r3` | family consent (`consent_status`, `invited_phone`) | existing links become `pending` (access removed until accepted) |
+| `n9o0p1q2r3s4` | one security report per user per day | **deletes** older duplicates (keeps newest) |
+| `o0p1q2r3s4t5` | `user_id` on app/Wi-Fi scans | none; existing rows stay unowned and are never returned |
+| `p1q2r3s4t5u6` | 7 new `alerttype` values | none; not reversible (PostgreSQL) |
+| `q2r3s4t5u6v7` | `otps.code` -> 64 chars | **deletes all OTP rows** (plaintext codes) |
+| `r3s4t5u6v7w8` | refresh-token rotation tables | none; pre-rotation refresh tokens stop working (one re-login) |
