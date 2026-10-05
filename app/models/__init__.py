@@ -15,6 +15,7 @@ from app.models.recording import Recording
 from app.models.app_install_event import AppInstallEvent
 from app.models.clone_report import CloneReport
 from app.models.elderly_config import ElderlyConfig
+from app.models.refresh_token import RefreshTokenUse, RevokedTokenFamily
 from app.models.cyber_warrior import (
     ApplicationStatus,
     AuditAction,
@@ -44,6 +45,8 @@ __all__ = [
     "AppInstallEvent",
     "CloneReport",
     "ElderlyConfig",
+    "RefreshTokenUse",
+    "RevokedTokenFamily",
     # Cyber Warriors
     "WarriorApplication",
     "WarriorProfile",

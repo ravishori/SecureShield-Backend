@@ -15,7 +15,7 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -25,6 +25,9 @@ from app.middleware.rate_limiter import (
     check_otp_verify_rate,
     rate_limiter,
 )
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+from app.models.refresh_token import RefreshTokenUse, RevokedTokenFamily
 from app.models.user import OTP, User
 from app.schemas.auth import (
     GoogleLoginRequest,
@@ -87,7 +90,7 @@ def create_token(data: dict, expires_delta: timedelta) -> str:
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 
-def create_tokens(user_id: str, identifier: str) -> dict:
+def create_tokens(user_id: str, identifier: str, family_id: str | None = None) -> dict:
     payload = {"sub": user_id, "identifier": identifier}
     if "@" not in identifier:
         payload["phone"] = identifier
@@ -100,8 +103,15 @@ def create_tokens(user_id: str, identifier: str) -> dict:
         {**payload, "type": "access"},
         timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
     )
+    # Each refresh token has a unique jti and belongs to a family (one login). /refresh consumes the
+    # jti; presenting a consumed one again revokes the whole family (stolen-token replay).
     refresh_token = create_token(
-        {**payload, "type": "refresh"},
+        {
+            **payload,
+            "type": "refresh",
+            "jti": str(uuid.uuid4()),
+            "fam": family_id or str(uuid.uuid4()),
+        },
         timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
     )
     return {
@@ -657,7 +667,63 @@ async def refresh_token(
             or payload.get("phone")
             or ""
         )
-        return create_tokens(user_id, identifier)
+
+        # -- Rotation with replay detection ------------------------------------
+        try:
+            jti = uuid.UUID(str(payload.get("jti")))
+            family = uuid.UUID(str(payload.get("fam")))
+        except ValueError:
+            # Issued before rotation existed: it cannot be tracked, so it cannot be honoured.
+            raise HTTPException(status_code=401, detail="Please sign in again.")
+        now = datetime.utcnow()
+        expires = datetime.utcfromtimestamp(payload["exp"])
+        await db.execute(
+            delete(RefreshTokenUse).where(RefreshTokenUse.expires_at < now)
+        )
+        await db.execute(
+            delete(RevokedTokenFamily).where(RevokedTokenFamily.expires_at < now)
+        )
+        revoked = (
+            await db.execute(
+                select(RevokedTokenFamily.family_id).where(
+                    RevokedTokenFamily.family_id == family
+                )
+            )
+        ).first()
+        if revoked:
+            await db.commit()
+            raise HTTPException(status_code=401, detail="Please sign in again.")
+        inserted = await db.execute(
+            pg_insert(RefreshTokenUse)
+            .values(
+                jti=jti,
+                family_id=family,
+                user_id=user_uuid,
+                expires_at=expires,
+                used_at=now,
+            )
+            .on_conflict_do_nothing(index_elements=["jti"])
+            .returning(RefreshTokenUse.jti)
+        )
+        if inserted.first() is None:
+            # Already exchanged once: someone is replaying it. Kill the whole login lineage.
+            await db.execute(
+                pg_insert(RevokedTokenFamily)
+                .values(
+                    family_id=family,
+                    user_id=user_uuid,
+                    expires_at=now + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+                    revoked_at=now,
+                )
+                .on_conflict_do_nothing(index_elements=["family_id"])
+            )
+            await db.commit()
+            logger.warning(
+                f"Refresh-token replay detected for user {user_uuid}; family revoked"
+            )
+            raise HTTPException(status_code=401, detail="Please sign in again.")
+        await db.commit()
+        return create_tokens(user_id, identifier, family_id=str(family))
 
     except HTTPException:
         raise

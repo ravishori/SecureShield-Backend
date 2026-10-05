@@ -48,6 +48,7 @@ from app.models.link_scan import LinkScan
 from app.models.network_activity import NetworkActivity
 from app.models.recording import Recording
 from app.models.scam_call import ScamCall
+from app.models.refresh_token import RefreshTokenUse, RevokedTokenFamily
 from app.models.security_report import SecurityReport
 from app.models.user import OTP, User
 from app.models.wifi_scan import WifiScan
@@ -141,6 +142,8 @@ async def erase_user_data(
         ("link_scans", LinkScan),
         ("scam_calls", ScamCall),
         ("security_reports", SecurityReport),
+        ("refresh_token_uses", RefreshTokenUse),
+        ("revoked_token_families", RevokedTokenFamily),
     ):
         await _del(db, name, delete(model).where(model.user_id == uid), result)
 

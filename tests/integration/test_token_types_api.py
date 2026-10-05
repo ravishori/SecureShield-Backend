@@ -102,17 +102,16 @@ async def test_access_token_cannot_be_used_to_refresh(client, pair):
     assert r.status_code == 400
 
 
-async def test_rotation_rule_current_behaviour_is_explicit(client, pair):
-    """There is NO server-side rotation/revocation (no jti store): an already-used refresh
-    token stays valid until it expires. This test pins that documented behaviour so a
-    change (adding rotation) is a conscious decision."""
+async def test_rotation_rule_is_single_use_with_replay_rejection(client, pair):
+    """Rotation was added deliberately (see test_refresh_rotation_api.py): this test used to pin the
+    old 'used refresh tokens stay valid' behaviour; it now pins the replacement."""
     _, tokens = pair
     assert (
         await client.post(REFRESH, json={"refresh_token": tokens["refresh_token"]})
     ).status_code == 200
     assert (
         await client.post(REFRESH, json={"refresh_token": tokens["refresh_token"]})
-    ).status_code == 200
+    ).status_code == 401
 
 
 async def test_token_without_type_claim_is_rejected(client, make_user):
