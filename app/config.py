@@ -105,6 +105,9 @@ class Settings(BaseSettings):
     SMTP_USER: str
     SMTP_PASSWORD: str
     SMTP_FROM_EMAIL: str
+    # HTTPS email provider (preferred where outbound SMTP is blocked, e.g. Railway)
+    RESEND_API_KEY: str = ""
+    RESEND_FROM_EMAIL: str = ""
     ERROR_NOTIFY_EMAIL: str
 
     # ============================================================

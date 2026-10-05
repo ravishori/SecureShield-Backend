@@ -5,7 +5,7 @@ Centralised OTP delivery for SecureShield AI.
 
 Delivery priority:
   Phone   → Twilio SMS  →  Twilio WhatsApp fallback
-  Email   → SMTP HTML email
+  Email   → Resend HTTPS API (if RESEND_API_KEY set)  →  SMTP HTML email fallback
 
 Public API:
     result = await deliver_otp(identifier, code)
@@ -14,10 +14,13 @@ Public API:
     result.error     # str | None — set on failure
 """
 
+import asyncio
 import smtplib
 from dataclasses import dataclass, field
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+
+import httpx
 
 from app.config import load_settings
 from app.services.logger_service import get_logger
@@ -207,11 +210,8 @@ def _send_whatsapp(phone: str, code: str) -> DeliveryResult:
 # ---------------------------------------------------------------------------
 # Internal: SMTP email
 # ---------------------------------------------------------------------------
-def _send_email(email: str, code: str) -> DeliveryResult:
-    """Send OTP via SMTP with a branded dark-themed HTML email."""
-    settings = load_settings()
-    try:
-        html = f"""
+def _otp_email_html(code: str) -> str:
+    return f"""
         <html>
         <body style="margin:0;padding:0;font-family:'Segoe UI',Arial,sans-serif;
                      background-color:#0A0E27;">
@@ -286,6 +286,13 @@ def _send_email(email: str, code: str) -> DeliveryResult:
         </html>
         """
 
+
+def _send_email(email: str, code: str) -> DeliveryResult:
+    """Send OTP via SMTP with a branded dark-themed HTML email."""
+    settings = load_settings()
+    try:
+        html = _otp_email_html(code)
+
         msg = MIMEMultipart("alternative")
         msg["Subject"] = f"[{code}] Your SecureShield AI Verification Code"
         msg["From"] = settings.SMTP_FROM_EMAIL
@@ -308,6 +315,50 @@ def _send_email(email: str, code: str) -> DeliveryResult:
 
 
 # ---------------------------------------------------------------------------
+# Internal: Resend (HTTPS email API). Hosts such as Railway block outbound SMTP, so this is the
+# production email path; SMTP stays as a fallback for environments that allow it.
+# ---------------------------------------------------------------------------
+RESEND_API_URL = "https://api.resend.com/emails"
+RESEND_TIMEOUT_SECONDS = 15.0
+
+
+def _http_client() -> httpx.AsyncClient:
+    return httpx.AsyncClient(timeout=RESEND_TIMEOUT_SECONDS)
+
+
+async def _send_email_resend(email: str, code: str) -> DeliveryResult:
+    settings = load_settings()
+    api_key = (settings.RESEND_API_KEY or "").strip()
+    sender = (settings.RESEND_FROM_EMAIL or "").strip()
+    if not api_key or not sender:
+        return DeliveryResult(
+            success=False, method="email", error="Resend not configured"
+        )
+    payload = {
+        "from": sender,
+        "to": [email],
+        "subject": f"[{code}] Your SecureShield AI Verification Code",
+        "html": _otp_email_html(code),
+    }
+    try:
+        async with _http_client() as client:
+            resp = await client.post(
+                RESEND_API_URL,
+                json=payload,
+                headers={"Authorization": f"Bearer {api_key}"},
+            )
+        if resp.status_code // 100 == 2:
+            logger.info(f"OTP email (resend) sent to {_mask_email(email)}")
+            return DeliveryResult(success=True, method="email")
+        # The status code is enough for operators; the body may echo the recipient or the code.
+        err = f"Resend HTTP {resp.status_code}"
+    except Exception as exc:
+        err = f"Resend request failed ({type(exc).__name__})"
+    logger.error(f"Resend email failed to {_mask_email(email)}: {err}")
+    return DeliveryResult(success=False, method="email", error=err)
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 async def deliver_otp(identifier: str, code: str) -> DeliveryResult:
@@ -324,21 +375,31 @@ async def deliver_otp(identifier: str, code: str) -> DeliveryResult:
     is_email = "@" in identifier
 
     if is_email:
-        result = _send_email(identifier, code)
-        if result.success:
-            return result
+        settings = load_settings()
+        result = DeliveryResult(
+            success=False, method="email", error="no email provider configured"
+        )
+        if (settings.RESEND_API_KEY or "").strip():
+            result = await _send_email_resend(identifier, code)
+            if result.success:
+                return result
+        if (settings.SMTP_HOST or "").strip():
+            # smtplib is blocking: keep it off the event loop.
+            result = await asyncio.to_thread(_send_email, identifier, code)
+            if result.success:
+                return result
         _log_delivery_failure(identifier, "email", result.error)
         return DeliveryResult(success=False, method="none", error=result.error)
 
     else:
         # Try SMS first
-        result = _send_sms(identifier, code)
+        result = await asyncio.to_thread(_send_sms, identifier, code)
         if result.success:
             return result
 
         # SMS failed — try WhatsApp
         logger.info(f"SMS failed, trying WhatsApp for {_mask_phone(identifier)}")
-        result = _send_whatsapp(identifier, code)
+        result = await asyncio.to_thread(_send_whatsapp, identifier, code)
         if result.success:
             return result
 
