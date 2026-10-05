@@ -697,9 +697,9 @@ encryption at rest (code), backup/restore tooling, localization wiring (partial)
 | Admin UI / per-admin audit trail | no | endpoints yes | no | no | independent work remains; no admin may be created without approval |
 | Backups schedule + off-site storage | tooling yes | local restore verified | no | no | owner/Railway action |
 | Android upload signing | config yes | n/a | no | no | keystore (owner); **current artifacts use the debug key** |
-| Flutter SDK `font-subset` artifact | n/a | n/a | n/a | n/a | `flutter precache --force` (download, not authorised); builds use `--no-tree-shake-icons` |
+| Flutter SDK `font-subset` artifact | RESOLVED 2026-10-06 | `flutter precache --force`; builds pass without `--no-tree-shake-icons` | - |
 | Railway staging verification (migrate + `/health` + SHA) | config yes | no | no | **no** | push not authorised; only environment is named `production` |
-| GitHub CI run / real gitleaks | workflow yes | no | no | no | push required |
+| GitHub CI run | workflow yes | no | no | no | push required. Real gitleaks 8.21.2 **was run locally** on 2026-10-06: tree clean; history shows only the 14 known historical findings |
 | Historical secrets in Git history | n/a | n/a | n/a | n/a | rotation DEFERRED by the owner |
 
 ### 19.4 Migrations created in this pass (head `r3s4t5u6v7w8`; none applied outside the local test database)
@@ -712,3 +712,14 @@ encryption at rest (code), backup/restore tooling, localization wiring (partial)
 | `p1q2r3s4t5u6` | 7 new `alerttype` values | none; not reversible (PostgreSQL) |
 | `q2r3s4t5u6v7` | `otps.code` -> 64 chars | **deletes all OTP rows** (plaintext codes) |
 | `r3s4t5u6v7w8` | refresh-token rotation tables | none; pre-rotation refresh tokens stop working (one re-login) |
+
+
+### 19.5 Stabilization pass 1 additions (2026-10-06)
+
+| ID | Item | Status |
+|---|---|---|
+| FG-144 | Real gitleaks flagged `SMTP_PASSWORD: preserve()` in `.railway/railway.ts` (false positive) and a fake `sk-ant-...LEAKY...` test key; the CI job would have failed on push | RESOLVED (exact-value allowlist entries, commit `902064d`) |
+| FG-145 | Flutter SDK missing `font-subset` artifact | RESOLVED (`flutter precache --force`) |
+| FG-146 | Migration safety review + rehearsal script | DONE (`MIGRATION_SAFETY_REVIEW.md`, `scripts/migration_rehearsal.py`) |
+| FG-147 | `alembic check` reports pre-existing index/FK-name drift on older tables and an ORM-less `otp_vault_entries` table | OPEN, LOW, not caused by the six new revisions |
+| FG-148 | OTP vault has a table and an erasure statement but no backend model/router | OPEN, LOW (feature is device-local) |
