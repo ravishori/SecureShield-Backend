@@ -1,0 +1,67 @@
+name: backend-ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: backend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: pytest (unit + PostgreSQL integration)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: secureshield_ci_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # Loopback host + "_test" suffix are required by the harness guard
+      # (tests/integration/conftest.py); anything else makes it refuse to run.
+      TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/secureshield_ci_test
+      # Settings() requires every field even for `alembic upgrade head`; there is no
+      # .env in CI. All values are inert placeholders (no network is contacted).
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/secureshield_ci_test
+      MIGRATOR_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/secureshield_ci_test
+      SECRET_KEY: ci-only-secret-key-not-used-outside-github-actions
+      SMTP_HOST: localhost
+      SMTP_PORT: "1025"
+      SMTP_USER: ci@example.com
+      SMTP_PASSWORD: ci-placeholder
+      SMTP_FROM_EMAIL: ci@example.com
+      ERROR_NOTIFY_EMAIL: ci@example.com
+      TWILIO_ACCOUNT_SID: ACci
+      TWILIO_AUTH_TOKEN: ci-placeholder
+      TWILIO_SMS_NUMBER: "+15555555555"
+      TWILIO_WHATSAPP_NUMBER: "+15555555555"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pytest pytest-asyncio ruff
+      - name: Lint (syntax errors / undefined names only)
+        run: ruff check app tests --select E9,F63,F7,F82
+      - name: Apply migrations to a blank database (validates the whole chain)
+        run: python -m alembic upgrade head
+      - name: Run tests
+        run: python -m pytest tests -q -ra

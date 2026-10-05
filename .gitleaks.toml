@@ -1,0 +1,42 @@
+title = "SecureShield gitleaks config (default rules + project rules)"
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Vendored env, and test/CI files that contain deliberately fake credentials (sentinels, placeholders)."
+paths = [
+  '''(^|[^A-Za-z0-9_.])\.venv([^A-Za-z0-9_.]|$)''',
+  '''(^|[^A-Za-z0-9_.])tests[^A-Za-z0-9_.].*\.py$''',
+  '''(^|[^A-Za-z0-9_.])\.github[^A-Za-z0-9_.]workflows[^A-Za-z0-9_.]backend-ci\.yml$''',
+]
+
+
+[[rules]]
+id = "anthropic-api-key"
+description = "Anthropic API key (missing from gitleaks 8.21.2 defaults)"
+regex = '''sk-ant-[A-Za-z0-9_\-]{20,}'''
+keywords = ["sk-ant-"]
+
+[[rules]]
+id = "twilio-account-sid"
+description = "Twilio Account SID"
+regex = '''\bAC[0-9a-f]{32}\b'''
+keywords = ["AC"]
+
+[[rules]]
+id = "twilio-auth-token-assignment"
+description = "Twilio auth token assigned to a variable/env"
+regex = '''(?i)twilio[_-]?auth[_-]?token["'\s:=]+[0-9a-f]{32}\b'''
+keywords = ["twilio"]
+
+[[rules]]
+id = "smtp-password-assignment"
+description = "SMTP password assigned in config/env"
+regex = '''(?i)smtp[_-]?password["']?\s*[:=]\s*["']?[^\s"'#]{8,}'''
+keywords = ["smtp"]
+
+[[rules]]
+id = "azure-postgres-url-with-password"
+description = "Azure Postgres URL with embedded non-placeholder password"
+regex = '''postgres(?:ql)?(?:\+asyncpg)?://[^:/\s]+:[^@\s<>*]{6,}@[a-z0-9.\-]*database\.azure\.com'''
+keywords = ["database.azure.com"]
