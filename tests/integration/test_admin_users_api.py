@@ -124,3 +124,100 @@ async def test_status_unknown_or_malformed_id_is_404_and_bad_body_422(
     assert (
         await client.patch(f"{BASE}/users/{u.id}/status", headers=ADMIN, json={})
     ).status_code == 422
+
+
+async def test_status_changes_are_audited_and_the_audit_is_admin_only(
+    client, make_user, db
+):
+    from sqlalchemy import select
+
+    from app.models.admin_audit import AdminAuditLog
+
+    u = await make_user("aud")
+    assert (await client.get(f"{BASE}/audit")).status_code == 401
+    await client.patch(
+        f"{BASE}/users/{u.id}/status", headers=ADMIN, json={"is_active": False}
+    )
+    await client.patch(
+        f"{BASE}/users/{u.id}/status", headers=ADMIN, json={"is_active": False}
+    )  # no-op: not logged
+    await client.patch(
+        f"{BASE}/users/{u.id}/status", headers=ADMIN, json={"is_active": True}
+    )
+    j = (await client.get(f"{BASE}/audit", headers=ADMIN)).json()
+    assert [i["action"] for i in j["items"]] == ["user.enable", "user.disable"] and j[
+        "total"
+    ] == 2
+    assert all(i["target_user_id"] == str(u.id) and i["client_ip"] for i in j["items"])
+    only = (
+        await client.get(
+            f"{BASE}/audit", headers=ADMIN, params={"action": "user.disable"}
+        )
+    ).json()
+    assert only["total"] == 1
+    assert (
+        await client.get(
+            f"{BASE}/audit", headers=ADMIN, params={"target_user_id": "zzz"}
+        )
+    ).status_code == 422
+    assert (
+        await client.get(f"{BASE}/audit", headers=ADMIN, params={"limit": 201})
+    ).status_code == 422
+    assert "ADMIN" not in str(
+        (await db.execute(select(AdminAuditLog.detail))).scalars().all()
+    ).upper().replace("ADMIN_", "")
+
+
+async def test_audit_rows_survive_account_erasure(client, make_user, auth_headers, db):
+    from sqlalchemy import select
+
+    from app.models.admin_audit import AdminAuditLog
+
+    u = await make_user("gone")
+    await client.patch(
+        f"{BASE}/users/{u.id}/status", headers=ADMIN, json={"is_active": True}
+    )  # no change -> nothing
+    await client.patch(
+        f"{BASE}/users/{u.id}/status", headers=ADMIN, json={"is_active": False}
+    )
+    await client.patch(
+        f"{BASE}/users/{u.id}/status", headers=ADMIN, json={"is_active": True}
+    )
+    r = await client.request(
+        "DELETE", "/api/v1/auth/me", headers=auth_headers(u), json={"confirm": "DELETE"}
+    )
+    assert r.status_code == 200, r.text
+    assert (
+        len((await db.execute(select(AdminAuditLog))).scalars().all()) == 2
+    )  # history is kept
+
+
+async def test_console_page_is_public_secret_free_and_locked_down(client):
+    r = await client.get(f"{BASE}/console")
+    assert r.status_code == 200 and r.headers["content-type"].startswith("text/html")
+    csp = r.headers["content-security-policy"]
+    assert (
+        "default-src 'none'" in csp
+        and "frame-ancestors 'none'" in csp
+        and "connect-src 'self'" in csp
+    )
+    assert (
+        r.headers["cache-control"] == "no-store"
+        and r.headers["x-content-type-options"] == "nosniff"
+    )
+    body = r.text
+    assert (
+        "test-admin-token" not in body
+        and "localStorage" not in body
+        and "sessionStorage" not in body
+    )
+    assert (
+        "innerHTML" not in body and "document.write" not in body and "eval(" not in body
+    )  # data goes in via textContent
+    assert (
+        "<script src" not in body.lower()
+        and "http://" not in body
+        and "https://" not in body
+    )
+    # the page is only a shell: the data endpoints behind it still need the token
+    assert (await client.get(f"{BASE}/users")).status_code == 401

@@ -21,6 +21,7 @@ from app.routers import community_scam, message_analyzer, video_call
 from app.routers import app_monitor, clone_detection, elderly_protection
 from app.routers import admin_errors
 from app.routers import admin_users
+from app.routers import admin_console
 from app.routers import cyber_warrior
 from app.middleware.access_log import install_access_log_redaction
 from app.middleware.error_handler import (
@@ -86,6 +87,7 @@ app.include_router(video_call.router, prefix=PREFIX)
 app.include_router(emergency_contacts.router, prefix=PREFIX)
 app.include_router(admin_errors.router, prefix=PREFIX)
 app.include_router(admin_users.router, prefix=PREFIX)
+app.include_router(admin_console.router, prefix=PREFIX)
 app.include_router(cyber_warrior.router, prefix=PREFIX)
 
 

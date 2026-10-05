@@ -85,7 +85,7 @@ persisted as files.
 | Biometric / device verification | AMBER | `local_auth` present; new-device alert code exists | not tested |
 | Threat intel (GSB / URLhaus) | AMBER | simulated providers | live keys |
 | Evidence encryption at rest | AMBER | see #17 | key + rotation |
-| Admin / RBAC | AMBER | static `ADMIN_TOKEN` endpoints + warrior RBAC tested | no admin UI; no per-admin identity/audit trail for token-based actions (actions are logged without an actor); no real admin created (by instruction) |
+| Admin / RBAC | AMBER | static `ADMIN_TOKEN` endpoints (stats, users, enable/disable, **append-only audit log**, migration `s4t5u6v7w8x9`) + same-origin operator console at `/api/v1/admin/console` (no secrets, strict CSP, `textContent` only; JS syntax-checked, **not run in a browser**) + warrior RBAC; all backend-int tested | no per-person admin identity (one shared token; audit records action/target/IP only); console not exercised in a browser; no real admin created (by instruction) |
 | Localization | AMBER | see #4 | remaining screens |
 | Uvicorn access-log redaction | AMBER (unit tests; not observed on a real server) | unit tests | - |
 | DB backups / recovery | AMBER | scripts + runbook verified locally, tamper detection | no schedule, no off-site storage, evidence volume backup is an owner/Railway action |

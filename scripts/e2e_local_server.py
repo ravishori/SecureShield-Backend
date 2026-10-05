@@ -23,6 +23,29 @@ def log(kind, **kw):
         f.write(json.dumps({"kind": kind, **kw}) + "\n")
 
 
+# Do not read the developer's real backend/.env (settings give .env priority over process variables and it
+# holds live provider credentials): point the settings loader at a file that does not exist.
+os.environ["SECURESHIELD_ENV_FILE"] = os.path.join(ROOT, ".env.e2e-does-not-exist")
+
+# Provider credentials: inert non-empty values (settings use env_ignore_empty=True, so blanks would count
+# as missing and fail validation).
+for _k, _v in {
+    "TWILIO_ACCOUNT_SID": "disabled-by-e2e-harness",
+    "TWILIO_AUTH_TOKEN": "disabled-by-e2e-harness",
+    "SMTP_HOST": "smtp.invalid",
+    "SMTP_PASSWORD": "disabled-by-e2e-harness",
+    "ERROR_NOTIFY_EMAIL": "e2e@example.invalid",
+    "ANTHROPIC_API_KEY": "disabled-by-e2e-harness",
+    "RESEND_API_KEY": "disabled-by-e2e-harness",
+    "ADMIN_TOKEN": "e2e-local-admin-token",
+}.items():
+    os.environ[_k] = _v
+# (The link scanner / AI features would still attempt real calls with these inert keys; do not exercise them
+# through this harness.)
+
+import app.services.logger_service as _ls  # noqa: E402
+
+_ls._send_email_sync = lambda *a, **k: None
 import app.routers.auth as auth  # noqa: E402
 import app.services.notifications as notif  # noqa: E402
 

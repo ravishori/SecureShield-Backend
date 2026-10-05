@@ -10,12 +10,13 @@ from __future__ import annotations
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
+from app.models.admin_audit import AdminAuditLog
 from app.models.evidence import Evidence
 from app.models.recording import Recording
 from app.models.user import User
@@ -118,7 +119,10 @@ async def list_users(
 
 @router.patch("/users/{user_id}/status", dependencies=[Depends(require_admin)])
 async def set_user_status(
-    user_id: str, body: StatusBody, db: AsyncSession = Depends(get_db)
+    user_id: str,
+    body: StatusBody,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
 ):
     """Disable or re-enable an account. A disabled account fails every authenticated request
     (get_current_user rejects inactive users) and cannot refresh tokens."""
@@ -131,8 +135,63 @@ async def set_user_status(
         raise HTTPException(status_code=404, detail="User not found")
     if user.is_active != body.is_active:
         user.is_active = body.is_active
+        db.add(
+            AdminAuditLog(
+                action="user.enable" if body.is_active else "user.disable",
+                target_user_id=user.id,
+                detail={"is_active": body.is_active},
+                client_ip=request.client.host if request.client else None,
+            )
+        )
         await db.commit()
         logger.warning(
             f"[ADMIN] user {user.id} {'enabled' if body.is_active else 'disabled'}"
         )
     return _view(user)
+
+
+@router.get("/audit", dependencies=[Depends(require_admin)])
+async def audit_log(
+    action: Optional[str] = Query(None, max_length=64),
+    target_user_id: Optional[str] = Query(None, max_length=36),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0, le=100000),
+    db: AsyncSession = Depends(get_db),
+):
+    """Newest-first list of admin actions. Append-only: no endpoint edits or deletes it."""
+    stmt = select(AdminAuditLog)
+    if action:
+        stmt = stmt.where(AdminAuditLog.action == action)
+    if target_user_id:
+        try:
+            stmt = stmt.where(AdminAuditLog.target_user_id == uuid.UUID(target_user_id))
+        except ValueError:
+            raise HTTPException(status_code=422, detail="target_user_id must be a UUID")
+    total = (
+        await db.execute(select(func.count()).select_from(stmt.subquery()))
+    ).scalar_one()
+    rows = (
+        (
+            await db.execute(
+                stmt.order_by(AdminAuditLog.created_at.desc(), AdminAuditLog.id)
+                .limit(limit)
+                .offset(offset)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return {
+        "total": total,
+        "items": [
+            {
+                "id": r.id,
+                "action": r.action,
+                "target_user_id": r.target_user_id,
+                "detail": r.detail,
+                "client_ip": r.client_ip,
+                "created_at": r.created_at,
+            }
+            for r in rows
+        ],
+    }
