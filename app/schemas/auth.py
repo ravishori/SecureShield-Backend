@@ -205,3 +205,4 @@ class DeleteAccountResponse(BaseModel):
     message: str
     user_id: str
     scrubbed_at: datetime
+    retained: list[str] = []  # what is deliberately kept (see account_erasure.py)

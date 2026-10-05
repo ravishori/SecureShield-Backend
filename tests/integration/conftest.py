@@ -126,10 +126,18 @@ def migrated_database(test_database_url: str) -> str:
 # Function-scoped: engine, session factory, cleanup, client
 # ---------------------------------------------------------------------------
 
-_TRUNCATE_SQL = (
-    "TRUNCATE TABLE warrior_audit_logs, warrior_profiles, warrior_applications, "
-    "otps, error_logs, users RESTART IDENTITY CASCADE"
-)
+# Every application table is emptied between tests (a fixed list missed tables without an
+# FK to users, e.g. app_scans/wifi_scans, which leaked rows across tests). Alembic's version
+# table and the static reference tables are kept.
+_KEEP_TABLES = ("alembic_version", "tsp_codes", "lsa_codes", "sms_sender_registry")
+
+
+async def _truncate_all(conn) -> None:
+    rows = await conn.execute(text("select tablename from pg_tables where schemaname = 'public'"))
+    tables = [r[0] for r in rows if r[0] not in _KEEP_TABLES]
+    if tables:
+        quoted = ", ".join(f'"{t}"' for t in tables)
+        await conn.execute(text(f"TRUNCATE TABLE {quoted} RESTART IDENTITY CASCADE"))
 
 
 @pytest_asyncio.fixture
@@ -144,7 +152,7 @@ async def db_engine(migrated_database: str, monkeypatch) -> AsyncIterator:
     monkeypatch.setattr(app_db, "AsyncSessionLocal", factory)
 
     async with engine.begin() as conn:
-        await conn.execute(text(_TRUNCATE_SQL))
+        await _truncate_all(conn)
     try:
         yield engine
     finally:

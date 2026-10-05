@@ -26,7 +26,6 @@ from app.middleware.rate_limiter import (
     check_otp_verify_rate,
     rate_limiter,
 )
-from app.models.cyber_warrior import WarriorApplication, WarriorProfile
 from app.models.user import OTP, User
 from app.schemas.auth import (
     DeleteAccountRequest,
@@ -41,6 +40,7 @@ from app.schemas.auth import (
     UserResponse,
     VerifyOtpRequest,
 )
+from app.services.account_erasure import RETAINED, erase_user_data, remove_files
 from app.services.device_service import register_and_check_device, send_new_device_alert
 from app.services.logger_service import get_logger, log_error
 from app.services.otp_service import deliver_otp, _normalize_phone
@@ -612,11 +612,12 @@ async def update_profile(
 # Account deletion — mandatory for Google Play (User Data policy)
 # ---------------------------------------------------------------------------
 #
-# Approach: soft-delete via PII scrub rather than physical row removal.
-#   • Keep User.id + User.created_at for audit continuity (billing records,
-#     reports the user filed, moderation history, etc.)
-#   • NULL out every PII column (email, phone, names, address)
-#   • Set is_active = False so the account cannot be logged into
+# Approach: erase everything the user created, keep an inert tombstone.
+#   • DELETE every user-linked row (evidence, recordings, devices, family, emergency
+#     contacts, OTPs, scans, warrior data, ...) and the uploaded files; anonymise
+#     error_logs. Full policy: app/services/account_erasure.py.
+#   • Keep User.id + created_at as a tombstone (all PII columns NULLed, is_active=False)
+#     so the append-only warrior audit trail keeps referential integrity.
 #   • Email and phone are UNIQUE indexes with NULL allowed, so the user
 #     can re-register with the same credentials later and get a brand
 #     new User row — exactly what Play requires.
@@ -631,7 +632,11 @@ async def delete_account(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Permanently scrub PII from the authenticated user's account.
+    """Delete the authenticated user's data and neutralise the account.
+
+    Deletes everything the user created (rows + uploaded files), anonymises error
+    logs and keeps only an inert tombstone plus the append-only moderation audit trail
+    (see app/services/account_erasure.py for the exact policy).
 
     Requires `{"confirm": "DELETE"}` in the body — any other value is a
     schema validation error (422), preventing accidental deletion. On
@@ -643,40 +648,53 @@ async def delete_account(
     user_id = str(current_user.id)
     try:
         logger.info(f"Account deletion requested by user {user_id}")
-        # ── Scrub PII fields ──────────────────────────────────────────────
-        current_user.email      = None
-        current_user.phone      = None
-        current_user.alt_phone  = None
-        current_user.first_name = None
-        current_user.last_name  = None
-        current_user.full_name  = None
-        current_user.flat_no    = None
-        current_user.building   = None
-        current_user.street     = None
-        current_user.city       = None
-        current_user.state      = None
-        current_user.pin_code   = None
-        # Keep country=NULL too — it's PII-adjacent
-        current_user.country    = None
-        # Deactivate so refresh tokens can't resurrect the account
+        # Identifiers the OTP rows are keyed by — capture BEFORE the scrub.
+        email, phone, alt_phone = current_user.email, current_user.phone, current_user.alt_phone
+
+        # ── Delete user-linked data (rows) inside this transaction ─────────
+        erased = await erase_user_data(db, current_user, email=email, phone=phone, alt_phone=alt_phone)
+
+        # ── Scrub the user row into an inert tombstone ──────────────────────
+        current_user.email           = None
+        current_user.phone           = None
+        current_user.alt_phone       = None
+        current_user.first_name      = None
+        current_user.last_name       = None
+        current_user.full_name       = None
+        current_user.hashed_password = None
+        current_user.flat_no         = None
+        current_user.building        = None
+        current_user.street          = None
+        current_user.city            = None
+        current_user.state           = None
+        current_user.pin_code        = None
+        current_user.country         = None
+        # Deactivate: blocks API access and /auth/refresh for any token already issued
         current_user.is_active  = False
         current_user.updated_at = datetime.utcnow()
 
-        # Cyber Warriors volunteer data (name, DOB, phone, email, free-text
-        # motivation) is PII too — erase it in the same transaction. The
-        # append-only audit trail keeps only ids/actions, never these fields.
-        await db.execute(
-            delete(WarriorProfile).where(WarriorProfile.user_id == current_user.id)
-        )
-        await db.execute(
-            delete(WarriorApplication).where(
-                WarriorApplication.user_id == current_user.id
-            )
-        )
         await db.commit()
-        logger.info(f"Account {user_id} scrubbed — user data removed")
+
+        # Files are removed only after the DB commit succeeded (a failed commit must not
+        # leave rows pointing at deleted files). Missing files are fine (idempotent).
+        removed, failed = remove_files(erased.files)
+        logger.info(
+            f"Account {user_id} erased: rows={sum(erased.counts.values())} "
+            f"files_removed={removed} files_failed={failed}"
+        )
+        if failed:
+            await log_error(
+                message=f"Account erasure left {failed} file(s) on disk for user {user_id}",
+                level="ERROR", endpoint="/auth/me", method="DELETE", client_ip=client_ip,
+                send_email=False,
+            )
         return DeleteAccountResponse(
-            message="Your account and personal data have been permanently deleted.",
+            message=(
+                "Your account and the data you created have been deleted. We keep only an "
+                "inert account record and moderation audit entries (identifiers, actions "
+                "and reviewer notes)."
+            ),
+            retained=RETAINED,
             user_id=user_id,
             scrubbed_at=current_user.updated_at,
         )
