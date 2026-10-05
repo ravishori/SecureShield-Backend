@@ -209,3 +209,56 @@ async def test_unique_constraint_blocks_duplicate_daily_rows(
         s.add(SecurityReport(user_id=u.id, report_date=date.today()))
         with pytest.raises(IntegrityError):
             await s.commit()
+
+
+# -------------------------------------------------------------- e-mail delivery
+async def test_daily_report_email_goes_to_the_account_address_only(
+    client, make_user, auth_headers, tips, monkeypatch
+):
+    sent = []
+
+    async def fake_send(to, subject, body):
+        sent.append((to, subject, body))
+        return True
+
+    monkeypatch.setattr(reports.notifications, "send_email", fake_send)
+    u = await make_user("mail", email="me@example.com")
+    r = await client.post(f"{R}/daily/email", headers=auth_headers(u))
+    assert r.status_code == 200 and r.json()["security_score"] == 100
+    assert (
+        sent[0][0] == "me@example.com"
+        and "Security score: 100/100" in sent[0][2]
+        and "tip-1" in sent[0][2]
+    )
+
+
+async def test_daily_report_email_errors(
+    client, make_user, auth_headers, tips, monkeypatch
+):
+    async def down(to, subject, body):
+        return False
+
+    monkeypatch.setattr(reports.notifications, "send_email", down)
+    no_mail = await make_user("nomail", email=None)
+    assert (
+        await client.post(f"{R}/daily/email", headers=auth_headers(no_mail))
+    ).status_code == 400
+    u = await make_user("fail", email="f@example.com")
+    assert (
+        await client.post(f"{R}/daily/email", headers=auth_headers(u))
+    ).status_code == 502
+    assert (await client.post(f"{R}/daily/email")).status_code in (401, 403)
+
+
+async def test_daily_report_email_is_rate_limited(
+    client, make_user, auth_headers, tips, monkeypatch
+):
+    async def ok(to, subject, body):
+        return True
+
+    monkeypatch.setattr(reports.notifications, "send_email", ok)
+    h = auth_headers(await make_user("rl", email="rl@example.com"))
+    codes = [
+        (await client.post(f"{R}/daily/email", headers=h)).status_code for _ in range(4)
+    ]
+    assert codes == [200, 200, 200, 429]

@@ -16,7 +16,9 @@ from app.models.link_scan import LinkScan
 from app.models.scam_call import ScamCall
 from app.models.behavior_event import BehaviorEvent, BehaviorEventType
 from app.schemas.security_report import SecurityReportResponse
+from app.middleware.rate_limiter import rate_limiter
 from app.routers.auth import get_current_user
+from app.services import notifications
 from app.services.ai_service import generate_ai_security_tips
 
 router = APIRouter(prefix="/reports", tags=["reports"])
@@ -186,6 +188,63 @@ async def get_daily_report(
             )
         ).scalar_one()
         return report
+
+
+@router.post("/daily/email")
+async def email_daily_report(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """E-mail today's security report to the account's own registered address."""
+    if not current_user.email:
+        raise HTTPException(
+            status_code=400, detail="Add an e-mail address to your profile first."
+        )
+    if not rate_limiter.is_allowed(
+        f"report_email:{current_user.id}", max_hits=3, window_seconds=3600
+    ):
+        raise HTTPException(
+            status_code=429,
+            detail="You can e-mail at most 3 reports per hour.",
+            headers={"Retry-After": "3600"},
+        )
+    today = date.today()
+    existing = (
+        (
+            await db.execute(
+                select(SecurityReport).where(
+                    SecurityReport.user_id == current_user.id,
+                    SecurityReport.report_date == today,
+                )
+            )
+        )
+        .scalars()
+        .first()
+    )
+    report = await generate_daily_report(current_user.id, today, db, existing=existing)
+    score = max(0, min(100, round(100 - report.overall_risk_score)))
+    lines = [
+        f"SecureShield daily security report - {today.isoformat()}",
+        "",
+        f"Security score: {score}/100",
+        f"Threats detected: {report.threats_detected}",
+        f"Apps scanned: {report.apps_scanned}",
+        f"Links scanned: {report.links_scanned}",
+        f"Calls analysed: {report.calls_analyzed}",
+        "",
+        "Recommendations:",
+        *[f"- {tip}" for tip in (report.recommendations or [])],
+    ]
+    sent = await notifications.send_email(
+        current_user.email,
+        "Your SecureShield daily security report",
+        "\n".join(lines),
+    )
+    if not sent:
+        raise HTTPException(
+            status_code=502, detail="The report could not be e-mailed right now."
+        )
+    return {"message": "Report e-mailed", "security_score": score}
 
 
 @router.get("/history", response_model=List[SecurityReportResponse])
