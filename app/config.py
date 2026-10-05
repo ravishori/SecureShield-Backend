@@ -133,6 +133,9 @@ class Settings(BaseSettings):
     # provider reports `no_api_key` and the scanner falls back to the other tiers.
     URLHAUS_AUTH_KEY: str = ""
 
+    # Per-user cap on AI endpoints (each call costs money and seconds of model time).
+    AI_REQUESTS_PER_MINUTE: int = 10
+
     # ============================================================
     # CORS (browser clients only; native Android does not need CORS)
     # ============================================================
