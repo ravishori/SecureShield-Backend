@@ -56,10 +56,15 @@ async def save_upload(
         directory, f"{uuid.uuid4()}_{safe_filename(file.filename, default_name)}"
     )
     size = 0
-    key = file_crypto._key()
+    active = file_crypto.active_key()
+    key = active[1] if active else None
     try:
         with open(path, "wb") as raw:
-            out = file_crypto.EncryptingWriter(raw, key) if key else raw
+            out = (
+                file_crypto.EncryptingWriter(raw, active[1], active[0])
+                if active
+                else raw
+            )
             while True:
                 chunk = await file.read(CHUNK)
                 if not chunk:
@@ -92,10 +97,10 @@ def save_text(directory: str, text: str, *, name: str) -> tuple[str, int]:
         directory, f"{uuid.uuid4()}_{safe_filename(name, 'document.txt')}"
     )
     data = text.encode("utf-8")
-    key = file_crypto._key()
+    active = file_crypto.active_key()
     with open(path, "wb") as f:
-        if key:
-            writer = file_crypto.EncryptingWriter(f, key)
+        if active:
+            writer = file_crypto.EncryptingWriter(f, active[1], active[0])
             writer.write(data)
             writer.close()
         else:

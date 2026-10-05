@@ -150,6 +150,9 @@ class Settings(BaseSettings):
     MAX_EVIDENCE_MB: int = 50
     # urlsafe-base64 of 32 random bytes. When set, uploaded files are AES-256-GCM encrypted at rest.
     FILE_ENCRYPTION_KEY: str = ""
+    # Optional keyring for rotation, "1:<b64>,2:<b64>"; FILE_ENCRYPTION_ACTIVE_KEY_ID picks the key for new files.
+    FILE_ENCRYPTION_KEYS: str = ""
+    FILE_ENCRYPTION_ACTIVE_KEY_ID: str = ""
     MAX_RECORDING_MB: int = 200
 
     # ============================================================
