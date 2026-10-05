@@ -180,7 +180,7 @@ async def test_alert_input_bounds(client, make_user, auth_headers, sent):
     for bad in (
         {"risk_score": 101},
         {"risk_score": -1},
-        {"risk_level": "extreme"},
+        {"risk_level": "bad level!"},
         {"app_name": ""},
         {"app_name": "x" * 101},
         {"risk_tags": ["t"] * 11},

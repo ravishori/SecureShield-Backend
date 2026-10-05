@@ -73,7 +73,7 @@ class GuardianAlertRequest(BaseModel):
     package_name: str = Field(..., min_length=1, max_length=255)
     app_name: str = Field(..., min_length=1, max_length=100)
     risk_score: int = Field(..., ge=0, le=100)
-    risk_level: str = Field(..., pattern=r"^(low|medium|high|critical)$")
+    risk_level: str = Field(..., pattern=r"^[A-Za-z_]{1,20}$")
     risk_tags: list[str] = Field(default_factory=list, max_length=10)
     clone_verdict: Optional[str] = Field(None, max_length=50)
 
