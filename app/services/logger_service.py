@@ -28,6 +28,8 @@ from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
+from app.services.log_scrubber import MAX_MESSAGE, MAX_TRACEBACK, scrub_obj, scrub_text
+
 # ---------------------------------------------------------------------------
 # Log directory & rotating file setup
 # ---------------------------------------------------------------------------
@@ -169,6 +171,12 @@ async def log_error(
 
     exc_type = type(exc).__name__ if exc else None
     full_message = f"{message} — {exc}" if exc else message
+    # Exception text, tracebacks and context are free text from libraries and can carry
+    # credentials or personal data (driver DETAIL lines, pydantic input echoes, URLs with
+    # API keys). Scrub once here: everything below (file log, DB row, alert e-mail) is safe.
+    full_message = scrub_text(full_message, MAX_MESSAGE)
+    tb_str = scrub_text(tb_str, MAX_TRACEBACK)
+    extra = scrub_obj(extra)
 
     # ── 1. File log ────────────────────────────────────────────────────────
     named_logger = logging.getLogger(f"secureshield.{endpoint or 'app'}")
