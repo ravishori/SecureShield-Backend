@@ -2,14 +2,18 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from typing import List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class CloneScanRequest(BaseModel):
-    package_name: str
-    app_name: str
-    cert_hash: Optional[str] = None  # SHA-256 of signing cert, colon-separated
-    icon_phash: Optional[str] = None  # perceptual hash hex string (future)
+    package_name: str = Field(..., min_length=1, max_length=255)
+    app_name: str = Field(..., min_length=1, max_length=255)
+    cert_hash: Optional[str] = Field(
+        None, max_length=200
+    )  # SHA-256 of signing cert, colon-separated
+    icon_phash: Optional[str] = Field(
+        None, max_length=200
+    )  # perceptual hash hex string (future)
 
 
 class CloneScanResponse(BaseModel):
@@ -39,4 +43,6 @@ class CloneFeedbackRequest(BaseModel):
 
     report_id: uuid.UUID
     user_confirmed: bool  # True = user agrees it's fake
-    action_taken: Optional[str] = None  # uninstalled / ignored / reported
+    action_taken: Optional[str] = Field(
+        None, max_length=50
+    )  # uninstalled / ignored / reported

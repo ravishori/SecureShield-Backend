@@ -49,6 +49,21 @@ async def batch_sync_events(
     saved: List[AppInstallEvent] = []
 
     for ev in request.events:
+        # ── Idempotency: the device may re-upload the same queue after a flaky connection ──
+        if ev.first_install_time is not None:
+            dup = (
+                await db.execute(
+                    select(AppInstallEvent.id).where(
+                        AppInstallEvent.user_id == current_user.id,
+                        AppInstallEvent.package_name == ev.package_name,
+                        AppInstallEvent.event_type == ev.event_type,
+                        AppInstallEvent.first_install_time == ev.first_install_time,
+                    )
+                )
+            ).first()
+            if dup:
+                continue
+
         # ── Clone analysis ────────────────────────────────────────────────────
         clone = analyze_clone(
             package_name=ev.package_name,
@@ -103,13 +118,13 @@ async def batch_sync_events(
             )
             alert = Alert(
                 user_id=current_user.id,
-                alert_type=AlertType.malware_detected,
-                severity=AlertSeverity.high
+                alert_type=AlertType.app_risk,
+                severity=AlertSeverity.critical
                 if risk.level == "danger"
-                else AlertSeverity.medium,
+                else AlertSeverity.warning,
                 title=title,
-                description="; ".join(risk.tags[:3]),
-                metadata={
+                message="; ".join(risk.tags[:3]) or "Review this app before using it.",
+                extra_data={
                     "packageName": ev.package_name,
                     "riskScore": risk.score,
                     "cloneVerdict": clone.verdict,

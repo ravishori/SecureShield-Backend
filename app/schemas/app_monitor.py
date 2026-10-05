@@ -11,16 +11,16 @@ from pydantic import BaseModel, Field
 class AppEventPayload(BaseModel):
     """Single install/update/remove event sent from the device."""
 
-    package_name: str
-    app_name: str
-    version_name: Optional[str] = None
-    event_type: str = "installed"  # installed / updated / removed
-    installer_package: Optional[str] = None
+    package_name: str = Field(..., min_length=1, max_length=255)
+    app_name: str = Field(..., min_length=1, max_length=255)
+    version_name: Optional[str] = Field(None, max_length=100)
+    event_type: str = Field("installed", pattern=r"^(installed|updated|removed)$")
+    installer_package: Optional[str] = Field(None, max_length=255)
     is_unknown_source: bool = False
     is_system_app: bool = False
-    dangerous_perms: List[str] = Field(default_factory=list)
-    perm_count: int = 0
-    local_risk_score: int = 0  # Kotlin-computed preliminary score
+    dangerous_perms: List[str] = Field(default_factory=list, max_length=300)
+    perm_count: int = Field(0, ge=0, le=1000)
+    local_risk_score: int = Field(0, ge=0, le=100)  # Kotlin-computed preliminary score
     has_overlay: bool = False
     has_accessibility: bool = False
     first_install_time: Optional[int] = None  # epoch millis
