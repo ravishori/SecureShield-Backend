@@ -4,13 +4,13 @@ OTP Delivery Service
 Centralised OTP delivery for SecureShield AI.
 
 Delivery priority:
-  Phone   → Twilio SMS  →  Twilio WhatsApp fallback  →  console fallback
-  Email   → SMTP HTML email                           →  console fallback
+  Phone   → Twilio SMS  →  Twilio WhatsApp fallback
+  Email   → SMTP HTML email
 
 Public API:
     result = await deliver_otp(identifier, code)
     result.success   # bool
-    result.method    # 'sms' | 'whatsapp' | 'email' | 'console'
+    result.method    # 'sms' | 'whatsapp' | 'email' | 'none'
     result.error     # str | None — set on failure
 """
 
@@ -70,7 +70,7 @@ def _normalize_phone(phone: str) -> str:
 @dataclass
 class DeliveryResult:
     success: bool
-    method: str          # 'sms' | 'whatsapp' | 'email' | 'console'
+    method: str          # 'sms' | 'whatsapp' | 'email' | 'none'
     error: str | None = field(default=None)
 
 
@@ -300,8 +300,10 @@ async def deliver_otp(identifier: str, code: str) -> DeliveryResult:
     """
     Route OTP delivery to the correct channel based on identifier type.
 
-    Phone  → SMS  → WhatsApp fallback  → console fallback
-    Email  → SMTP                      → console fallback
+    Phone  → SMS  → WhatsApp fallback
+    Email  → SMTP
+
+    On total failure the OTP is NOT logged anywhere (see _log_delivery_failure).
 
     Always returns a DeliveryResult (never raises).
     """
@@ -311,9 +313,8 @@ async def deliver_otp(identifier: str, code: str) -> DeliveryResult:
         result = _send_email(identifier, code)
         if result.success:
             return result
-        # Email fallback: print to console
-        _console_fallback(identifier, code, "email", result.error)
-        return DeliveryResult(success=False, method="console", error=result.error)
+        _log_delivery_failure(identifier, "email", result.error)
+        return DeliveryResult(success=False, method="none", error=result.error)
 
     else:
         # Try SMS first
@@ -327,20 +328,18 @@ async def deliver_otp(identifier: str, code: str) -> DeliveryResult:
         if result.success:
             return result
 
-        # Both failed — console fallback
-        _console_fallback(identifier, code, "sms+whatsapp", result.error)
-        return DeliveryResult(success=False, method="console", error=result.error)
+        _log_delivery_failure(identifier, "sms+whatsapp", result.error)
+        return DeliveryResult(success=False, method="none", error=result.error)
 
 
-def _console_fallback(identifier: str, code: str, attempted_method: str, error: str | None) -> None:
-    """Print OTP to console when all delivery channels fail (dev mode)."""
+def _log_delivery_failure(identifier: str, attempted_method: str, error: str | None) -> None:
+    """Record that every delivery channel failed.
+
+    SECURITY: never emit the OTP value (or the unmasked identifier) to stdout,
+    logs or the error_logs table. Logs are retained, shipped and e-mailed, so a
+    logged code would be a working credential for the account.
+    """
     masked = _mask_email(identifier) if "@" in identifier else _mask_phone(identifier)
-    print(f"\n{'=' * 56}")
-    print(f"  [DEV OTP]  To      : {identifier}")
-    print(f"  [DEV OTP]  Masked  : {masked}")
-    print(f"  [DEV OTP]  Code    : {code}")
-    print(f"  [DEV OTP]  Tried   : {attempted_method}")
-    if error:
-        print(f"  [DEV OTP]  Error   : {error}")
-    print(f"{'=' * 56}\n")
-    logger.info(f"[DEV] OTP for {masked}: {code} (delivery failed: {attempted_method})")
+    logger.error(
+        f"OTP delivery failed for {masked} (tried: {attempted_method}): {error or 'unknown error'}"
+    )

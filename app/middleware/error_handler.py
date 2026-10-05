@@ -11,6 +11,7 @@ so every error path goes through the same logging pipeline.
 
 import traceback
 from fastapi import FastAPI, HTTPException, Request, status
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -18,6 +19,51 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from app.services.logger_service import get_logger, log_error
 
 logger = get_logger(__name__)
+
+# Request headers that are safe to persist in error_logs / alert e-mails.
+# EXPLICIT ALLOWLIST on purpose: anything not listed (Authorization, Cookie,
+# X-Admin-Token, Proxy-Authorization, Referer, custom/vendor headers, ...) is
+# never stored, so a new sensitive header can't leak just because nobody
+# remembered to add it to a denylist.
+_SAFE_HEADERS = (
+    "user-agent",
+    "content-type",
+    "content-length",
+    "accept",
+    "accept-language",
+    "accept-encoding",
+    "host",
+    "origin",
+    "x-request-id",
+    "x-correlation-id",
+    "x-forwarded-for",
+    "x-forwarded-proto",
+    "x-real-ip",
+)
+_MAX_HEADER_VALUE = 256
+
+
+def _safe_headers(request: Request) -> dict[str, str]:
+    """Allowlisted subset of the request headers (lower-case names)."""
+    return {
+        name: request.headers[name][:_MAX_HEADER_VALUE]
+        for name in _SAFE_HEADERS
+        if name in request.headers
+    }
+
+
+def _safe_endpoint(request: Request) -> str:
+    """Endpoint label for logs: the matched route TEMPLATE (``/recordings/share/{token}``),
+    never the concrete path, which can carry share tokens or phone numbers
+    (``/scam-calls/block/{number}``). Falls back to the raw path only when no
+    route matched (404s on unknown URLs)."""
+    route = request.scope.get("route")
+    return getattr(route, "path", None) or request.url.path
+
+
+def _safe_query(request: Request) -> list[str]:
+    """Query-parameter NAMES only. Values are user data (emails, phones, tokens)."""
+    return sorted(set(request.query_params.keys()))
 
 
 # ---------------------------------------------------------------------------
@@ -31,7 +77,7 @@ class GlobalErrorHandlerMiddleware(BaseHTTPMiddleware):
 
         except Exception as exc:
             client_ip = request.client.host if request.client else None
-            endpoint = str(request.url.path)
+            endpoint = _safe_endpoint(request)
             method = request.method
 
             await log_error(
@@ -42,8 +88,8 @@ class GlobalErrorHandlerMiddleware(BaseHTTPMiddleware):
                 method=method,
                 client_ip=client_ip,
                 extra={
-                    "query": str(request.query_params),
-                    "headers": dict(request.headers),
+                    "query_params": _safe_query(request),
+                    "headers": _safe_headers(request),
                 },
             )
 
@@ -71,7 +117,7 @@ def register_exception_handlers(app: FastAPI) -> None:
         await log_error(
             message=f"HTTP {exc.status_code}: {exc.detail}",
             level=level,
-            endpoint=str(request.url.path),
+            endpoint=_safe_endpoint(request),
             method=request.method,
             client_ip=client_ip,
             send_email=(exc.status_code >= 500),
@@ -91,8 +137,11 @@ def register_exception_handlers(app: FastAPI) -> None:
         }
         user_message = friendly.get(exc.status_code, exc.detail)
 
+        # Preserve headers the raiser set deliberately (Retry-After on 429,
+        # WWW-Authenticate on 401, ...) — dropping them breaks client back-off.
         return JSONResponse(
             status_code=exc.status_code,
+            headers=dict(getattr(exc, "headers", None) or {}),
             content={"error": user_message, "detail": exc.detail, "code": exc.status_code},
         )
 
@@ -101,21 +150,30 @@ def register_exception_handlers(app: FastAPI) -> None:
         """Handle Pydantic / FastAPI validation errors (422)."""
         client_ip = request.client.host if request.client else None
 
+        # Errors raised by custom @field_validator functions carry the raw
+        # exception object in ``ctx['error']``; it is not JSON serialisable and
+        # previously turned every such 422 into a 500. Encode exceptions as their
+        # message string, and drop 'input' so request values are not echoed/logged.
+        errors = jsonable_encoder(
+            [{k: v for k, v in err.items() if k != "input"} for err in exc.errors()],
+            custom_encoder={Exception: str},
+        )
+
         await log_error(
-            message=f"Validation error: {exc.errors()}",
+            message=f"Validation error: {errors}",
             level="WARNING",
-            endpoint=str(request.url.path),
+            endpoint=_safe_endpoint(request),
             method=request.method,
             client_ip=client_ip,
             send_email=False,
-            extra={"errors": exc.errors()},
+            extra={"errors": errors},
         )
 
         return JSONResponse(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             content={
                 "error": "Validation failed. Please check your input.",
-                "details": exc.errors(),
+                "details": errors,
                 "code": 422,
             },
         )
@@ -129,7 +187,7 @@ def register_exception_handlers(app: FastAPI) -> None:
             message="Unhandled generic exception",
             exc=exc,
             level="CRITICAL",
-            endpoint=str(request.url.path),
+            endpoint=_safe_endpoint(request),
             method=request.method,
             client_ip=client_ip,
         )

@@ -2,7 +2,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sess
 from sqlalchemy.orm import DeclarativeBase
 from app.config import settings
 
-engine = create_async_engine(settings.DATABASE_URL, echo=False)
+# hide_parameters: SQLAlchemy otherwise appends "[parameters: (...)]" to DB errors, which
+# would put bound values (submitted OTP codes, emails, phone numbers) into exception text,
+# tracebacks, error_logs rows and alert e-mails.
+engine = create_async_engine(settings.DATABASE_URL, echo=False, hide_parameters=True)
 AsyncSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
