@@ -5,25 +5,35 @@ Loads TSP codes, LSA codes, and 23K+ SMS headers from:
   - Detail_Header_Prefixes_16062020_0.pdf (embedded in code below)
   - List_SMS_Headers_16062020_0.xlsx (must be present in SecureShieldApp/ root)
 
-Run from: D:/ravishori/SecureShieldApp/backend/
-  python scripts/seed_sms_registry.py
+Run from the backend directory:
+  python scripts/seed_sms_registry.py --dry-run          # parse only, no DB
+  python scripts/seed_sms_registry.py                    # seed EMPTY tables
+  python scripts/seed_sms_registry.py --replace          # wipe + reseed
+
+Needs (not in requirements.txt):  pip install -r requirements-seed.txt
+Connects with MIGRATOR_DATABASE_URL: TRUNCATE requires table ownership, which
+the runtime role (secureshield_app) deliberately does not have.
 """
+import argparse
 import sys
 import os
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 # Add backend root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import psycopg2
-from psycopg2.extras import execute_values
-
 from app.config import settings
 
 # ── Connection ─────────────────────────────────────────────────────────────────
-# Seed data is DML (INSERT) into existing tables, not DDL. Use the FastAPI
-# runtime role (DATABASE_URL / secureshield_app), not the migrator or admin.
-# Convert SQLAlchemy asyncpg URL to a libpq DSN for psycopg2.
-DSN = settings.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://", 1)
+# TRUNCATE needs ownership -> use the migrator role (MIGRATOR_DATABASE_URL).
+def _libpq_dsn(url: str) -> str:
+    """SQLAlchemy asyncpg URL -> libpq DSN (asyncpg ``ssl`` -> libpq ``sslmode``)."""
+    parts = urlsplit(url.replace("postgresql+asyncpg://", "postgresql://", 1))
+    q = [("sslmode" if k == "ssl" else k, v) for k, v in parse_qsl(parts.query)]
+    return urlunsplit(parts._replace(query=urlencode(q)))
+
+
+DSN = _libpq_dsn(settings.MIGRATOR_DATABASE_URL)
 
 # ── TSP Codes (from TRAI PDF) ─────────────────────────────────────────────────
 TSP_CODES = [
@@ -95,21 +105,39 @@ def load_sms_headers(xlsx_path: str):
     return rows
 
 
-def seed():
+def seed(dry_run: bool = False, replace: bool = False, xlsx: str | None = None):
     xlsx_path = os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
         "..", "List_SMS_Headers_16062020_0.xlsx"
     )
-    xlsx_path = os.path.normpath(xlsx_path)
+    xlsx_path = os.path.normpath(xlsx or xlsx_path)
 
     if not os.path.exists(xlsx_path):
         print(f"ERROR: XLSX not found at {xlsx_path}")
         print("Place 'List_SMS_Headers_16062020_0.xlsx' in D:/ravishori/SecureShieldApp/")
         sys.exit(1)
 
+    if dry_run:
+        rows = load_sms_headers(xlsx_path)
+        print(f"DRY RUN: would seed {len(TSP_CODES)} TSP codes, {len(LSA_CODES)} LSA codes, "
+              f"{len(rows):,} SMS headers. No database contact.")
+        return
+
+    import psycopg2
+    from psycopg2.extras import execute_values
+
     print("Connecting to database...")
     conn = psycopg2.connect(DSN)
     cur = conn.cursor()
+
+    cur.execute("SELECT (SELECT count(*) FROM tsp_codes), (SELECT count(*) FROM lsa_codes), "
+                "(SELECT count(*) FROM sms_sender_registry)")
+    existing = cur.fetchone()
+    if any(existing) and not replace:
+        print(f"ABORT: tables already hold data (tsp={existing[0]}, lsa={existing[1]}, "
+              f"sms={existing[2]}). Re-run with --replace to wipe and reseed.")
+        conn.close()
+        sys.exit(2)
 
     # ── Seed TSP codes ──────────────────────────────────────────────────────────
     print("Seeding TSP codes...")
@@ -153,4 +181,9 @@ def seed():
 
 
 if __name__ == "__main__":
-    seed()
+    ap = argparse.ArgumentParser(description="Seed TRAI SMS sender registry")
+    ap.add_argument("--dry-run", action="store_true", help="parse inputs only; no database")
+    ap.add_argument("--replace", action="store_true", help="TRUNCATE and reseed populated tables")
+    ap.add_argument("--xlsx", help="path to List_SMS_Headers_16062020_0.xlsx")
+    a = ap.parse_args()
+    seed(dry_run=a.dry_run, replace=a.replace, xlsx=a.xlsx)
