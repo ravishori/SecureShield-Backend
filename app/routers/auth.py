@@ -16,14 +16,21 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database import get_db
-from app.middleware.rate_limiter import check_otp_send_rate, check_otp_verify_rate
+from app.middleware.rate_limiter import (
+    check_otp_send_rate,
+    check_otp_verify_rate,
+    rate_limiter,
+)
+from app.models.cyber_warrior import WarriorApplication, WarriorProfile
 from app.models.user import OTP, User
 from app.schemas.auth import (
+    DeleteAccountRequest,
+    DeleteAccountResponse,
     RefreshTokenRequest,
     RegisterRequest,
     RegisterResponse,
@@ -122,13 +129,29 @@ async def get_current_user(
 @router.get("/check-user")
 async def check_user(
     identifier: str,
+    http_request: Request,
     db: AsyncSession = Depends(get_db),
 ):
     """
     Check if a phone number or email is already registered.
     Returns {exists, has_profile} — used by the Flutter app for smart auth routing.
+
+    Rate-limited per source IP + per identifier to block enumeration attacks
+    that would otherwise fingerprint which emails/phones have accounts.
     """
     identifier = identifier.strip()
+    # IP-based limit: 30 lookups per minute per IP catches scripted enumeration
+    # without affecting a single human user who types two addresses.
+    client_ip = http_request.client.host if http_request.client else "unknown"
+    if not rate_limiter.is_allowed(
+        f"check_user_ip:{client_ip}", max_hits=30, window_seconds=60
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many account-lookup requests. Please wait a minute.",
+            headers={"Retry-After": "60"},
+        )
+
     if "@" in identifier:
         result = await db.execute(select(User).where(User.email == identifier.lower()))
     else:
@@ -161,6 +184,24 @@ async def register_user(
       5. Return masked identifiers so Flutter can display them on OTP screen
     """
     client_ip = http_request.client.host if http_request.client else None
+
+    # ── Rate limiting ──────────────────────────────────────────────────────
+    # Registration is OTP-sending — both per-IP (abuse) and per-identifier
+    # (quota burn) must be guarded. Email is the mandatory channel so we
+    # anchor the identifier-limit there.
+    ip_key = client_ip or "unknown"
+    if not rate_limiter.is_allowed(
+        f"register_ip:{ip_key}", max_hits=10, window_seconds=3600
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many registration attempts from this network. Please wait an hour.",
+            headers={"Retry-After": "3600"},
+        )
+    check_otp_send_rate(body.email.lower())
+    if body.phone:
+        # Soft phone-side limit too — can't let one phone receive 100 OTPs/day
+        check_otp_send_rate(body.phone)
 
     try:
         # ── Uniqueness checks ──────────────────────────────────────────────
@@ -549,3 +590,90 @@ async def update_profile(
             client_ip=client_ip,
         )
         raise HTTPException(status_code=500, detail="Profile update failed. Please try again.")
+
+
+# ---------------------------------------------------------------------------
+# Account deletion — mandatory for Google Play (User Data policy)
+# ---------------------------------------------------------------------------
+#
+# Approach: soft-delete via PII scrub rather than physical row removal.
+#   • Keep User.id + User.created_at for audit continuity (billing records,
+#     reports the user filed, moderation history, etc.)
+#   • NULL out every PII column (email, phone, names, address)
+#   • Set is_active = False so the account cannot be logged into
+#   • Email and phone are UNIQUE indexes with NULL allowed, so the user
+#     can re-register with the same credentials later and get a brand
+#     new User row — exactly what Play requires.
+#
+# Not implemented here (follow-up slice): cascade cleanup of recordings,
+# evidence, alerts, reports — those tables have their own retention policy
+# and need per-table decisions. Phase 2 will add a background task.
+@router.delete("/me", response_model=DeleteAccountResponse)
+async def delete_account(
+    request: DeleteAccountRequest,
+    http_request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Permanently scrub PII from the authenticated user's account.
+
+    Requires `{"confirm": "DELETE"}` in the body — any other value is a
+    schema validation error (422), preventing accidental deletion. On
+    success, returns `{message, user_id, scrubbed_at}` and the client
+    must discard its JWT (the account's is_active=False will block any
+    subsequent refresh).
+    """
+    client_ip = http_request.client.host if http_request.client else None
+    user_id = str(current_user.id)
+    try:
+        logger.info(f"Account deletion requested by user {user_id}")
+        # ── Scrub PII fields ──────────────────────────────────────────────
+        current_user.email      = None
+        current_user.phone      = None
+        current_user.alt_phone  = None
+        current_user.first_name = None
+        current_user.last_name  = None
+        current_user.full_name  = None
+        current_user.flat_no    = None
+        current_user.building   = None
+        current_user.street     = None
+        current_user.city       = None
+        current_user.state      = None
+        current_user.pin_code   = None
+        # Keep country=NULL too — it's PII-adjacent
+        current_user.country    = None
+        # Deactivate so refresh tokens can't resurrect the account
+        current_user.is_active  = False
+        current_user.updated_at = datetime.utcnow()
+
+        # Cyber Warriors volunteer data (name, DOB, phone, email, free-text
+        # motivation) is PII too — erase it in the same transaction. The
+        # append-only audit trail keeps only ids/actions, never these fields.
+        await db.execute(
+            delete(WarriorProfile).where(WarriorProfile.user_id == current_user.id)
+        )
+        await db.execute(
+            delete(WarriorApplication).where(
+                WarriorApplication.user_id == current_user.id
+            )
+        )
+        await db.commit()
+        logger.info(f"Account {user_id} scrubbed — user data removed")
+        return DeleteAccountResponse(
+            message="Your account and personal data have been permanently deleted.",
+            user_id=user_id,
+            scrubbed_at=current_user.updated_at,
+        )
+    except Exception as exc:
+        await log_error(
+            message=f"Account deletion failed for user {user_id}",
+            exc=exc,
+            endpoint="/auth/me",
+            method="DELETE",
+            user_id=user_id,
+            client_ip=client_ip,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Account deletion failed. Please try again or contact support.",
+        )

@@ -1,0 +1,41 @@
+# Secrets and local env - never bake into the image
+.env
+.env.*
+!.env.example
+*Copy.env
+*- Copy.env
+
+# VCS / IDE
+.git
+.gitignore
+.idea
+.vscode
+
+# Python environments and caches
+.venv
+venv
+__pycache__
+**/__pycache__
+*.py[cod]
+*$py.class
+*.egg-info
+.pytest_cache
+.mypy_cache
+.ruff_cache
+
+# Logs, dumps, backups
+logs
+*.log
+*.dump
+*.backup
+
+# Local/dev-only artifacts
+start.bat
+test_azure_db.py
+test_azure_db.py.txt
+uploads
+
+# Docs / misc that are not required at runtime
+*.md
+Dockerfile
+.dockerignore

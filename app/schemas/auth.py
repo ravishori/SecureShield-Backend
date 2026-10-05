@@ -179,3 +179,29 @@ class RegisterResponse(BaseModel):
     identifier: str          # masked primary identifier (email)
     masked_email: str        # r****@gmail.com
     masked_phone: Optional[str] = None  # +91*****1916 or None
+
+
+# ---------------------------------------------------------------------------
+# Account deletion (Play Store User Data policy requirement)
+# ---------------------------------------------------------------------------
+class DeleteAccountRequest(BaseModel):
+    """Explicit confirmation body for account deletion.
+
+    Requiring the user to echo back a literal string prevents accidental
+    deletion via click-jacking or test tooling, and satisfies Play's
+    "clear and conspicuous" confirmation guidance.
+    """
+    confirm: str  # must be exactly "DELETE"
+
+    @field_validator("confirm")
+    @classmethod
+    def validate_confirm(cls, v: str) -> str:
+        if v != "DELETE":
+            raise ValueError('Confirmation must be the literal string "DELETE".')
+        return v
+
+
+class DeleteAccountResponse(BaseModel):
+    message: str
+    user_id: str
+    scrubbed_at: datetime

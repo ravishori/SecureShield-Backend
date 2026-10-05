@@ -10,10 +10,12 @@ from app.routers import recordings, emergency_contacts
 from app.routers import community_scam, message_analyzer, video_call
 from app.routers import app_monitor, clone_detection, elderly_protection
 from app.routers import admin_errors
+from app.routers import cyber_warrior
 from app.middleware.error_handler import GlobalErrorHandlerMiddleware, register_exception_handlers
 from app.middleware.rate_limiter import RateLimitMiddleware
 from app.services.logger_service import get_logger
 from app.config import settings
+from app.startup_checks import run_startup_checks
 
 logger = get_logger(__name__)
 
@@ -64,6 +66,7 @@ app.include_router(elderly_protection.router,  prefix=PREFIX)
 app.include_router(video_call.router,         prefix=PREFIX)
 app.include_router(emergency_contacts.router, prefix=PREFIX)
 app.include_router(admin_errors.router,       prefix=PREFIX)
+app.include_router(cyber_warrior.router,      prefix=PREFIX)
 
 
 # ── Startup / shutdown events ─────────────────────────────────────────────────
@@ -71,9 +74,16 @@ app.include_router(admin_errors.router,       prefix=PREFIX)
 async def on_startup():
     logger.info("=" * 60)
     logger.info("SecureShield AI API starting up...")
+    logger.info(f"Environment: {settings.ENVIRONMENT}")
     logger.info("Logging → file: logs/secureshield.log  |  DB: error_logs table")
     logger.info(f"Rate limiting: {settings.API_RATE_LIMIT} req/min per IP")
     logger.info("=" * 60)
+
+    # ── Fail-fast production readiness checks ────────────────────────────
+    # Raises before any router is reachable if the config is unsafe for
+    # the declared environment (missing TLS, dev-default secrets, etc.).
+    # In dev these are no-ops. See app/startup_checks.py.
+    run_startup_checks(settings)
 
     # ── Cleanup old error logs ────────────────────────────────────────────
     await _cleanup_old_error_logs()
@@ -168,7 +178,7 @@ async def health():
 
 @app.get("/ready")
 async def ready():
-    """Readiness: verifies Azure DB connectivity without writes or side effects."""
+    """Readiness: verifies database connectivity without writes or side effects."""
     from fastapi.responses import JSONResponse
     from sqlalchemy.ext.asyncio import AsyncSession
 

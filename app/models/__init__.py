@@ -15,10 +15,22 @@ from app.models.recording import Recording
 from app.models.app_install_event import AppInstallEvent
 from app.models.clone_report import CloneReport
 from app.models.elderly_config import ElderlyConfig
+from app.models.cyber_warrior import (
+    ApplicationStatus,
+    AuditAction,
+    WarriorApplication,
+    WarriorAuditLog,
+    WarriorProfile,
+    WarriorRole,
+    role_meets,
+)
 
 __all__ = [
     "User", "OTP", "Device", "AppScan", "LinkScan",
     "Alert", "ScamCall", "Evidence", "FamilyMember", "SecurityReport",
     "WifiScan", "AiConversation", "NetworkActivity", "ErrorLog", "Recording",
     "AppInstallEvent", "CloneReport", "ElderlyConfig",
+    # Cyber Warriors
+    "WarriorApplication", "WarriorProfile", "WarriorAuditLog",
+    "WarriorRole", "ApplicationStatus", "AuditAction", "role_meets",
 ]

@@ -1,21 +1,29 @@
 """
-In-Memory Rate Limiter
-======================
-No external dependencies — uses a threading.Lock + defaultdict of timestamps.
+Rate limiter
+============
+Pluggable sliding-window rate limiter.
 
-Provides:
-  - RateLimiter class for generic sliding-window rate limiting
-  - rate_limiter singleton
+**Current default: in-memory**. See `RateLimiter` below — same semantics as
+the original implementation, backed by a threading.Lock'd defaultdict.
+
+**Phase 1B scaffold for distributed deployments**. The limiter is now
+exposed via the `RateLimiterBackend` protocol so swapping in a Redis
+implementation later is a one-line config change. See
+`make_rate_limiter()` for the factory.
+
+Public API (unchanged):
+  - rate_limiter                       — module-level singleton
   - check_otp_send_rate(identifier)   — 5 requests per hour, raises 429
   - check_otp_verify_rate(identifier) — 10 requests per 15 min, raises 429
   - RateLimitMiddleware               — 100 requests per minute per IP, returns 429 JSON
 """
 
 import json
+import os
 import threading
 import time
 from collections import defaultdict
-from typing import Callable
+from typing import Callable, Protocol
 
 from fastapi import HTTPException, status
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -29,7 +37,23 @@ logger = get_logger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Core rate-limiter
+# Backend protocol — anything implementing this is a valid rate limiter.
+# ---------------------------------------------------------------------------
+class RateLimiterBackend(Protocol):
+    """Sliding-window rate limiter interface.
+
+    Any class implementing these three methods can be used as the limiter.
+    This indirection lets us swap in a Redis-backed implementation in
+    Phase 1B/2 without touching every call site.
+    """
+
+    def is_allowed(self, key: str, max_hits: int, window_seconds: int) -> bool: ...
+    def reset(self, key: str) -> None: ...
+    def current_count(self, key: str, window_seconds: int) -> int: ...
+
+
+# ---------------------------------------------------------------------------
+# In-memory implementation (default)
 # ---------------------------------------------------------------------------
 class RateLimiter:
     """
@@ -37,6 +61,11 @@ class RateLimiter:
 
     Thread-safe via threading.Lock.
     Automatically evicts old timestamps when checking to keep memory bounded.
+
+    **Limitation**: single-process only. Each uvicorn worker has its own
+    counters, so under -w > 1 the effective per-key limit is multiplied by
+    worker count. Use the Redis backend (future) in multi-worker/replica
+    deployments. See `make_rate_limiter()`.
     """
 
     def __init__(self) -> None:
@@ -81,9 +110,36 @@ class RateLimiter:
 
 
 # ---------------------------------------------------------------------------
-# Singleton instance
+# Factory — picks backend based on config
 # ---------------------------------------------------------------------------
-rate_limiter = RateLimiter()
+def make_rate_limiter() -> RateLimiterBackend:
+    """Choose the correct backend for this deployment.
+
+    Current logic:
+      • REDIS_URL env var set → log a WARNING that Redis backend is not
+        yet implemented but reserved for Phase 1B, fall back to in-memory.
+      • Otherwise → in-memory.
+
+    When the Redis backend lands (separate PR), only this function changes.
+    Call sites keep using the module-level `rate_limiter` singleton.
+    """
+    redis_url = os.getenv("REDIS_URL", "").strip()
+    if redis_url:
+        # Guardrail for Phase 1B — intentional explicit log, not a silent fallback.
+        logger.warning(
+            "REDIS_URL is set (%s) but the Redis rate-limiter backend is not "
+            "yet implemented. Falling back to in-memory limiter. In a "
+            "multi-worker deployment this means per-key limits scale with "
+            "worker count — treat as a known gap until Phase 1B lands.",
+            redis_url.split("@")[-1],  # avoid logging credentials
+        )
+    return RateLimiter()
+
+
+# ---------------------------------------------------------------------------
+# Singleton instance — call sites use this directly.
+# ---------------------------------------------------------------------------
+rate_limiter: RateLimiterBackend = make_rate_limiter()
 
 
 # ---------------------------------------------------------------------------
