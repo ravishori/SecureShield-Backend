@@ -15,6 +15,9 @@ import re
 import uuid
 
 from fastapi import HTTPException, UploadFile, status
+from fastapi.responses import FileResponse, StreamingResponse
+
+from app.services import file_crypto
 
 CHUNK = 1024 * 1024
 _UNSAFE = re.compile(r"[^A-Za-z0-9._\- ]")
@@ -53,8 +56,10 @@ async def save_upload(
         directory, f"{uuid.uuid4()}_{safe_filename(file.filename, default_name)}"
     )
     size = 0
+    key = file_crypto._key()
     try:
-        with open(path, "wb") as out:
+        with open(path, "wb") as raw:
+            out = file_crypto.EncryptingWriter(raw, key) if key else raw
             while True:
                 chunk = await file.read(CHUNK)
                 if not chunk:
@@ -66,6 +71,8 @@ async def save_upload(
                         detail=f"File too large (maximum {max_bytes // (1024 * 1024)} MB).",
                     )
                 out.write(chunk)
+            if key and size:
+                out.close()
         if size == 0:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -85,8 +92,14 @@ def save_text(directory: str, text: str, *, name: str) -> tuple[str, int]:
         directory, f"{uuid.uuid4()}_{safe_filename(name, 'document.txt')}"
     )
     data = text.encode("utf-8")
+    key = file_crypto._key()
     with open(path, "wb") as f:
-        f.write(data)
+        if key:
+            writer = file_crypto.EncryptingWriter(f, key)
+            writer.write(data)
+            writer.close()
+        else:
+            f.write(data)
     return path, len(data)
 
 
@@ -106,3 +119,36 @@ def parse_uuid_or_404(value: str, what: str = "Resource") -> uuid.UUID:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"{what} not found"
         )
+
+
+def file_download_response(path: str, name: str) -> FileResponse | StreamingResponse:
+    """Serve a stored file as an attachment, decrypting it on the fly when it is encrypted at rest.
+
+    The first record is decrypted before any response bytes are sent so a corrupt/tampered file or a
+    wrong key becomes a clean HTTP error instead of a broken half-download."""
+    headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": "no-store"}
+    media_type = guess_media_type(name)
+    if not file_crypto.is_encrypted_file(path):
+        return FileResponse(
+            path,
+            media_type=media_type,
+            filename=name,
+            headers=headers,
+            content_disposition_type="attachment",
+        )
+    try:
+        chunks = file_crypto.decrypt_iter(path)
+        first = next(chunks, b"")
+    except file_crypto.FileCryptoError:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="The stored file could not be read.",
+        )
+
+    def stream():
+        yield first
+        yield from chunks
+
+    quoted = name.replace('"', "")
+    headers["Content-Disposition"] = f'attachment; filename="{quoted}"'
+    return StreamingResponse(stream(), media_type=media_type, headers=headers)

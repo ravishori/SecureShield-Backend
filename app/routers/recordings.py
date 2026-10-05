@@ -2,7 +2,6 @@ import os
 import secrets
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
-from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List, Optional
@@ -15,7 +14,7 @@ from app.models.recording import Recording
 from app.routers.auth import get_current_user
 from app.services.upload_safety import (
     display_name,
-    guess_media_type,
+    file_download_response,
     parse_uuid_or_404,
     resolve_inside,
     save_upload,
@@ -119,18 +118,11 @@ async def _owned(db: AsyncSession, user: User, recording_id: str) -> Recording:
     return recording
 
 
-def _file_response(recording: Recording) -> FileResponse:
+def _file_response(recording: Recording):
     path = resolve_inside(UPLOAD_DIR, recording.file_path)
     if path is None:
         raise HTTPException(status_code=404, detail="File not found on server")
-    name = display_name(path)
-    return FileResponse(
-        path,
-        media_type=guess_media_type(name),
-        filename=name,
-        headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "no-store"},
-        content_disposition_type="attachment",
-    )
+    return file_download_response(path, display_name(path))
 
 
 @router.get("/", response_model=List[RecordingResponse])

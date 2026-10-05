@@ -148,6 +148,8 @@ class Settings(BaseSettings):
 
     # Upload size caps (MB). Uploads are streamed to disk and rejected with 413 beyond these.
     MAX_EVIDENCE_MB: int = 50
+    # urlsafe-base64 of 32 random bytes. When set, uploaded files are AES-256-GCM encrypted at rest.
+    FILE_ENCRYPTION_KEY: str = ""
     MAX_RECORDING_MB: int = 200
 
     # ============================================================

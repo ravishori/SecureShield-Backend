@@ -13,6 +13,7 @@ from app.models.user import User
 from app.models.evidence import Evidence, FileType
 from app.routers.auth import get_current_user
 from app.services.ai_limits import check_ai_rate
+from app.services import file_crypto
 from app.services.upload_safety import save_text
 from app.services.ai_service import generate_fir_draft, stream_fir_draft
 
@@ -134,7 +135,7 @@ async def generate_fir(
         file_path=fir_path,
         file_type=FileType.document,
         file_size_bytes=fir_size,
-        is_encrypted=False,
+        is_encrypted=file_crypto.encryption_enabled(),
         case_id=f"FIR-{datetime.utcnow().strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}",
     )
     db.add(evidence)
@@ -249,7 +250,7 @@ async def generate_fir_streaming(
                 file_path=fir_path,
                 file_type=FileType.document,
                 file_size_bytes=fir_size,
-                is_encrypted=False,
+                is_encrypted=file_crypto.encryption_enabled(),
                 case_id=case_id,
             )
             db.add(evidence)
