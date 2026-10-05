@@ -24,6 +24,9 @@ class FamilyMemberResponse(BaseModel):
     nickname: Optional[str]
     can_view_alerts: bool
     can_trigger_panic: bool
+    is_child_profile: bool = False
+    content_filter_enabled: bool = False
+    cyberbullying_alerts: bool = False
     consent_status: str
     created_at: datetime
 

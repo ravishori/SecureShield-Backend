@@ -238,3 +238,26 @@ async def test_erasing_the_invitee_leaves_no_claimable_or_accepted_link(
         and row.invited_phone is None
         and row.consent_status == "declined"
     )
+
+
+async def test_child_profile_flags_are_returned_to_the_client(
+    client, make_user, auth_headers
+):
+    h = auth_headers(await make_user("kidsparent"))
+    r = await client.post(
+        f"{F}/members",
+        headers=h,
+        json={
+            "nickname": "Tia",
+            "is_child_profile": True,
+            "content_filter_enabled": True,
+            "cyberbullying_alerts": True,
+        },
+    )
+    assert r.status_code == 200
+    got = (await client.get(f"{F}/members", headers=h)).json()[0]
+    assert (
+        got["is_child_profile"] is True
+        and got["content_filter_enabled"] is True
+        and got["cyberbullying_alerts"] is True
+    )
