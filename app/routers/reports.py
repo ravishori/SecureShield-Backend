@@ -1,10 +1,14 @@
 from datetime import datetime, date, timedelta
-from fastapi import APIRouter, Depends
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
+from sqlalchemy.exc import IntegrityError
 from typing import List
 
 from app.database import get_db
+from app.models.device import Device
 from app.models.user import User
 from app.models.security_report import SecurityReport
 from app.models.alert import Alert
@@ -20,8 +24,12 @@ router = APIRouter(prefix="/reports", tags=["reports"])
 
 
 async def generate_daily_report(
-    user_id, report_date: date, db: AsyncSession
+    user_id,
+    report_date: date,
+    db: AsyncSession,
+    existing: SecurityReport | None = None,
 ) -> SecurityReport:
+    """Compute (or refresh, when ``existing`` is given) the report for ``report_date``."""
     start = datetime.combine(report_date, datetime.min.time())
     end = start + timedelta(days=1)
 
@@ -40,7 +48,10 @@ async def generate_daily_report(
     apps_result = await db.execute(
         select(func.count())
         .select_from(AppScan)
+        # AppScan is attributed to a user through its device; never count other users' scans.
+        .join(Device, Device.id == AppScan.device_id)
         .where(
+            Device.user_id == user_id,
             AppScan.scanned_at >= start,
             AppScan.scanned_at < end,
         )
@@ -103,13 +114,21 @@ async def generate_daily_report(
         100.0,
     )
 
-    # Generate AI-powered personalized tips
-    ai_tips = await generate_ai_security_tips(
-        threats_detected=threats_detected,
-        risk_score=overall_risk,
-        top_threat_types=top_threat_types,
-        risky_behaviors=risky_behaviors,
-    )
+    # AI tips cost money: only regenerate when the picture actually changed.
+    if (
+        existing is not None
+        and existing.recommendations
+        and existing.threats_detected == threats_detected
+        and existing.overall_risk_score == overall_risk
+    ):
+        ai_tips = existing.recommendations
+    else:
+        ai_tips = await generate_ai_security_tips(
+            threats_detected=threats_detected,
+            risk_score=overall_risk,
+            top_threat_types=top_threat_types,
+            risky_behaviors=risky_behaviors,
+        )
 
     top_threats = []
     if threats_detected > 0:
@@ -127,18 +146,16 @@ async def generate_daily_report(
             }
         )
 
-    report = SecurityReport(
-        user_id=user_id,
-        report_date=report_date,
-        threats_detected=threats_detected,
-        apps_scanned=apps_scanned,
-        links_scanned=links_scanned,
-        calls_analyzed=calls_analyzed,
-        overall_risk_score=overall_risk,
-        top_threats=top_threats,
-        recommendations=ai_tips,
-    )
-    db.add(report)
+    report = existing or SecurityReport(user_id=user_id, report_date=report_date)
+    report.threats_detected = threats_detected
+    report.apps_scanned = apps_scanned
+    report.links_scanned = links_scanned
+    report.calls_analyzed = calls_analyzed
+    report.overall_risk_score = overall_risk
+    report.top_threats = top_threats
+    report.recommendations = ai_tips
+    if existing is None:
+        db.add(report)
     await db.commit()
     await db.refresh(report)
     return report
@@ -156,10 +173,22 @@ async def get_daily_report(
             SecurityReport.report_date == today,
         )
     )
-    report = result.scalar_one_or_none()
-    if not report:
-        report = await generate_daily_report(current_user.id, today, db)
-    return report
+    report = result.scalars().first()
+    # Always recompute: a report built at 08:00 must reflect the threat found at 14:00.
+    try:
+        return await generate_daily_report(current_user.id, today, db, existing=report)
+    except IntegrityError:
+        # Two first requests raced; the other one won. Use its row.
+        await db.rollback()
+        report = (
+            await db.execute(
+                select(SecurityReport).where(
+                    SecurityReport.user_id == current_user.id,
+                    SecurityReport.report_date == today,
+                )
+            )
+        ).scalar_one()
+        return report
 
 
 @router.get("/history", response_model=List[SecurityReportResponse])
@@ -179,7 +208,7 @@ async def get_history(
 @router.post("/log-behavior")
 async def log_behavior_event(
     event_type: str,
-    details: str = None,
+    details: Optional[str] = Query(None, max_length=500),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -199,7 +228,7 @@ async def log_behavior_event(
     try:
         event_type_enum = BehaviorEventType(event_type)
     except ValueError:
-        event_type_enum = BehaviorEventType.clicked_unknown_link
+        raise HTTPException(status_code=422, detail="Unknown event_type")
 
     event = BehaviorEvent(
         user_id=current_user.id,

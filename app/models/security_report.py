@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, date
-from sqlalchemy import DateTime, ForeignKey, Float, Integer, Date
+from sqlalchemy import DateTime, ForeignKey, Float, Integer, Date, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from app.database import Base
@@ -8,6 +8,9 @@ from app.database import Base
 
 class SecurityReport(Base):
     __tablename__ = "security_reports"
+    __table_args__ = (
+        UniqueConstraint("user_id", "report_date", name="uq_security_reports_user_day"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
