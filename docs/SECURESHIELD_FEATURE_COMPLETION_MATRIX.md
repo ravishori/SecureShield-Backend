@@ -46,7 +46,7 @@ BLOCKED = cannot progress without an external input; RED = not implemented.
 | # | Feature | IMPLEMENTED | INTEGRATED | TESTED | E2E | EXTERNAL | BLOCKED / remaining gap | Status |
 |---|---|---|---|---|---|---|---|---|
 | 1 | Authentication & onboarding | yes (OTP, register, refresh rotation, Google ID-token verify) | yes (OTP, register, refresh); **Google: no** (no client plugin, `/auth/google` path fixed only) | unit + backend-int (OTP flow, hashing, rotation, Google with signed tokens) | no (release APK reaches welcome screen only) | no | **Live OTP delivery**: Resend needs API key + verified domain; Twilio fails 20003. **Google**: needs OAuth client IDs + plugin. Pre-rotation refresh tokens force one re-login | AMBER / BLOCKED (delivery, Google) |
-| 2 | Security dashboard | yes (client local score; server `security_score`) | **no** for server score (client does not call `/reports/daily` for the tile) | backend-int (reports) | no | no | Display of server score not implemented | AMBER |
+| 2 | Security dashboard | yes | yes (home screen loads `/reports/daily` and shows the server `security_score`) | backend-int (reports); no Flutter test | no | no | device E2E | AMBER |
 | 3 | Alerts | yes | yes (`AlertsApi`) | backend-int | no | no | device E2E | AMBER |
 | 4 | Settings & profile (theme, senior mode, language) | yes | yes | flutter (6-language key parity + render) + backend-int | no | no | Localization wired for ~56 of ~444 literals; rest English-only | AMBER |
 | 5 | App risk scanner | yes | yes | flutter (risk engine) + backend-int (isolation, bounds) | no | no | device E2E | AMBER |
@@ -60,7 +60,7 @@ BLOCKED = cannot progress without an external input; RED = not implemented.
 | 13 | Screen-recorder detector | yes | yes | none | no | no | device-only, untested | AMBER |
 | 14 | VPN monitor | yes | yes | none | no | no | device-only; `BIND_VPN_SERVICE` Play declaration | AMBER |
 | 15 | Package monitor | yes | yes (`/app-monitor/sync`) | backend-int (idempotent sync, alert fix) | no | no | device E2E | AMBER |
-| 16 | Network activity monitor | yes (backend) | **no - client never calls `POST /network/activity`** | backend-int | no | no | client integration missing | AMBER (client RED) |
+| 16 | Network activity monitor | yes | yes (VPN-monitor destination events are batched to `POST /network/activity` by `NetworkActivityReporter`; only runs while the user has started the VPN monitor) | backend-int + flutter (6 reporter tests) | no | no | device E2E (needs the VPN monitor running on a device); privacy policy must mention destination upload | AMBER |
 | 17 | Evidence locker | yes | yes (upload; download via `download_url` untested in client) | unit (format tamper/truncation) + backend-int | no | no | encryption disabled until `FILE_ENCRYPTION_KEY` is set; no rotation tooling | AMBER |
 | 18 | AI security coach | yes | yes | backend-int (fake Anthropic client) | no | **no** (real model never called) | real `ANTHROPIC_API_KEY` | AMBER |
 | 19 | Complaint e-mail generator | yes | yes (`/ai/generate-complaint-email`) | partial | no | no | as #18 | AMBER |
