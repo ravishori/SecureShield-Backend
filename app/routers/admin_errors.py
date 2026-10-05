@@ -10,6 +10,7 @@ Set ADMIN_TOKEN in .env to a strong secret. Then call with:
 
 from __future__ import annotations
 
+import hmac
 from typing import Any, Optional
 
 from fastapi import APIRouter, Header, HTTPException, Query
@@ -31,7 +32,7 @@ def _check_admin(token: Optional[str]) -> None:
             status_code=503,
             detail="Admin endpoint is not configured (ADMIN_TOKEN missing).",
         )
-    if not token or token != expected:
+    if not token or not hmac.compare_digest(token.encode(), expected.encode()):
         raise HTTPException(status_code=401, detail="Invalid admin token")
 
 
