@@ -27,7 +27,7 @@ every row**: no provider credentials were available and Railway was off limits (
 
 | Check | Result |
 |---|---|
-| Backend `pytest` (real PostgreSQL, Alembic-migrated) | **691 passed** (full suite, real PostgreSQL, 0 skipped; verified after the FG-071 upload-policy change; 592 before it). Flutter: `flutter analyze` clean, **69/69** tests pass |
+| Backend `pytest` (real PostgreSQL, Alembic-migrated) | **711 passed** (full suite, real PostgreSQL, 0 skipped; verified after the FG-041 logging change; 691 after FG-071, 592 before). Flutter: `flutter analyze` clean, **69/69** tests pass |
 | `ruff check` / `ruff format --check` (repo-pinned 0.9.4; `app tests scripts`) | clean / 162 files formatted |
 | `pip check`, Alembic | clean; single linear head `s4t5u6v7w8x9` |
 | Real gitleaks 8.21.2 | backend HEAD tree clean; Flutter tree + history clean; backend history = 14 known historical findings in 2 old commits (rotation DEFERRED) |
@@ -61,7 +61,7 @@ every row**: no provider credentials were available and Railway was off limits (
 | 18 | AI security coach | yes | yes | no | yes (fake client: IDOR, timeouts, rate limit, leakage) | no | **no** | no | real `ANTHROPIC_API_KEY` | AMBER |
 | 19 | Complaint e-mail generator | yes | yes | no | partial | no | **no** | no | as #18 | AMBER |
 | 20 | Family safety dashboard | yes | yes | yes (localization tests) | yes (consent, dashboard) | **yes**: invitation received, **Accept** -> backend `accepted`, inviter dashboard showed the invitee's alert; **Decline** -> `declined` | no | no | adding a member through the dialog and the Kids tab not driven; panic is not pushed to family members | AMBER |
-| 21 | Panic button | yes | yes | no | yes (providers mocked) | **yes**: SOS in the app -> alert stored -> SMS + e-mail for the emergency contact captured by the outbox | **no** (nothing real sent) | no | working Twilio/Resend | AMBER |
+| 21 | Panic button | yes | yes | no | yes (providers mocked) | **yes**: SOS in the app -> alert stored -> SMS + e-mail for the emergency contact captured by the outbox | **no** (nothing real sent) | no | working Twilio/Resend; **delivery logs masked (FG-041: IMPLEMENTED + TESTED, 20 tests)** | AMBER |
 | 22 | Security reports | yes | daily/history/weekly: yes; **e-mail endpoint not called by the client** | no | yes | partial: dashboard shows the report | no | no | e-mail needs a provider; no scheduler | AMBER |
 | 23 | Consent manager | yes | yes | no | n/a | **yes**: Grant SMS -> system dialog -> counter 1/8 | no | no | other permissions not driven | AMBER |
 

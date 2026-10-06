@@ -16,9 +16,20 @@ import httpx
 
 from app.config import load_settings
 from app.services import otp_service as otp
+from app.services.log_scrubber import mask_email_for_log, mask_phone_for_log
 from app.services.logger_service import get_logger
 
 logger = get_logger(__name__)
+
+
+def _safe_error(exc: BaseException) -> str:
+    """Error text that is safe to log. Library messages are free text and routinely echo the recipient
+    (Twilio: "The 'To' number +91... is not a valid phone number"; SMTP: the rejected address), so only the
+    exception class and, for Twilio, its numeric code are kept."""
+    code = getattr(exc, "code", None)
+    if type(exc).__name__ == "TwilioRestException" and isinstance(code, int):
+        return f"TwilioRestException code {code}"
+    return type(exc).__name__
 
 
 def _send_sms_sync(phone: str, body: str) -> bool:
@@ -30,16 +41,16 @@ def _send_sms_sync(phone: str, body: str) -> bool:
     sender = (s.TWILIO_SMS_NUMBER or "").strip()
     if not sid.startswith("AC") or not token or not sender:
         return False
-    to = otp._normalize_phone(phone)
     try:
+        to = otp._normalize_phone(phone)
         from twilio.rest import Client  # type: ignore
 
         Client(sid, token).messages.create(body=body, from_=sender, to=to)
-        logger.info(f"Notification SMS sent to {otp._mask_phone(to)}")
+        logger.info(f"Notification SMS sent to {mask_phone_for_log(to)}")
         return True
     except Exception as exc:
         logger.error(
-            f"Notification SMS failed to {otp._mask_phone(to)}: {otp._twilio_error_message(exc)}"
+            f"Notification SMS failed to {mask_phone_for_log(phone)}: {_safe_error(exc)}"
         )
         return False
 
@@ -68,14 +79,16 @@ async def _send_email_resend(to: str, subject: str, body: str) -> bool:
                 headers={"Authorization": f"Bearer {key}"},
             )
         if resp.status_code // 100 == 2:
-            logger.info(f"Notification e-mail (resend) sent to {otp._mask_email(to)}")
+            logger.info(
+                f"Notification e-mail (resend) sent to {mask_email_for_log(to)}"
+            )
             return True
         logger.error(
-            f"Resend notification failed to {otp._mask_email(to)}: HTTP {resp.status_code}"
+            f"Resend notification failed to {mask_email_for_log(to)}: HTTP {resp.status_code}"
         )
     except (httpx.HTTPError, OSError) as exc:
         logger.error(
-            f"Resend notification failed to {otp._mask_email(to)}: {type(exc).__name__}"
+            f"Resend notification failed to {mask_email_for_log(to)}: {_safe_error(exc)}"
         )
     return False
 
@@ -92,11 +105,11 @@ def _send_email_smtp_sync(to: str, subject: str, body: str) -> bool:
             srv.starttls()
             srv.login(s.SMTP_USER, s.SMTP_PASSWORD.strip())
             srv.sendmail(s.SMTP_USER, to, msg.as_string())
-        logger.info(f"Notification e-mail (smtp) sent to {otp._mask_email(to)}")
+        logger.info(f"Notification e-mail (smtp) sent to {mask_email_for_log(to)}")
         return True
     except Exception as exc:
         logger.error(
-            f"SMTP notification failed to {otp._mask_email(to)}: {type(exc).__name__}"
+            f"SMTP notification failed to {mask_email_for_log(to)}: {_safe_error(exc)}"
         )
         return False
 

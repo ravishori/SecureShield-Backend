@@ -167,6 +167,7 @@ async def trigger_panic(
         latitude=request.latitude,
         longitude=request.longitude,
         targets=targets,
+        user_id=str(current_user.id),
     )
     return alert
 
@@ -177,6 +178,7 @@ async def _notify_emergency_contacts(
     latitude: float | None,
     longitude: float | None,
     targets: list[tuple[str | None, str | None]],
+    user_id: str | None = None,
 ) -> None:
     """Best effort: one failing contact/channel never blocks the others."""
     clean = re.sub(r"[\x00-\x1f\x7f]+", " ", message or "").strip()[:300]
@@ -191,6 +193,7 @@ async def _notify_emergency_contacts(
         )
     lines.append("Please call them now. If you cannot reach them, call 112.")
     body = "\n".join(lines)
+    delivered = failed = 0
     for phone, email in targets:
         for send, to, args in (
             (notifications.send_sms, phone, (body,)),
@@ -199,6 +202,14 @@ async def _notify_emergency_contacts(
             if not to:
                 continue
             try:
-                await send(to, *args)
+                ok = bool(await send(to, *args))
             except Exception as exc:
-                logger.error(f"[PANIC] notification failed: {type(exc).__name__}")
+                logger.error(
+                    f"[PANIC] user={user_id} notification failed: {type(exc).__name__}"
+                )
+                ok = False
+            delivered += ok
+            failed += not ok
+    logger.info(
+        f"[PANIC] user={user_id} contacts={len(targets)} delivered={delivered} failed={failed}"
+    )

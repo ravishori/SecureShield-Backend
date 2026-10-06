@@ -118,6 +118,7 @@ async def send_guardian_alert(
         risk_level=request.risk_level,
         risk_tags=request.risk_tags,
         clone_verdict=request.clone_verdict,
+        user_id=str(current_user.id),
     )
     return {"status": "queued"}
 
@@ -151,6 +152,7 @@ async def _deliver_guardian_alert(
     risk_level: str,
     risk_tags: list,
     clone_verdict: str | None,
+    user_id: str | None = None,
 ) -> dict:
     """Deliver the alert to the guardian by SMS and/or e-mail. Returns per-channel results."""
     greeting = (
@@ -198,8 +200,17 @@ async def _deliver_guardian_alert(
         try:
             results[name] = bool(await coro)
         except Exception as exc:
-            logger.error(f"[ELDERLY] {name} delivery raised {type(exc).__name__}")
+            logger.error(
+                f"[ELDERLY] user={user_id} {name} delivery raised {type(exc).__name__}"
+            )
             results[name] = False
+    outcome = ",".join(f"{k}={'ok' if v else 'failed'}" for k, v in results.items())
     if not any(results.values()):
-        logger.error("[ELDERLY] guardian alert could not be delivered on any channel")
+        logger.error(
+            f"[ELDERLY] user={user_id} guardian alert could not be delivered on any channel ({outcome})"
+        )
+    else:
+        logger.info(
+            f"[ELDERLY] user={user_id} guardian alert delivered: risk={risk_level} score={risk_score} ({outcome})"
+        )
     return results

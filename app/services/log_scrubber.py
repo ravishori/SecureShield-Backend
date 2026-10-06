@@ -55,6 +55,28 @@ def _mask_phone(m: re.Match) -> str:
     return "[PHONE …" + digits[-2:] + "]"
 
 
+def mask_phone_for_log(phone: object) -> str:
+    """Deterministic, never-raising phone mask for log lines: ``[phone ...NN]`` (last two digits only).
+
+    Anything with fewer than 6 digits becomes ``[phone]`` so a short number is never revealed in full."""
+    try:
+        digits = re.sub(r"\D", "", str(phone or ""))
+        return f"[phone ...{digits[-2:]}]" if len(digits) >= 6 else "[phone]"
+    except Exception:
+        return "[phone]"
+
+
+def mask_email_for_log(email: object) -> str:
+    """Deterministic, never-raising e-mail mask for log lines: ``a***@domain`` (first character + domain)."""
+    try:
+        local, _, domain = str(email or "").strip().partition("@")
+        if not local or not domain or "@" in domain:
+            return "[email]"
+        return f"{local[0]}***@{domain.lower()[:100]}"
+    except Exception:
+        return "[email]"
+
+
 def scrub_text(value: str | None, limit: int = MAX_MESSAGE) -> str | None:
     """Return ``value`` with credentials/PII redacted and length bounded. Never raises."""
     if value is None:
