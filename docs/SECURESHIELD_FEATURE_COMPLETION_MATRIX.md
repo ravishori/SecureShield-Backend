@@ -27,7 +27,7 @@ every row**: no provider credentials were available and Railway was off limits (
 
 | Check | Result |
 |---|---|
-| Backend `pytest` (real PostgreSQL, Alembic-migrated) | **592 passed** (full suite, real PostgreSQL, 0 skipped; verified after the EncryptionService/detector change). Flutter: `flutter analyze` clean, **63/63** tests pass |
+| Backend `pytest` (real PostgreSQL, Alembic-migrated) | **592 passed** (full suite, real PostgreSQL, 0 skipped; verified after the EncryptionService/detector change). Flutter: `flutter analyze` clean, **69/69** tests pass |
 | `ruff check` / `ruff format --check` (repo-pinned 0.9.4; `app tests scripts`) | clean / 162 files formatted |
 | `pip check`, Alembic | clean; single linear head `s4t5u6v7w8x9` |
 | Real gitleaks 8.21.2 | backend HEAD tree clean; Flutter tree + history clean; backend history = 14 known historical findings in 2 old commits (rotation DEFERRED) |
