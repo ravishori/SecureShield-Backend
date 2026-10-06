@@ -24,31 +24,31 @@ everything except one release-APK smoke launch. This run had no external credent
 (its only environment is named `production`). Status vocabulary: AMBER = implemented, evidence incomplete;
 BLOCKED = cannot progress without an external input; RED = not implemented.
 
-## Verification totals (2026-10-06, stabilization pass 1)
+## Verification totals (2026-10-06, end of stabilization pass 1)
 
 | Check | Result |
 |---|---|
-| Backend `pytest` (real PostgreSQL, Alembic-migrated) | **572 passed, 0 failed** |
-| `ruff check app tests` (repo-pinned 0.9.4) | All checks passed |
-| `ruff format --check app tests` (0.9.4) | 152 files already formatted |
+| Backend `pytest` (real PostgreSQL, Alembic-migrated) | **581 passed, 0 failed** |
+| `ruff check app tests scripts` (repo-pinned 0.9.4) | All checks passed |
+| `ruff format --check` (0.9.4) | 161 files already formatted |
 | `pip check` | No broken requirements |
-| Alembic | single head `r3s4t5u6v7w8`, linear chain, no branches; migrations rehearsed on seeded data (`MIGRATION_SAFETY_REVIEW.md`) |
-| **Real gitleaks 8.21.2** (official release binary, repo `.gitleaks.toml`) | HEAD tree of backend: **no leaks** (after two exact-value allowlist entries for a false positive and a fake test key). Flutter tree + history: no leaks. Backend **git history: 14 findings, all in two old commits** (`6465d52`: an old `.env`/`app/config.py`; `8fcb5af`: committed log files) - the known historical secrets whose rotation is DEFERRED. The 30 commits made in this work contain no finding |
-| GitHub CI | **not run** (no push) |
+| Alembic | single head `s4t5u6v7w8x9`, linear chain; all seven new migrations rehearsed on seeded data, upgrade + downgrade + re-upgrade (`MIGRATION_SAFETY_REVIEW.md`) |
+| **Real gitleaks 8.21.2** (official binary) | backend HEAD tree: **no leaks**; the 36 commits made in this work: **no leaks**; backend full history: 14 findings, all in two old commits (`6465d52`, `8fcb5af`) - the known historical secrets, rotation DEFERRED. Flutter tree + history: no leaks |
+| GitHub CI | **not run** (no push). Note: the real CI is `backend/.github/workflows/backend-ci.yml` (gitleaks `detect --no-git`, ruff `--select E9,F63,F7,F82`, `alembic upgrade head`, pytest) |
 | `flutter analyze` | No issues found |
-| `flutter test` | 26 passed |
-| `flutter build apk --release` | built, **107.5 MB**, no workaround flags |
-| `flutter build appbundle --release` | built, **70.4 MB**, no workaround flags |
+| `flutter test` | 35 passed |
+| `flutter build apk --release` | built, **107.8 MB**, no workaround flags |
+| `flutter build appbundle --release` | built, **70.9 MB**, no workaround flags |
 | Signing | **debug key** (no `key.properties`) - not uploadable to Play |
 
 ## The 23 features
 
 | # | Feature | IMPLEMENTED | INTEGRATED | TESTED | E2E | EXTERNAL | BLOCKED / remaining gap | Status |
 |---|---|---|---|---|---|---|---|---|
-| 1 | Authentication & onboarding | yes (OTP, register, refresh rotation, Google ID-token verify) | yes (OTP, register, refresh); **Google: no** (no client plugin, `/auth/google` path fixed only) | unit + backend-int (OTP flow, hashing, rotation, Google with signed tokens) | **local E2E**: phone login with OTP (hashed at rest) on the emulator against the local backend succeeded; rotation/refresh not driven; release APK reaches welcome screen | no | **Live OTP delivery**: Resend needs API key + verified domain; Twilio fails 20003. **Google**: needs OAuth client IDs + plugin. Pre-rotation refresh tokens force one re-login | AMBER / BLOCKED (delivery, Google) |
+| 1 | Authentication & onboarding | yes (OTP, register, refresh rotation, Google ID-token verify) | yes (OTP, register, refresh); **Google: client code written** (ID token -> `/auth/google`), disabled until `GOOGLE_WEB_CLIENT_ID` is supplied, so never run | unit + backend-int (OTP flow, hashing, rotation, Google with signed tokens) | **local E2E**: phone login with OTP (hashed at rest) on the emulator against the local backend succeeded; rotation/refresh not driven; release APK reaches welcome screen | no | **Live OTP delivery**: Resend needs API key + verified domain; Twilio fails 20003. **Google**: needs OAuth client IDs + plugin. Pre-rotation refresh tokens force one re-login | AMBER / BLOCKED (delivery, Google) |
 | 2 | Security dashboard | yes | yes (home screen loads `/reports/daily` and shows the server `security_score`) | backend-int (reports); no Flutter test | **local E2E**: after login the emulator showed score 100 from the real local backend | no | threat-count states not driven | AMBER |
 | 3 | Alerts | yes | yes (`AlertsApi`) | backend-int | no | no | device E2E | AMBER |
-| 4 | Settings & profile (theme, senior mode, language) | yes | yes | flutter (6-language key parity + render) + backend-int | no | no | Localization wired for ~56 of ~444 literals; rest English-only | AMBER |
+| 4 | Settings & profile (theme, senior mode, language) | yes | yes | flutter (6-language key parity + render) + backend-int | no | no | Localization wired for ~112 strings (onboarding, auth, navigation, drawer, family, alerts/panic, profile, settings); ~398 literals in other screens still English-only; machine-authored translations | AMBER |
 | 5 | App risk scanner | yes | yes | flutter (risk engine) + backend-int (isolation, bounds) | no | no | device E2E | AMBER |
 | 6 | Link/URL scanner | yes | yes | unit + backend-int (providers simulated) | no | **no** (real GSB/URLhaus never called) | live `GSB_API_KEY` / `URLHAUS_AUTH_KEY` on the target env | AMBER |
 | 7 | Wi-Fi scanner | yes | yes | backend-int | no | no | device E2E | AMBER |
@@ -86,7 +86,7 @@ persisted as files.
 | Threat intel (GSB / URLhaus) | AMBER | simulated providers | live keys |
 | Evidence encryption at rest | AMBER | see #17 | key + rotation |
 | Admin / RBAC | AMBER | static `ADMIN_TOKEN` endpoints (stats, users, enable/disable, **append-only audit log**, migration `s4t5u6v7w8x9`) + same-origin operator console at `/api/v1/admin/console` (no secrets, strict CSP, `textContent` only; JS syntax-checked, **not run in a browser**) + warrior RBAC; all backend-int tested | no per-person admin identity (one shared token; audit records action/target/IP only); console not exercised in a browser; no real admin created (by instruction) |
-| Localization | AMBER | see #4 | remaining screens |
+| Localization | AMBER | 171 ARB keys in 6 languages; ~112 uses in code; **~398 plain `Text('...')` literals remain in screens**; translations are machine-authored and need native-speaker review | remaining screens + review |
 | Uvicorn access-log redaction | AMBER (unit tests; not observed on a real server) | unit tests | - |
 | DB backups / recovery | AMBER | scripts + runbook verified locally, tamper detection | no schedule, no off-site storage, evidence volume backup is an owner/Railway action |
 | Schema drift guard | AMBER (backend-int) | tests compare ORM enums/tables/columns to the migrated DB | - |

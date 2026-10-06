@@ -1,15 +1,15 @@
-# Migration safety review - six unapplied revisions
+# Migration safety review - seven unapplied revisions
 
 Status: **none of these has been applied to Railway or any shared database.** They have run only on the
 isolated local PostgreSQL 18 databases (the test database and a throw-away rehearsal database).
 Do not apply them anywhere shared without reading this document.
 
-Base revision before this work: `l7m8n9o0p1q2`. Head now: `r3s4t5u6v7w8`. Chain is linear
-(20 history entries, no branches, `alembic heads` = one head).
+Base revision before this work: `l7m8n9o0p1q2`. Head now: `s4t5u6v7w8x9`. Chain is linear
+(21 history entries, no branches, `alembic heads` = one head).
 
 ## How this was verified
 
-`python scripts/migration_rehearsal.py` creates a scratch local database, upgrades to `l7m8n9o0p1q2`,
+`python scripts/migration_rehearsal.py` (re-run on 2026-10-06 with all seven revisions) creates a scratch local database, upgrades to `l7m8n9o0p1q2`,
 seeds rows that hit every destructive path, applies the six revisions one at a time printing row counts,
 downgrades all six, and re-upgrades to head. Result on 2026-10-06 (PostgreSQL 18, loopback):
 
@@ -22,7 +22,8 @@ seeded at l7m8n9o0p1q2
   after p1q2  (unchanged)
   after q2r3  otps=0 ...                                                      (3 OTP rows deleted)
   after r3s4  (unchanged)
-downgrades: all six ran without error (see "reversibility" - several do not restore data)
+  after s4t5  (unchanged)
+downgrades: all seven ran without error (see "reversibility" - several do not restore data)
 re-upgrade to head OK
 ```
 
@@ -31,7 +32,7 @@ Also: `tests/integration/test_schema_drift.py` (ORM enums, tables and columns ve
 (`warrior_*`, `community_scam_*`, `app_install_events`, ...) plus the `otp_vault_entries` table, which has
 migrations but no ORM model. None involves the tables touched by these six revisions.
 
-## Per-revision review
+## Per-revision review (the first six were reviewed first; a seventh was added afterwards)
 
 ### m8n9o0p1q2r3 - family consent
 | | |
@@ -104,6 +105,17 @@ migrations but no ORM model. None involves the tables touched by these six revis
 | Failure/rollback | Transactional; new tables only |
 | Backup needed? | No |
 | Safe for isolated staging? | Yes. Account erasure already removes these rows |
+
+### s4t5u6v7w8x9 - admin audit log
+| | |
+|---|---|
+| Tables | new `admin_audit_logs` (+3 indexes), no foreign key (rows must outlive an erased account) |
+| Destructive? | No |
+| Row impact | none (new table) |
+| Reversible? | Yes (drops the table; audit history created after the upgrade is lost) |
+| Failure/rollback | Transactional; new table only |
+| Backup needed? | No |
+| Safe for isolated staging? | Yes. The runtime role needs INSERT/SELECT on the new table (same GRANT step as the refresh-token tables) |
 
 ## Deployment-order notes
 

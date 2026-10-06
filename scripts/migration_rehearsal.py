@@ -4,7 +4,7 @@
 
 Creates ``secureshield_migration_review_<rand>``, upgrades to the pre-change revision, seeds rows that
 exercise every destructive path (duplicate daily reports, OTP rows, family links, unowned scans),
-then applies each of the six revisions one at a time printing before/after row counts, tries each
+then applies each of the seven revisions one at a time printing before/after row counts, tries each
 downgrade, and re-upgrades. Always drops the scratch database. Refuses non-loopback servers.
 """
 
@@ -31,6 +31,7 @@ STEPS = [
     "p1q2r3s4t5u6",
     "q2r3s4t5u6v7",
     "r3s4t5u6v7w8",
+    "s4t5u6v7w8x9",
 ]
 TABLES = [
     "users",

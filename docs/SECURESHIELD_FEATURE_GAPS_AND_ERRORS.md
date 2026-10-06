@@ -702,7 +702,7 @@ encryption at rest (code), backup/restore tooling, localization wiring (partial)
 | GitHub CI run | workflow yes | no | no | no | push required. Real gitleaks 8.21.2 **was run locally** on 2026-10-06: tree clean; history shows only the 14 known historical findings |
 | Historical secrets in Git history | n/a | n/a | n/a | n/a | rotation DEFERRED by the owner |
 
-### 19.4 Migrations created in this pass (head `r3s4t5u6v7w8`; none applied outside the local test database)
+### 19.4 Migrations created in this pass (head `s4t5u6v7w8x9`; none applied outside local disposable databases)
 
 | Revision | Purpose | Data impact |
 |---|---|---|
@@ -723,3 +723,15 @@ encryption at rest (code), backup/restore tooling, localization wiring (partial)
 | FG-146 | Migration safety review + rehearsal script | DONE (`MIGRATION_SAFETY_REVIEW.md`, `scripts/migration_rehearsal.py`) |
 | FG-147 | `alembic check` reports pre-existing index/FK-name drift on older tables and an ORM-less `otp_vault_entries` table | OPEN, LOW, not caused by the six new revisions |
 | FG-148 | OTP vault has a table and an erasure statement but no backend model/router | OPEN, LOW (feature is device-local) |
+| `s4t5u6v7w8x9` | admin audit log table | none; new table |
+
+### 19.6 Later in stabilization pass 1
+
+| ID | Item | Status |
+|---|---|---|
+| FG-149 | Admin actions had no audit trail; no operator UI | audit log + same-origin console implemented, backend-int tested; console not run in a browser; still a single shared token (no per-person identity) |
+| FG-150 | Evidence encryption had no key lifecycle | keyring + key ids + rotation script implemented and unit-tested; never run on real data |
+| FG-151 | Backups had no schedule | opt-in workflow written (disabled), YAML-validated only |
+| FG-152 | Google Sign-In client missing | client code written, disabled without a client ID; no E2E possible |
+| FG-153 | E2E harness read the developer's real `.env` (settings give `.env` priority over process variables) and made one Twilio auth check at startup in earlier runs | harness fixed to ignore `.env` and use inert values; no SMS/e-mail was sent in any run |
+| FG-154 | Local device E2E | login with OTP, dashboard score, Family Invites -> Accept, SOS fan-out verified on the emulator against the local backend (local harness; no real provider) |
