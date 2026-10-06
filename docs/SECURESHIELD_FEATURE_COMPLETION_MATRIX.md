@@ -95,6 +95,7 @@ every row**: no provider credentials were available and Railway was off limits (
 | Play Store readiness | doc | n/a | n/a | n/a | n/a | n/a | restricted permissions (SMS, call log), `QUERY_ALL_PACKAGES`, FGS types, data-safety form, privacy policy: owner decisions | AMBER |
 | Localization | 352 keys x 6 | key/placeholder parity + Hindi render tests | n/a | Hindi verified on the Settings screen | n/a | n/a | 43.8% coverage; native-speaker review is an external quality blocker | AMBER |
 | Client-IP trust for IP-keyed rate limits (FG-167) | yes (`client_ip.py`, `TRUSTED_PROXIES`, startup check, Dockerfile uvicorn flags) | yes (policy, parsing, startup check, Dockerfile flags: 63) | yes (real middleware, simulated peers: 18) | n/a | n/a | no | **no**: Railway/host proxy range unknown and unverified; `TRUSTED_PROXIES` must be set before deploy (staging does not enforce the check); per-process limiter; IPv6 not aggregated per /64 | AMBER |
+| Log / security-record retention (FG-034) | partial (startup purge of `error_logs` only) | no | no (purge untested) | n/a | n/a | no | **POLICY DECISION REQUIRED**: no period chosen; audit in `docs/FG-034_LOG_RETENTION_AUDIT.md`; unbounded: audit tables, `otps`, activity tables, alert mails/host logs outside app control | AMBER |
 
 ## Not done (explicitly)
 
