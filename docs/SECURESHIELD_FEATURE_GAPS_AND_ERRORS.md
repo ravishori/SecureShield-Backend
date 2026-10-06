@@ -746,8 +746,8 @@ encryption at rest (code), backup/restore tooling, localization wiring (partial)
 | FG-158 | OTP Vault feature (BRD #9) had no screen | IMPLEMENTED (device-local, PIN/biometric gated), device-verified |
 | FG-159 | Scam-call endpoints never used by the client; user-reported scams scored 0 | RESOLVED (screen + scoring), device-verified |
 | FG-160 | Emergency recording share link was a relative path | RESOLVED |
-| FG-161 | Screen-recorder **detector** (BRD #13) not implemented (menu entry opens a recorder) | OPEN - RED |
-| FG-162 | `EncryptionService` (Flutter) uses a fixed IV and silently returns plaintext on failure | OPEN, MEDIUM (not used by the new vault, which relies on Keystore-backed secure storage) |
+| FG-161 | Screen-recorder **detector** (BRD #13): implemented for Android 15+ only (own windows); unsupported below; real-recording detection not demonstrated on emulator (`adb screenrecord` did not trigger it) | PARTIAL - AMBER (platform limitation documented) |
+| FG-162 | `EncryptionService` (Flutter) used a fixed IV and silently returned plaintext on failure | RESOLVED locally: AES-256-GCM, random 96-bit nonce per message, `EncryptionException` on any failure, legacy CBC read-only; 12 regression tests (mutation-checked) |
 | FG-163 | `/version` endpoint for SHA verification; staging plan | DONE (plan not executed) |
 | FG-164 | Localization coverage 43.7% (heuristic), translations unreviewed | OPEN, AMBER; external blocker = native-speaker review |
 

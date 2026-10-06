@@ -27,7 +27,7 @@ every row**: no provider credentials were available and Railway was off limits (
 
 | Check | Result |
 |---|---|
-| Backend `pytest` (real PostgreSQL, Alembic-migrated) | see the final report for the exact last full-suite total (591 passed in the run before the final `/version` test was added; that test passes 9/9 in its file) |
+| Backend `pytest` (real PostgreSQL, Alembic-migrated) | **592 passed** (full suite, real PostgreSQL, 0 skipped; verified after the EncryptionService/detector change). Flutter: `flutter analyze` clean, **63/63** tests pass |
 | `ruff check` / `ruff format --check` (repo-pinned 0.9.4; `app tests scripts`) | clean / 162 files formatted |
 | `pip check`, Alembic | clean; single linear head `s4t5u6v7w8x9` |
 | Real gitleaks 8.21.2 | backend HEAD tree clean; Flutter tree + history clean; backend history = 14 known historical findings in 2 old commits (rotation DEFERRED) |
@@ -35,7 +35,7 @@ every row**: no provider credentials were available and Railway was off limits (
 | `flutter analyze` / `flutter test` | no issues / **43 passed** |
 | `flutter build apk --release` / `appbundle --release` | built, 108.2 MB / 71.1 MB, no workaround flags; release APK installs and launches on the emulator with no crash. **Signed with the debug key** (no `key.properties`) |
 | Migrations | 7 new, all rehearsed on seeded data (upgrade, downgrade, re-upgrade) |
-| Localization coverage (heuristic, `flutter_app/tool/l10n_coverage.py`) | **310 localized / 400 hard-coded UI strings = 43.7%**; 307 ARB keys x 6 languages; translations are machine-authored and **not reviewed by native speakers** |
+| Localization coverage (heuristic, `flutter_app/tool/l10n_coverage.py`) | **312 localized / 400 hard-coded UI strings = 43.8%**; 352 ARB keys x 6 languages (339 before the screen-recording-detector keys were added; the earlier figure of 307 was wrong); translations are machine-authored and **not reviewed by native speakers** |
 
 ## The 23 features
 
@@ -53,7 +53,7 @@ every row**: no provider credentials were available and Railway was off limits (
 | 10 | Bank OTP fraud detection | yes | yes | no (Kotlin regex untested by unit tests) | n/a | **yes**: listener enabled, 2 notifications detected, non-OTP ignored, shown in history. Found and fixed: "OTP is 482916" phrasing was missed | no | no | detection only sees notifications; SMS-based path not driven | AMBER |
 | 11 | Device security scan | yes | yes | no | n/a | **yes**: 258 apps scanned, verdict shown | no | no | root/Frida checks need a rooted device | AMBER |
 | 12 | Remote-access detector | yes | yes | no | n/a | **yes**: flagged ADB enabled (true on the emulator) | no | no | no remote-control app installed to test positive app detection | AMBER |
-| 13 | Screen-recorder **detector** | **partial**: the menu entry opens a screen *recorder*; detecting *other* apps recording is not implemented | yes | no | n/a | partial: screen opens; RECORD (MediaProjection) not driven | no | no | true detection API exists only on Android 15+; not built | **RED** (detector) / AMBER (recorder) |
+| 13 | Screen-recorder **detector** | **partial (Android 15+ only)**: `WindowManager.addScreenRecordingCallback` reports whether *SecureShield's own windows* are being recorded; the screen is honest about that scope and shows 'not supported' on Android 14 and below (no public API exists). 8 unit/widget tests; idle and unsupported states verified on API 36 emulator. **Not demonstrated:** the callback did not fire for `adb shell screenrecord` on the emulator and a live MediaProjection recording was not driven end to end. It cannot detect other apps recording or a recording of other apps | yes | yes | n/a | partial | no | no | Android limit: no reliable detection before Android 15 | **AMBER** |
 | 14 | VPN monitor | yes | yes | no | n/a | **yes**: started, system VPN dialog, flagged range attempts blocked and listed, normal traffic unaffected. **Found: the old design routed ALL traffic into the tunnel and dropped it (no internet while on); rewritten to blocklist mode** | no | no | domain-based detection no longer possible (documented in the UI); `BIND_VPN_SERVICE` Play declaration | AMBER |
 | 15 | Package monitor | yes | yes | no | yes (idempotent sync, alert fix) | no | no | no | not driven | AMBER |
 | 16 | Network activity monitor | yes | **yes - added this session** (VPN events batched to `/network/activity`) | yes (6 reporter tests) | yes | **yes**: blocked attempts reached the backend, the flagged one stored as suspicious | no | no | only runs while the VPN monitor is on | AMBER |
@@ -93,7 +93,7 @@ every row**: no provider credentials were available and Railway was off limits (
 | Lint / format / CI parity | n/a | n/a | n/a | n/a | n/a | no | local only | AMBER |
 | Android release build | yes | n/a | n/a | release APK launches | n/a | n/a | **debug-key signing** (no keystore); R8 only smoke-tested | AMBER |
 | Play Store readiness | doc | n/a | n/a | n/a | n/a | n/a | restricted permissions (SMS, call log), `QUERY_ALL_PACKAGES`, FGS types, data-safety form, privacy policy: owner decisions | AMBER |
-| Localization | 307 keys x 6 | key/placeholder parity + Hindi render tests | n/a | Hindi verified on the Settings screen | n/a | n/a | 43.7% coverage; native-speaker review is an external quality blocker | AMBER |
+| Localization | 352 keys x 6 | key/placeholder parity + Hindi render tests | n/a | Hindi verified on the Settings screen | n/a | n/a | 43.8% coverage; native-speaker review is an external quality blocker | AMBER |
 
 ## Not done (explicitly)
 
