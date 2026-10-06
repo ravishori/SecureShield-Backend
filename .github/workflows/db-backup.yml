@@ -63,6 +63,8 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: secureshield-db-backup
-          path: backups/*.enc
+          path: |
+            backups/*.enc
+            backups/*.sha256
           retention-days: 14
           if-no-files-found: error

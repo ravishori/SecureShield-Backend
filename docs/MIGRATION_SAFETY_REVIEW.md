@@ -117,6 +117,39 @@ migrations but no ORM model. None involves the tables touched by these six revis
 | Backup needed? | No |
 | Safe for isolated staging? | Yes. The runtime role needs INSERT/SELECT on the new table (same GRANT step as the refresh-token tables) |
 
+## Pre-deployment checks (mandatory before applying to ANY shared database)
+
+Read-only tooling: `scripts/premigration_report.py` prints the counts below (connection is read-only; counts only,
+never row contents; tables that do not exist yet read as `absent`). Verified on a seeded scratch database before and after
+the migrations.
+
+### Gate 0 - for all migrations
+1. `python scripts/db_backup.py` -> dump + `.sha256`; **`python scripts/db_restore_check.py <dump>` must print
+   `RESTORE CHECK PASSED`** (restores into a scratch local database and compares row counts).
+2. `PREMIGRATION_DATABASE_URL=... python scripts/premigration_report.py > before.txt` (keep it with the dump).
+3. Confirm the target is the isolated staging database, **not** the Railway environment named `production`.
+4. Application code and migrations deploy together (the new code does not run on the old schema).
+
+### Per data-affecting migration
+| Migration | What users will experience | Pre-check (from `before.txt`) | Expected after | If the numbers differ |
+|---|---|---|---|---|
+| `m8n9o0p1q2r3` family consent reset | Every existing family link stops showing the other person's alerts until that person accepts the invitation. Inviters see "Waiting for approval"; invitees see an Invite | `family_members (all)` = N | `consent_status='pending'` = N, `consent_status<>'pending'` = 0, row count still N | Any non-pending row = the migration did not run; any row count change = stop and restore |
+| `n9o0p1q2r3s4` duplicate reports | Nothing visible: reports are recomputed from live data on the next open | `security_reports (all)` = R, duplicates D | rows = R - D, and `select user_id, report_date from security_reports group by 1,2 having count(*)>1` returns 0 rows | rows != R - D = stop and restore |
+| `q2r3s4t5u6v7` OTP deletion | A verification code requested in the last 10 minutes stops working; the user taps "Resend". Run in a quiet period | `otps (all)` = O, `still valid` = V (V = people affected) | `otps (all)` = 0 | any remaining row = plaintext codes still at rest: investigate before going on |
+| `r3s4t5u6v7w8` refresh-token invalidation | **Every signed-in user is signed out once** (their stored refresh token has no `jti`/family) and must log in again with an OTP. OTP delivery must therefore be WORKING before this goes live (see staging plan) | `users (active)` = U (upper bound of people who must re-login) | tables exist and are empty; first refresh with a freshly issued token succeeds, a second use of it returns 401 | no re-login possible = do not deploy while OTP delivery is broken |
+
+Other revisions need no data check beyond Gate 0 (`o0p1` leaves existing app/Wi-Fi scans unowned and invisible; `p1q2` adds enum
+values; `s4t5` adds a table).
+
+### Post-migration verification
+`premigration_report.py > after.txt`, diff against `before.txt`, then `alembic current` = `s4t5u6v7w8x9`, `GET /health` = 200, and run
+the smoke tests in `docs/STAGING_DEPLOYMENT_PLAN.md`. Keep both files and the dump until the release is accepted.
+
+### Rollback
+Preferred: restore the dump taken in Gate 0 into a new database and repoint the service (`docs/BACKUP_AND_RECOVERY.md`, procedure B).
+`alembic downgrade` exists for every revision but does **not** bring deleted rows back (`n9o0`, `q2r3`), cannot drop enum values (`p1q2`)
+and drops data written after the upgrade (`o0p1`, `r3s4`, `s4t5`); use it only for a failed, empty deployment.
+
 ## Deployment-order notes
 
 * The application code and the migrations must ship together (hashed OTPs, rotation tables, `user_id` columns,
