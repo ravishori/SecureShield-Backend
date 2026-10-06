@@ -161,3 +161,144 @@ def test_without_a_key_the_script_refuses(tmp_path, monkeypatch, capsys):
     ):
         monkeypatch.setattr(settings, name, "")
     assert rot.main([str(tmp_path)]) == 1
+
+
+# ------------------------------------------------ failure injection (isolated test data only)
+def _setup_old_file(tmp_path, ring, monkeypatch, data=b"precious evidence" * 1000):
+    write(tmp_path / "f", data, 0)
+    monkeypatch.setattr(settings, "FILE_ENCRYPTION_ACTIVE_KEY_ID", "2")
+    return (tmp_path / "f").read_bytes(), data
+
+
+def _no_leftovers(tmp_path):
+    return not [p for p in tmp_path.iterdir() if p.name.startswith(".rotate-")]
+
+
+def test_crash_while_writing_the_new_copy_preserves_the_original(
+    tmp_path, ring, monkeypatch
+):
+    before, data = _setup_old_file(tmp_path, ring, monkeypatch)
+    real_write = fc.EncryptingWriter.write
+    calls = {"n": 0}
+
+    def dying_write(self, chunk):
+        calls["n"] += 1
+        real_write(self, chunk)
+        raise OSError("disk full / process killed")
+
+    monkeypatch.setattr(fc.EncryptingWriter, "write", dying_write)
+    assert rot.main([str(tmp_path)]) == 2
+    assert calls["n"] == 1
+    assert (tmp_path / "f").read_bytes() == before and read(tmp_path / "f") == data
+    assert _no_leftovers(tmp_path)
+
+
+def test_crash_before_the_final_record_is_written_preserves_the_original(
+    tmp_path, ring, monkeypatch
+):
+    before, data = _setup_old_file(tmp_path, ring, monkeypatch)
+
+    def dying_close(self):
+        raise OSError("killed before the final record")
+
+    monkeypatch.setattr(fc.EncryptingWriter, "close", dying_close)
+    assert rot.main([str(tmp_path)]) == 2
+    assert (tmp_path / "f").read_bytes() == before and _no_leftovers(tmp_path)
+
+
+def test_verification_failure_never_replaces_the_original(
+    tmp_path, ring, monkeypatch, capsys
+):
+    before, data = _setup_old_file(tmp_path, ring, monkeypatch)
+    real = rot._plain_digest_encrypted
+
+    def lying(path):
+        digest = real(path)
+        # the original is read first; the re-encrypted temp copy then "hashes" differently
+        return digest if os.path.basename(path) == "f" else "0" * 64
+
+    monkeypatch.setattr(rot, "_plain_digest_encrypted", lying)
+    assert rot.main([str(tmp_path)]) == 2
+    assert "verification" in capsys.readouterr().err
+    assert (tmp_path / "f").read_bytes() == before and _no_leftovers(tmp_path)
+
+
+def test_replacement_failure_preserves_the_original_and_cleans_up(
+    tmp_path, ring, monkeypatch
+):
+    before, data = _setup_old_file(tmp_path, ring, monkeypatch)
+
+    def boom(src, dst):
+        raise PermissionError("file locked")
+
+    monkeypatch.setattr(rot.os, "replace", boom)
+    assert rot.main([str(tmp_path)]) == 2
+    assert (tmp_path / "f").read_bytes() == before and _no_leftovers(tmp_path)
+
+
+def test_wrong_old_key_is_reported_and_leaves_the_file_alone(
+    tmp_path, ring, monkeypatch, capsys
+):
+    write(tmp_path / "f", b"secret", 1)
+    before = (tmp_path / "f").read_bytes()
+    # operator configures a DIFFERENT key under id 1 by mistake
+    monkeypatch.setattr(settings, "FILE_ENCRYPTION_KEYS", f"1:{k()},2:{ring['k2']}")
+    monkeypatch.setattr(settings, "FILE_ENCRYPTION_ACTIVE_KEY_ID", "2")
+    assert rot.main([str(tmp_path)]) == 2
+    assert "authentication failed" in capsys.readouterr().err
+    assert (tmp_path / "f").read_bytes() == before and _no_leftovers(tmp_path)
+
+
+def test_interrupted_rotation_can_simply_be_rerun(tmp_path, ring, monkeypatch):
+    datas = {f"f{i}": os.urandom(5000 + i) for i in range(4)}
+    for name, d in datas.items():
+        write(tmp_path / name, d, 0)
+    monkeypatch.setattr(settings, "FILE_ENCRYPTION_ACTIVE_KEY_ID", "2")
+    real_replace = os.replace
+    seen = {"n": 0}
+
+    def flaky(src, dst):
+        seen["n"] += 1
+        if seen["n"] == 3:
+            raise OSError("power cut")
+        real_replace(src, dst)
+
+    monkeypatch.setattr(rot.os, "replace", flaky)
+    assert (
+        rot.main([str(tmp_path)]) == 2
+    )  # 2 rotated, 1 failed, 1 untouched-by-this-run? (all attempted)
+    ids = sorted(fc.file_key_id(str(tmp_path / n)) for n in datas)
+    assert (
+        ids.count(2) == 3 and ids.count(0) == 1
+    )  # a clean mixed state: every file still readable
+    for n, d in datas.items():
+        assert read(tmp_path / n) == d
+    monkeypatch.setattr(rot.os, "replace", real_replace)
+    assert rot.main([str(tmp_path)]) == 0  # re-run finishes the job
+    assert all(fc.file_key_id(str(tmp_path / n)) == 2 for n in datas) and _no_leftovers(
+        tmp_path
+    )
+    for n, d in datas.items():
+        assert read(tmp_path / n) == d
+
+
+def test_stale_temp_files_from_a_killed_run_are_ignored_not_rotated(
+    tmp_path, ring, monkeypatch
+):
+    (tmp_path / ".rotate-abc123").write_bytes(b"half written garbage")
+    write(tmp_path / "real", b"data", 0)
+    monkeypatch.setattr(settings, "FILE_ENCRYPTION_ACTIVE_KEY_ID", "2")
+    assert rot.main([str(tmp_path)]) == 0
+    assert (tmp_path / ".rotate-abc123").read_bytes() == b"half written garbage"
+    assert fc.file_key_id(str(tmp_path / "real")) == 2
+
+
+def test_no_plaintext_is_left_on_disk_after_rotation_and_empty_files_survive(
+    tmp_path, ring, monkeypatch
+):
+    write(tmp_path / "e", b"", 0)
+    write(tmp_path / "s", b"TOP-SECRET-MARKER" * 10, 0)
+    monkeypatch.setattr(settings, "FILE_ENCRYPTION_ACTIVE_KEY_ID", "2")
+    assert rot.main([str(tmp_path)]) == 0
+    assert read(tmp_path / "e") == b""
+    assert b"TOP-SECRET-MARKER" not in (tmp_path / "s").read_bytes()
