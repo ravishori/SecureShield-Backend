@@ -177,3 +177,24 @@ def test_generated_codes_are_six_digits_and_use_secrets():
     assert "random." not in inspect.getsource(
         auth
     ) and "randbelow" in inspect.getsource(oc)
+
+
+async def test_version_endpoint_reports_commit_and_expected_schema_head(
+    client, monkeypatch
+):
+    monkeypatch.setenv(
+        "RAILWAY_GIT_COMMIT_SHA", "abc123def4567890abc123def4567890abc123de"
+    )
+    r = await client.get("/version")
+    assert r.status_code == 200
+    j = r.json()
+    assert j["git_sha"] == "abc123def4567890abc123def4567890abc123de"
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+    import os
+
+    root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+    cfg = Config(os.path.join(root, "alembic.ini"))
+    cfg.set_main_option("script_location", os.path.join(root, "alembic"))
+    assert j["alembic_head"] == ScriptDirectory.from_config(cfg).get_current_head()
+    assert set(j) == {"git_sha", "alembic_head"}  # nothing else is exposed

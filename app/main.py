@@ -198,6 +198,40 @@ async def health():
     return {"status": "healthy"}
 
 
+@app.get("/version")
+async def version():
+    """Which build is running (deployment verification). Exposes only the commit id and the schema revision
+    the code expects - no hostnames, versions of dependencies or configuration."""
+    import os
+
+    from alembic.script import ScriptDirectory
+    from alembic.config import Config
+
+    sha = (
+        os.environ.get("RAILWAY_GIT_COMMIT_SHA")
+        or os.environ.get("GIT_COMMIT_SHA")
+        or os.environ.get("GITHUB_SHA")
+        or "unknown"
+    )
+    try:
+        cfg = Config(
+            os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                "alembic.ini",
+            )
+        )
+        cfg.set_main_option(
+            "script_location",
+            os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "alembic"
+            ),
+        )
+        head = ScriptDirectory.from_config(cfg).get_current_head()
+    except Exception:
+        head = "unknown"
+    return {"git_sha": sha[:40], "alembic_head": head}
+
+
 @app.get("/ready")
 async def ready():
     """Readiness: verifies database connectivity without writes or side effects."""
