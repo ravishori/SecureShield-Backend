@@ -52,6 +52,7 @@ from app.services.google_auth import (
     verify_google_id_token,
 )
 from app.services.otp_codes import generate_code, hash_code
+from app.services.log_scrubber import mask_email_for_log, mask_phone_for_log
 from app.services.otp_service import deliver_otp, _normalize_phone
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -79,6 +80,13 @@ def _mask_email(email: str) -> str:
 
 def _mask(identifier: str) -> str:
     return _mask_email(identifier) if "@" in identifier else _mask_phone(identifier)
+
+
+def _mask_for_log(identifier: str) -> str:
+    """Log-safe mask (never raises, reveals at most the last two phone digits / first e-mail character)."""
+    if "@" in str(identifier):
+        return mask_email_for_log(identifier)
+    return mask_phone_for_log(identifier)
 
 
 # ---------------------------------------------------------------------------
@@ -303,14 +311,14 @@ async def register_user(
         email_result = await deliver_otp(email_lower, code)
         if not email_result.success:
             logger.warning(
-                f"OTP email delivery failed for {_mask_email(email_lower)}: {email_result.error}"
+                f"OTP email delivery failed for {mask_email_for_log(email_lower)}: {email_result.error}"
             )
 
         if normalized_phone:
             phone_result = await deliver_otp(normalized_phone, code)
             if not phone_result.success:
                 logger.warning(
-                    f"OTP SMS delivery failed for {_mask_phone(normalized_phone)}: {phone_result.error}"
+                    f"OTP SMS delivery failed for {mask_phone_for_log(normalized_phone)}: {phone_result.error}"
                 )
 
         masked_email = _mask_email(email_lower)
@@ -405,11 +413,11 @@ async def send_otp(
         primary_result = await deliver_otp(identifier, code)
         if primary_result.success:
             logger.info(
-                f"OTP delivered via {primary_result.method} to {_mask(request.identifier)}"
+                f"OTP delivered via {primary_result.method} to {_mask_for_log(request.identifier)}"
             )
         else:
             logger.warning(
-                f"Primary OTP delivery failed to {_mask(request.identifier)}: {primary_result.error}"
+                f"Primary OTP delivery failed to {_mask_for_log(request.identifier)}: {primary_result.error}"
             )
 
         secondary_ok = False
@@ -418,22 +426,22 @@ async def send_otp(
             secondary_ok = secondary.success
             if secondary.success:
                 logger.info(
-                    f"OTP also delivered via SMS to secondary channel {_mask_phone(other_phone)}"
+                    f"OTP also delivered via SMS to secondary channel {mask_phone_for_log(other_phone)}"
                 )
             else:
                 logger.warning(
-                    f"Secondary SMS delivery failed for {_mask_phone(other_phone)}: {secondary.error}"
+                    f"Secondary SMS delivery failed for {mask_phone_for_log(other_phone)}: {secondary.error}"
                 )
         elif other_email:
             secondary = await deliver_otp(other_email, code)
             secondary_ok = secondary.success
             if secondary.success:
                 logger.info(
-                    f"OTP also delivered via email to secondary channel {_mask_email(other_email)}"
+                    f"OTP also delivered via email to secondary channel {mask_email_for_log(other_email)}"
                 )
             else:
                 logger.warning(
-                    f"Secondary email delivery failed for {_mask_email(other_email)}: {secondary.error}"
+                    f"Secondary email delivery failed for {mask_email_for_log(other_email)}: {secondary.error}"
                 )
 
         if not primary_result.success and not secondary_ok:

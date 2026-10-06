@@ -16,20 +16,17 @@ import httpx
 
 from app.config import load_settings
 from app.services import otp_service as otp
-from app.services.log_scrubber import mask_email_for_log, mask_phone_for_log
+from app.services.log_scrubber import (
+    mask_email_for_log,
+    mask_phone_for_log,
+    safe_error_text,
+)
 from app.services.logger_service import get_logger
 
 logger = get_logger(__name__)
 
 
-def _safe_error(exc: BaseException) -> str:
-    """Error text that is safe to log. Library messages are free text and routinely echo the recipient
-    (Twilio: "The 'To' number +91... is not a valid phone number"; SMTP: the rejected address), so only the
-    exception class and, for Twilio, its numeric code are kept."""
-    code = getattr(exc, "code", None)
-    if type(exc).__name__ == "TwilioRestException" and isinstance(code, int):
-        return f"TwilioRestException code {code}"
-    return type(exc).__name__
+_safe_error = safe_error_text  # single shared implementation (log_scrubber)
 
 
 def _send_sms_sync(phone: str, body: str) -> bool:

@@ -23,6 +23,11 @@ from email.mime.text import MIMEText
 import httpx
 
 from app.config import load_settings
+from app.services.log_scrubber import (
+    mask_email_for_log,
+    mask_phone_for_log,
+    safe_error_text,
+)
 from app.services.logger_service import get_logger
 
 logger = get_logger(__name__)
@@ -84,29 +89,15 @@ class DeliveryResult:
 
 
 # ---------------------------------------------------------------------------
-# Masking helpers (keep PII out of logs)
-# ---------------------------------------------------------------------------
-def _mask_phone(phone: str) -> str:
-    if len(phone) <= 4:
-        return phone
-    return phone[:3] + "*" * (len(phone) - 6) + phone[-3:]
-
-
-def _mask_email(email: str) -> str:
-    local, domain = email.split("@", 1)
-    if len(local) <= 2:
-        return f"{local[0]}*@{domain}"
-    return f"{local[0]}{'*' * (len(local) - 2)}{local[-1]}@{domain}"
-
-
-# ---------------------------------------------------------------------------
 # Twilio error mapping (keep raw Twilio HTML/ANSI out of logs)
 # ---------------------------------------------------------------------------
 def _twilio_error_message(exc: Exception) -> str:
+    """Operator-facing reason for a Twilio failure. Only static hints / the numeric code are returned: Twilio's
+    own message text echoes the destination number (and sometimes the body), so it is never passed on."""
     try:
         from twilio.base.exceptions import TwilioRestException  # type: ignore
     except ImportError:
-        return str(exc).strip()
+        return safe_error_text(exc)
 
     if isinstance(exc, TwilioRestException):
         hints = {
@@ -122,9 +113,11 @@ def _twilio_error_message(exc: Exception) -> str:
             63007: "WhatsApp sender is not configured on this Twilio account",
             63015: "recipient has not joined the Twilio WhatsApp sandbox",
         }
-        hint = hints.get(exc.code, (exc.msg or str(exc)).strip())
-        return f"Twilio error {exc.code}: {hint}"
-    return str(exc).strip()
+        hint = hints.get(exc.code)
+        return (
+            f"Twilio error {exc.code}: {hint}" if hint else f"Twilio error {exc.code}"
+        )
+    return safe_error_text(exc)
 
 
 # ---------------------------------------------------------------------------
@@ -152,7 +145,9 @@ def _send_sms(phone: str, code: str) -> DeliveryResult:
             from_=from_number,
             to=e164_phone,
         )
-        logger.info(f"Twilio SMS sent to {_mask_phone(e164_phone)} | SID: {msg.sid}")
+        logger.info(
+            f"Twilio SMS sent to {mask_phone_for_log(e164_phone)} | SID: {msg.sid}"
+        )
         return DeliveryResult(success=True, method="sms")
     except ImportError:
         err = "twilio package not installed — pip install twilio"
@@ -160,7 +155,7 @@ def _send_sms(phone: str, code: str) -> DeliveryResult:
         return DeliveryResult(success=False, method="sms", error=err)
     except Exception as exc:
         err = _twilio_error_message(exc)
-        logger.error(f"Twilio SMS failed to {_mask_phone(phone)}: {err}")
+        logger.error(f"Twilio SMS failed to {mask_phone_for_log(phone)}: {err}")
         return DeliveryResult(success=False, method="sms", error=err)
 
 
@@ -195,7 +190,9 @@ def _send_whatsapp(phone: str, code: str) -> DeliveryResult:
             from_=from_number,
             to=f"whatsapp:{e164_phone}",
         )
-        logger.info(f"WhatsApp OTP sent to {_mask_phone(e164_phone)} | SID: {msg.sid}")
+        logger.info(
+            f"WhatsApp OTP sent to {mask_phone_for_log(e164_phone)} | SID: {msg.sid}"
+        )
         return DeliveryResult(success=True, method="whatsapp")
     except ImportError:
         err = "twilio package not installed"
@@ -203,7 +200,7 @@ def _send_whatsapp(phone: str, code: str) -> DeliveryResult:
         return DeliveryResult(success=False, method="whatsapp", error=err)
     except Exception as exc:
         err = _twilio_error_message(exc)
-        logger.error(f"WhatsApp OTP failed to {_mask_phone(phone)}: {err}")
+        logger.error(f"WhatsApp OTP failed to {mask_phone_for_log(phone)}: {err}")
         return DeliveryResult(success=False, method="whatsapp", error=err)
 
 
@@ -305,12 +302,12 @@ def _send_email(email: str, code: str) -> DeliveryResult:
             srv.login(settings.SMTP_USER, settings.SMTP_PASSWORD.strip())
             srv.sendmail(settings.SMTP_USER, email, msg.as_string())
 
-        logger.info(f"OTP email sent to {_mask_email(email)}")
+        logger.info(f"OTP email sent to {mask_email_for_log(email)}")
         return DeliveryResult(success=True, method="email")
 
     except Exception as exc:
-        err = str(exc)
-        logger.error(f"SMTP email failed to {_mask_email(email)}: {err}")
+        err = safe_error_text(exc)
+        logger.error(f"SMTP email failed to {mask_email_for_log(email)}: {err}")
         return DeliveryResult(success=False, method="email", error=err)
 
 
@@ -348,13 +345,13 @@ async def _send_email_resend(email: str, code: str) -> DeliveryResult:
                 headers={"Authorization": f"Bearer {api_key}"},
             )
         if resp.status_code // 100 == 2:
-            logger.info(f"OTP email (resend) sent to {_mask_email(email)}")
+            logger.info(f"OTP email (resend) sent to {mask_email_for_log(email)}")
             return DeliveryResult(success=True, method="email")
         # The status code is enough for operators; the body may echo the recipient or the code.
         err = f"Resend HTTP {resp.status_code}"
     except Exception as exc:
         err = f"Resend request failed ({type(exc).__name__})"
-    logger.error(f"Resend email failed to {_mask_email(email)}: {err}")
+    logger.error(f"Resend email failed to {mask_email_for_log(email)}: {err}")
     return DeliveryResult(success=False, method="email", error=err)
 
 
@@ -398,7 +395,7 @@ async def deliver_otp(identifier: str, code: str) -> DeliveryResult:
             return result
 
         # SMS failed — try WhatsApp
-        logger.info(f"SMS failed, trying WhatsApp for {_mask_phone(identifier)}")
+        logger.info(f"SMS failed, trying WhatsApp for {mask_phone_for_log(identifier)}")
         result = await asyncio.to_thread(_send_whatsapp, identifier, code)
         if result.success:
             return result
@@ -416,7 +413,11 @@ def _log_delivery_failure(
     logs or the error_logs table. Logs are retained, shipped and e-mailed, so a
     logged code would be a working credential for the account.
     """
-    masked = _mask_email(identifier) if "@" in identifier else _mask_phone(identifier)
+    masked = (
+        mask_email_for_log(identifier)
+        if "@" in identifier
+        else mask_phone_for_log(identifier)
+    )
     logger.error(
         f"OTP delivery failed for {masked} (tried: {attempted_method}): {error or 'unknown error'}"
     )

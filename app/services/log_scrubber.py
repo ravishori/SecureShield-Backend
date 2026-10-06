@@ -77,6 +77,21 @@ def mask_email_for_log(email: object) -> str:
         return "[email]"
 
 
+def safe_error_text(exc: BaseException) -> str:
+    """Error text that is safe to log or return as an operator-facing failure reason.
+
+    Library exception messages are free text and routinely echo the recipient (Twilio: "The 'To' number +91...
+    is not valid"; SMTP: the rejected address / server reply, which can contain the subject line) so only the
+    exception class and, for Twilio, its numeric code are kept."""
+    try:
+        code = getattr(exc, "code", None)
+        if type(exc).__name__ == "TwilioRestException" and isinstance(code, int):
+            return f"TwilioRestException code {code}"
+        return type(exc).__name__
+    except Exception:
+        return "Exception"
+
+
 def scrub_text(value: str | None, limit: int = MAX_MESSAGE) -> str | None:
     """Return ``value`` with credentials/PII redacted and length bounded. Never raises."""
     if value is None:
