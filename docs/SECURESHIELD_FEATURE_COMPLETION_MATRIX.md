@@ -1,122 +1,107 @@
 # SecureShield - Feature Completion Matrix
 
 Built from `Features of the app.txt` (23 features + infrastructure table) and the repository state on
-**2026-10-06** (backend branch `staging/railway-snapshot`, local commits only - **nothing pushed, nothing
-deployed**; Flutter repo `main`, local commits only). Companion register: `SECURESHIELD_FEATURE_GAPS_AND_ERRORS.md`.
+**2026-10-06** (backend branch `staging/railway-snapshot`, Flutter repo `main`; **local commits only - nothing pushed,
+nothing deployed**). Companion documents: `SECURESHIELD_FEATURE_GAPS_AND_ERRORS.md` (register),
+`MIGRATION_SAFETY_REVIEW.md`, `STAGING_DEPLOYMENT_PLAN.md`, `BACKUP_AND_RECOVERY.md`, `ANDROID_RELEASE_AND_PLAY.md`.
 
-**Overall status: AMBER. This is not a 100% completion claim.**
+**Overall status: AMBER. This is not a 100% completion claim and no feature is marked GREEN.**
 
-## How to read the evidence columns
-
-Six independent questions are answered per feature. "yes" means evidence exists in the repo; nothing is assumed.
+## The eight evidence levels (answered separately for every feature)
 
 | Column | Meaning |
 |---|---|
-| **IMPLEMENTED** | Code exists |
-| **INTEGRATED** | The Flutter client actually calls the backend endpoint / the module is wired into the app (so it is reachable by a user) |
-| **TESTED** | Automated tests exist: *unit* (pure logic), *backend-int* (real FastAPI app + real PostgreSQL, third-party providers simulated), *flutter* (widget/unit tests) |
-| **E2E** | Exercised through the app on a device/emulator against a running backend |
-| **EXTERNAL** | Verified against the real third-party service or the real Railway environment |
-| **BLOCKED** | Missing credential/account/decision that code cannot supply |
+| **IMPL** | Code exists |
+| **INTEGR** | The Flutter client actually calls the backend / the module is reachable from the app |
+| **UNIT** | Automated pure-logic tests (backend `tests/unit`, Flutter `test/`) |
+| **INTEG-T** | Integration tests: real FastAPI app + real PostgreSQL, third-party providers simulated |
+| **DEVICE** | Driven by hand on the Android emulator through the real UI, against the real app code and a real (local) backend. Provider delivery goes to a local outbox (`scripts/e2e_local_server.py`) |
+| **EXTERNAL** | Verified against the real third-party service (Resend, Twilio, Google, GSB, URLhaus, Anthropic) |
+| **DEPLOY** | Verified on a deployed environment (Railway) at a known SHA |
+| **BLOCKER** | What stops the next level |
 
-**No feature is GREEN in this matrix.** Backend code plus backend tests is not enough: E2E and EXTERNAL are "no" for
-everything except one release-APK smoke launch. This run had no external credentials, and Railway was off-limits
-(its only environment is named `production`). Status vocabulary: AMBER = implemented, evidence incomplete;
-BLOCKED = cannot progress without an external input; RED = not implemented.
+`yes` = evidence exists in the repo or in the recorded run; `no` = not done; `partial` = said precisely. **EXTERNAL and DEPLOY are `no` for
+every row**: no provider credentials were available and Railway was off limits (its only environment is named `production`).
 
-## Verification totals (2026-10-06, end of stabilization pass 1)
+## Verification totals (2026-10-06)
 
 | Check | Result |
 |---|---|
-| Backend `pytest` (real PostgreSQL, Alembic-migrated) | **581 passed, 0 failed** |
-| `ruff check app tests scripts` (repo-pinned 0.9.4) | All checks passed |
-| `ruff format --check` (0.9.4) | 161 files already formatted |
-| `pip check` | No broken requirements |
-| Alembic | single head `s4t5u6v7w8x9`, linear chain; all seven new migrations rehearsed on seeded data, upgrade + downgrade + re-upgrade (`MIGRATION_SAFETY_REVIEW.md`) |
-| **Real gitleaks 8.21.2** (official binary) | backend HEAD tree: **no leaks**; the 36 commits made in this work: **no leaks**; backend full history: 14 findings, all in two old commits (`6465d52`, `8fcb5af`) - the known historical secrets, rotation DEFERRED. Flutter tree + history: no leaks |
-| GitHub CI | **not run** (no push). Note: the real CI is `backend/.github/workflows/backend-ci.yml` (gitleaks `detect --no-git`, ruff `--select E9,F63,F7,F82`, `alembic upgrade head`, pytest) |
-| `flutter analyze` | No issues found |
-| `flutter test` | 35 passed |
-| `flutter build apk --release` | built, **107.8 MB**, no workaround flags |
-| `flutter build appbundle --release` | built, **70.9 MB**, no workaround flags |
-| Signing | **debug key** (no `key.properties`) - not uploadable to Play |
+| Backend `pytest` (real PostgreSQL, Alembic-migrated) | see the final report for the exact last full-suite total (591 passed in the run before the final `/version` test was added; that test passes 9/9 in its file) |
+| `ruff check` / `ruff format --check` (repo-pinned 0.9.4; `app tests scripts`) | clean / 162 files formatted |
+| `pip check`, Alembic | clean; single linear head `s4t5u6v7w8x9` |
+| Real gitleaks 8.21.2 | backend HEAD tree clean; Flutter tree + history clean; backend history = 14 known historical findings in 2 old commits (rotation DEFERRED) |
+| GitHub CI | **not run** (no push). Real CI file: `backend/.github/workflows/backend-ci.yml` |
+| `flutter analyze` / `flutter test` | no issues / **43 passed** |
+| `flutter build apk --release` / `appbundle --release` | built, 108.2 MB / 71.1 MB, no workaround flags; release APK installs and launches on the emulator with no crash. **Signed with the debug key** (no `key.properties`) |
+| Migrations | 7 new, all rehearsed on seeded data (upgrade, downgrade, re-upgrade) |
+| Localization coverage (heuristic, `flutter_app/tool/l10n_coverage.py`) | **310 localized / 400 hard-coded UI strings = 43.7%**; 307 ARB keys x 6 languages; translations are machine-authored and **not reviewed by native speakers** |
 
 ## The 23 features
 
-| # | Feature | IMPLEMENTED | INTEGRATED | TESTED | E2E | EXTERNAL | BLOCKED / remaining gap | Status |
-|---|---|---|---|---|---|---|---|---|
-| 1 | Authentication & onboarding | yes (OTP, register, refresh rotation, Google ID-token verify) | yes (OTP, register, refresh); **Google: client code written** (ID token -> `/auth/google`), disabled until `GOOGLE_WEB_CLIENT_ID` is supplied, so never run | unit + backend-int (OTP flow, hashing, rotation, Google with signed tokens) | **local E2E**: phone login with OTP (hashed at rest) on the emulator against the local backend succeeded; rotation/refresh not driven; release APK reaches welcome screen | no | **Live OTP delivery**: Resend needs API key + verified domain; Twilio fails 20003. **Google**: needs OAuth client IDs + plugin. Pre-rotation refresh tokens force one re-login | AMBER / BLOCKED (delivery, Google) |
-| 2 | Security dashboard | yes | yes (home screen loads `/reports/daily` and shows the server `security_score`) | backend-int (reports); no Flutter test | **local E2E**: after login the emulator showed score 100 from the real local backend | no | threat-count states not driven | AMBER |
-| 3 | Alerts | yes | yes (`AlertsApi`) | backend-int | no | no | device E2E | AMBER |
-| 4 | Settings & profile (theme, senior mode, language) | yes | yes | flutter (6-language key parity + render) + backend-int | no | no | Localization wired for ~112 strings (onboarding, auth, navigation, drawer, family, alerts/panic, profile, settings); ~398 literals in other screens still English-only; machine-authored translations | AMBER |
-| 5 | App risk scanner | yes | yes | flutter (risk engine) + backend-int (isolation, bounds) | no | no | device E2E | AMBER |
-| 6 | Link/URL scanner | yes | yes | unit + backend-int (providers simulated) | no | **no** (real GSB/URLhaus never called) | live `GSB_API_KEY` / `URLHAUS_AUTH_KEY` on the target env | AMBER |
-| 7 | Wi-Fi scanner | yes | yes | backend-int | no | no | device E2E | AMBER |
-| 8 | Scam-call detection, recordings, emergency share | yes | yes (report/history/upload/share-link) | backend-int (privacy, lifecycle, share revoke/expiry, encryption) | no | no | client call-log + upload flows unverified on device; Play policy on call-log/recording permissions | AMBER |
-| 9 | OTP vault | yes (device-local) | n/a (no backend model/router; `otp_vault_entries` table orphaned) | none | no | no | untested; SMS permissions are a Play-policy risk | AMBER |
-| 10 | Bank OTP fraud detection | yes | yes (device) | flutter (classifier) | no | no | device E2E | AMBER |
-| 11 | Device security scan | yes | yes | partial | partial (emulator flagged as expected) | no | root/Frida checks need a rooted device | AMBER |
-| 12 | Remote-access detector | yes | yes | none | no | no | device-only, untested | AMBER |
-| 13 | Screen-recorder detector | yes | yes | none | no | no | device-only, untested | AMBER |
-| 14 | VPN monitor | yes | yes | none | no | no | device-only; `BIND_VPN_SERVICE` Play declaration | AMBER |
-| 15 | Package monitor | yes | yes (`/app-monitor/sync`) | backend-int (idempotent sync, alert fix) | no | no | device E2E | AMBER |
-| 16 | Network activity monitor | yes | yes (VPN-monitor destination events are batched to `POST /network/activity` by `NetworkActivityReporter`; only runs while the user has started the VPN monitor) | backend-int + flutter (6 reporter tests) | no | no | device E2E (needs the VPN monitor running on a device); privacy policy must mention destination upload | AMBER |
-| 17 | Evidence locker | yes | yes (upload; download via `download_url` untested in client) | unit (format tamper/truncation) + backend-int | no | no | encryption disabled until a key is set; **key lifecycle implemented** (keyring + active key id, `SSENC2` format, `scripts/rotate_file_keys.py` with dry-run, verify-before-replace, 6 unit tests) but never run against real data; key custody/backup is the owner's | AMBER |
-| 18 | AI security coach | yes | yes | backend-int (fake Anthropic client) | no | **no** (real model never called) | real `ANTHROPIC_API_KEY` | AMBER |
-| 19 | Complaint e-mail generator | yes | yes (`/ai/generate-complaint-email`) | partial | no | no | as #18 | AMBER |
-| 20 | Family safety dashboard | yes (consent flow, dashboard) | yes (Invites tab, consent badges) | backend-int (10 tests) | **local E2E done 2026-10-06**: invitee logged in with OTP on the emulator, saw the invitation, tapped Accept -> backend `consent_status=accepted`; the inviter's `/family/dashboard` then showed the invitee's panic alert (unread 1, critical 1). Local harness, real app + real local PostgreSQL | no | adding a member / Kids tab / decline path not driven on a device; panic is not pushed to family members (they see it on their dashboard) | AMBER |
-| 21 | Panic button | yes (contacts SMS/e-mail) | yes (`/alerts/panic`; dialog text corrected to match behaviour) | backend-int (providers mocked) | **local E2E done 2026-10-06**: SOS tapped in the app on the emulator -> alert stored, SMS + e-mail to the user's emergency contact captured by the local harness outbox (not sent anywhere) | **no** (no real SMS/e-mail ever sent) | working Twilio/Resend; BRD says family contacts - only emergency contacts are messaged | AMBER |
-| 22 | Security reports | yes (daily/weekly/e-mail) | yes (daily, history, weekly); e-mail endpoint **not called by client** | backend-int (13 tests) | no | no | e-mail needs a provider; no scheduler | AMBER |
-| 23 | Consent manager | yes | yes | none | no | no | device-only, untested | AMBER |
+| # | Feature | IMPL | INTEGR | UNIT | INTEG-T | DEVICE | EXTERNAL | DEPLOY | BLOCKER / remaining gap | Status |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | Authentication & onboarding | yes | OTP, register, refresh: yes. **Google: client code written, disabled without `GOOGLE_WEB_CLIENT_ID`** | yes | yes (OTP flow, HMAC at rest, rotation, Google with locally signed tokens) | partial: phone login with OTP verified; rotation/refresh and Google not driven | no | no | Live OTP delivery needs a Resend key + verified domain (Twilio fails 20003); Google needs OAuth client IDs | AMBER / BLOCKED |
+| 2 | Security dashboard | yes | yes (`/reports/daily` score) | no | yes | yes (score 100 shown after login) | no | no | threat-heavy states not driven | AMBER |
+| 3 | Alerts | yes | yes | no | yes | yes (panic alert listed with severity) | no | no | dismiss/delete not driven | AMBER |
+| 4 | Settings, profile, language, senior mode | yes | yes | yes (key/placeholder parity, Hindi rendering) | yes | partial: Hindi switch verified on screen; senior-mode toggle and profile edit not driven | no | no | 43.7% of UI strings localized; native review pending | AMBER |
+| 5 | App risk scanner | yes | yes | yes (Flutter risk engine) | yes (tenant isolation, bounds) | no | no | no | not driven on device this session | AMBER |
+| 6 | Link/URL scanner | yes | yes | yes | yes (GSB + URLhaus simulated) | no | no | no | live keys; not driven | AMBER |
+| 7 | Wi-Fi scanner | yes | yes | no | yes | no | no | no | not driven (needs location services) | AMBER |
+| 8 | Scam calls, recordings, emergency share | yes | **scam-call client screen added this session** (was never wired); recording upload/share: yes | no (backend) | yes (scoring, privacy, share revoke/expiry, encryption) | **yes**: mic recording 23 s -> upload -> 24 h share link -> public download returned the exact 398,950 bytes; scam report scored 90 -> blocked -> alert; block button | no | no | No automatic call detection (call-log permission is Play-restricted); server-side encryption off until a key is set | AMBER |
+| 9 | OTP vault | **yes - new screen written this session (it did not exist)** | yes (fed by the bank-OTP monitor) | yes (store + screen, 9 tests) | n/a (device-local by design) | **yes**: system PIN prompt, 2 captured bank OTPs listed masked | no | no | records only while the Bank OTP Monitor screen's stream is alive; local only (no backup/sync) | AMBER |
+| 10 | Bank OTP fraud detection | yes | yes | no (Kotlin regex untested by unit tests) | n/a | **yes**: listener enabled, 2 notifications detected, non-OTP ignored, shown in history. Found and fixed: "OTP is 482916" phrasing was missed | no | no | detection only sees notifications; SMS-based path not driven | AMBER |
+| 11 | Device security scan | yes | yes | no | n/a | **yes**: 258 apps scanned, verdict shown | no | no | root/Frida checks need a rooted device | AMBER |
+| 12 | Remote-access detector | yes | yes | no | n/a | **yes**: flagged ADB enabled (true on the emulator) | no | no | no remote-control app installed to test positive app detection | AMBER |
+| 13 | Screen-recorder **detector** | **partial**: the menu entry opens a screen *recorder*; detecting *other* apps recording is not implemented | yes | no | n/a | partial: screen opens; RECORD (MediaProjection) not driven | no | no | true detection API exists only on Android 15+; not built | **RED** (detector) / AMBER (recorder) |
+| 14 | VPN monitor | yes | yes | no | n/a | **yes**: started, system VPN dialog, flagged range attempts blocked and listed, normal traffic unaffected. **Found: the old design routed ALL traffic into the tunnel and dropped it (no internet while on); rewritten to blocklist mode** | no | no | domain-based detection no longer possible (documented in the UI); `BIND_VPN_SERVICE` Play declaration | AMBER |
+| 15 | Package monitor | yes | yes | no | yes (idempotent sync, alert fix) | no | no | no | not driven | AMBER |
+| 16 | Network activity monitor | yes | **yes - added this session** (VPN events batched to `/network/activity`) | yes (6 reporter tests) | yes | **yes**: blocked attempts reached the backend, the flagged one stored as suspicious | no | no | only runs while the VPN monitor is on | AMBER |
+| 17 | Evidence locker | yes | yes | yes (format, rotation, failure injection: 14 tests) | yes (upload/download/delete, caps, path safety, encryption) | no | no | no | not driven through the UI; encryption disabled until `FILE_ENCRYPTION_KEY` is set | AMBER |
+| 18 | AI security coach | yes | yes | no | yes (fake client: IDOR, timeouts, rate limit, leakage) | no | **no** | no | real `ANTHROPIC_API_KEY` | AMBER |
+| 19 | Complaint e-mail generator | yes | yes | no | partial | no | **no** | no | as #18 | AMBER |
+| 20 | Family safety dashboard | yes | yes | yes (localization tests) | yes (consent, dashboard) | **yes**: invitation received, **Accept** -> backend `accepted`, inviter dashboard showed the invitee's alert; **Decline** -> `declined` | no | no | adding a member through the dialog and the Kids tab not driven; panic is not pushed to family members | AMBER |
+| 21 | Panic button | yes | yes | no | yes (providers mocked) | **yes**: SOS in the app -> alert stored -> SMS + e-mail for the emergency contact captured by the outbox | **no** (nothing real sent) | no | working Twilio/Resend | AMBER |
+| 22 | Security reports | yes | daily/history/weekly: yes; **e-mail endpoint not called by the client** | no | yes | partial: dashboard shows the report | no | no | e-mail needs a provider; no scheduler | AMBER |
+| 23 | Consent manager | yes | yes | no | n/a | **yes**: Grant SMS -> system dialog -> counter 1/8 | no | no | other permissions not driven | AMBER |
 
-Also implemented and integration-tested this run (not numbered in the BRD): community scam news feed with
-corroboration threshold, admin stats/users/enable-disable, elderly (senior) guardian alerts with real delivery
-code, AI-limit sharing, message analyzer (pattern + AI, screenshot upload safety), clone detection, FIR drafts
-persisted as files.
+## Bugs found by the device/browser runs this session (all fixed and re-verified)
+
+| Where | Defect | Fix |
+|---|---|---|
+| VPN monitor | routed 0.0.0.0/0 into the tunnel and never forwarded: the phone had no internet while monitoring | blocklist mode (only known-bad ranges routed); UI text corrected |
+| Bank OTP | "Your OTP is 482916" (the usual phrasing) matched no pattern; notification text read with `getString` (null for spanned text) | regexes + `getCharSequence` |
+| Biometric / PIN (OTP vault, biometric login) | `local_auth` needs a `FlutterFragmentActivity` + AppCompat theme; it silently returned false | `MainActivity` base class, themes, appcompat dependency |
+| Recordings | share link shown as a relative path (not shareable) | client prepends the server origin |
+| Scam calls | endpoints never called by the client; a reported call about OTP/gift cards scored 0 | new screen; server floor 50 + script keywords |
+| Network monitor | server flagged fewer ranges than the device blocks | server list aligned |
+| Admin console (real Chrome) | none found; 24/24 checks passed | - |
 
 ## Infrastructure / cross-cutting
 
-| Item | Status | Evidence | Blocker / remaining gap |
-|---|---|---|---|
-| Real OTP delivery (Resend + Twilio + SMTP) | BLOCKED | adapter + 14 mocked tests | provider key/domain, valid Twilio creds |
-| OTP hardening (CSPRNG, HMAC at rest) | AMBER (backend-int only) | integration + unit | - |
-| Refresh-token rotation + replay revocation | AMBER (backend-int; client path not run on a device) | 7 new rotation tests incl. a concurrent-exchange race plus the 17 token-type tests; client stores rotated token, shares one in-flight refresh | client path not run on a device |
-| Google Sign-In | BLOCKED (client) / AMBER (backend verification, backend-int) | 12 tests with locally signed tokens | OAuth client IDs |
-| Biometric / device verification | AMBER | `local_auth` present; new-device alert code exists | not tested |
-| Threat intel (GSB / URLhaus) | AMBER | simulated providers | live keys |
-| Evidence encryption at rest | AMBER | see #17 | key + rotation |
-| Admin / RBAC | AMBER | static `ADMIN_TOKEN` endpoints (stats, users, enable/disable, **append-only audit log**, migration `s4t5u6v7w8x9`) + same-origin operator console at `/api/v1/admin/console` (no secrets, strict CSP, `textContent` only; JS syntax-checked, **not run in a browser**) + warrior RBAC; all backend-int tested | no per-person admin identity (one shared token; audit records action/target/IP only); console not exercised in a browser; no real admin created (by instruction) |
-| Localization | AMBER | 171 ARB keys in 6 languages; ~112 uses in code; **~398 plain `Text('...')` literals remain in screens**; translations are machine-authored and need native-speaker review | remaining screens + review |
-| Uvicorn access-log redaction | AMBER (unit tests; not observed on a real server) | unit tests | - |
-| DB backups / recovery | AMBER | scripts + runbook verified locally, tamper detection | no schedule, no off-site storage, evidence volume backup is an owner/Railway action |
-| Schema drift guard | AMBER (backend-int) | tests compare ORM enums/tables/columns to the migrated DB | - |
-| Lint / format / CI parity | AMBER (local only) | ruff 0.9.4 clean | GitHub CI **not run** (no push) |
-| Railway migration + healthcheck | AMBER | config-as-code `.railway/railway.ts` (preDeploy `alembic upgrade head`, `/health`) verified in an earlier gate | **Six new migrations have never run on Railway.** Deploy intentionally not done; the Railway project's only environment is named `production` |
-| Railway Git SHA consistency / CI-gated deploy | BLOCKED | - | no push authorised; stale check suites from other apps block `checkSuites` |
-| Flutter startup / network reliability | AMBER | `API_BASE_URL` pinning, bounded optional init, release smoke on emulator | LAN-probe path (dev builds) unchanged; no E2E |
-| Android release signing | **AMBER** | `build.gradle.kts` reads `key.properties` | **The produced AAB/APK are signed with the DEBUG key** - no upload keystore exists; cannot be uploaded to Play |
-| R8 / resource shrinking | AMBER (build + launch only) | release APK/AAB build with R8; ML Kit missing-class rules added; APK launches on emulator | only a launch smoke test; feature regression under R8 not tested |
-| `const_finder.dart.snapshot` / icon tree-shaking | RESOLVED | `flutter precache --force`; builds pass without the workaround | - |
-| Play Store readiness | AMBER | `ANDROID_RELEASE_AND_PLAY.md`; unused `SEND_SMS` / `REQUEST_INSTALL_PACKAGES` removed | restricted permissions (SMS, call log), `QUERY_ALL_PACKAGES`, FGS types, data-safety form, privacy policy - owner decisions |
-
-## Android build result and the `const_finder` issue (RESOLVED)
-
-* Cause: the Flutter SDK cache was missing the `windows-x64/font-subset` engine artifact
-  (`const_finder.dart.snapshot`, `font-subset.exe`); icon tree-shaking therefore failed. Defender had no detection.
-* Fix: `flutter precache --force` (authorised download of SDK artifacts). No application code was changed for this.
-* Result: `flutter build apk --release` and `flutter build appbundle --release` both succeed **without**
-  `--no-tree-shake-icons` (APK 107.5 MB, AAB 70.4 MB; the earlier workaround builds were 108.1 / 71.0 MB).
-* The artifacts are still signed with the debug key, so release signing remains AMBER.
+| Item | IMPL | UNIT | INTEG-T | DEVICE/BROWSER | EXTERNAL | DEPLOY | BLOCKER / note | Status |
+|---|---|---|---|---|---|---|---|---|
+| Real OTP delivery (Resend + Twilio + SMTP) | yes | yes (mock transport) | yes | local outbox only | no | no | provider key/domain, valid Twilio creds | BLOCKED |
+| OTP hardening (CSPRNG, HMAC at rest) | yes | yes | yes | login verified | n/a | no | - | AMBER |
+| Refresh-token rotation + replay revocation | yes | no | yes (7 + 17 tests incl. race) | client path not driven | n/a | no | pre-rotation tokens force one re-login | AMBER |
+| Google Sign-In | client + backend | no | backend yes | no | no | no | OAuth client IDs | BLOCKED |
+| Admin API, audit log, console | yes | no | yes | **real Chrome: 24/24** (`scripts/admin_console_browser_e2e.mjs`): wrong token, stats, search, disable/enable with confirmation, audit, CSP, cross-origin fetch blocked, not framable, HTML in a name rendered as text, offline failure, token not stored | n/a | no | single shared admin token (no per-person identity); no real admin was created | AMBER |
+| Evidence encryption at rest + key lifecycle | yes | yes: round-trip at record boundaries, tamper, truncation, reorder, wrong key | yes | no | n/a | no | **14 rotation tests incl. crash mid-write, final-record crash, verification failure, replace failure, wrong old key, re-run after interruption, stale temp files; mutation-checked**. Disabled until the owner sets a key; custody/backup of the key is the owner's | AMBER |
+| Backups | yes | yes | n/a | local backup -> checksum -> restore into scratch DB -> counts match; tamper rejected; openssl encrypt/decrypt round-trip; wrong passphrase rejected | n/a | no | scheduled workflow written, **disabled**, YAML-validated only; no off-site storage | AMBER |
+| Migration safety | n/a | n/a | schema-drift tests | 7 revisions rehearsed on seeded data | n/a | no | `premigration_report.py` (read-only) + checklist in `MIGRATION_SAFETY_REVIEW.md` | AMBER |
+| Deployment verification (SHA, health) | `/version`, `/health`, `/ready` | n/a | yes | n/a | n/a | **no** | plan in `STAGING_DEPLOYMENT_PLAN.md`; push not authorised | BLOCKED |
+| Lint / format / CI parity | n/a | n/a | n/a | n/a | n/a | no | local only | AMBER |
+| Android release build | yes | n/a | n/a | release APK launches | n/a | n/a | **debug-key signing** (no keystore); R8 only smoke-tested | AMBER |
+| Play Store readiness | doc | n/a | n/a | n/a | n/a | n/a | restricted permissions (SMS, call log), `QUERY_ALL_PACKAGES`, FGS types, data-safety form, privacy policy: owner decisions | AMBER |
+| Localization | 307 keys x 6 | key/placeholder parity + Hindi render tests | n/a | Hindi verified on the Settings screen | n/a | n/a | 43.7% coverage; native-speaker review is an external quality blocker | AMBER |
 
 ## Not done (explicitly)
 
-No push, no deployment, no Railway change, no credential created or rotated, no admin created, no real third-party
-provider call, no GitHub CI run, no device E2E of the new client screens.
+No push, deployment, Railway change, credential creation or rotation, permanent admin, real third-party call, GitHub CI run.
+The `font-subset` Flutter artifact was fetched with `flutter precache --force` (authorised); that is why release builds no longer need `--no-tree-shake-icons`.
 
-## Local E2E harness (2026-10-06)
+## Local E2E harness
 
-`scripts/e2e_local_server.py` runs the real FastAPI app on a disposable, migrated local PostgreSQL database and replaces
-only outbound delivery (OTP / SMS / e-mail go to a git-ignored `e2e_outbox.log`). A **debug** build of the app on the
-Android emulator found it through the LAN probe (`10.0.2.2:8000`). Driven by hand through the UI: phone login with OTP,
-dashboard, Family -> Invites -> Accept, Alerts -> SOS. This is E2E for the app and backend together; it is **not** an
-external verification (no real provider, no Railway). The scratch database was dropped afterwards.
+`scripts/e2e_local_server.py` runs the real FastAPI app on a disposable, migrated local PostgreSQL and replaces only outbound delivery (OTP / SMS /
+e-mail go to a git-ignored `e2e_outbox.log`); it ignores the developer's real `backend/.env` (settings give `.env` priority over process variables) and
+uses inert provider values. The debug app on the emulator finds it at `10.0.2.2:8000`. This is app+backend E2E, **not** external verification.

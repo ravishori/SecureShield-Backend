@@ -735,3 +735,19 @@ encryption at rest (code), backup/restore tooling, localization wiring (partial)
 | FG-152 | Google Sign-In client missing | client code written, disabled without a client ID; no E2E possible |
 | FG-153 | E2E harness read the developer's real `.env` (settings give `.env` priority over process variables) and made one Twilio auth check at startup in earlier runs | harness fixed to ignore `.env` and use inert values; no SMS/e-mail was sent in any run |
 | FG-154 | Local device E2E | login with OTP, dashboard score, Family Invites -> Accept, SOS fan-out verified on the emulator against the local backend (local harness; no real provider) |
+
+### 19.7 Pre-staging release gate pass (2026-10-06)
+
+| ID | Item | Status |
+|---|---|---|
+| FG-155 | VPN monitor black-holed all traffic (no forwarding) | RESOLVED: blocklist mode, device-verified |
+| FG-156 | Bank OTP detection missed "OTP is <code>"; text read via `getString` | RESOLVED, device-verified |
+| FG-157 | Biometric/PIN prompts never appeared (`local_auth` needs FragmentActivity + AppCompat) | RESOLVED, device-verified (also fixes biometric login) |
+| FG-158 | OTP Vault feature (BRD #9) had no screen | IMPLEMENTED (device-local, PIN/biometric gated), device-verified |
+| FG-159 | Scam-call endpoints never used by the client; user-reported scams scored 0 | RESOLVED (screen + scoring), device-verified |
+| FG-160 | Emergency recording share link was a relative path | RESOLVED |
+| FG-161 | Screen-recorder **detector** (BRD #13) not implemented (menu entry opens a recorder) | OPEN - RED |
+| FG-162 | `EncryptionService` (Flutter) uses a fixed IV and silently returns plaintext on failure | OPEN, MEDIUM (not used by the new vault, which relies on Keystore-backed secure storage) |
+| FG-163 | `/version` endpoint for SHA verification; staging plan | DONE (plan not executed) |
+| FG-164 | Localization coverage 43.7% (heuristic), translations unreviewed | OPEN, AMBER; external blocker = native-speaker review |
+
