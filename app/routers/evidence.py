@@ -18,6 +18,7 @@ from app.services.upload_safety import (
     parse_uuid_or_404,
     resolve_inside,
     save_upload,
+    EVIDENCE_POLICY,
 )
 
 router = APIRouter(prefix="/evidence", tags=["evidence"])
@@ -65,6 +66,7 @@ async def upload_evidence(
         UPLOAD_DIR,
         default_name="evidence",
         max_bytes=settings.MAX_EVIDENCE_MB * 1024 * 1024,
+        policy=EVIDENCE_POLICY,
     )
     evidence = Evidence(
         user_id=current_user.id,

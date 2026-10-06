@@ -18,6 +18,7 @@ from app.services.upload_safety import (
     parse_uuid_or_404,
     resolve_inside,
     save_upload,
+    RECORDING_POLICY,
 )
 
 router = APIRouter(prefix="/recordings", tags=["recordings"])
@@ -84,6 +85,7 @@ async def upload_recording(
         UPLOAD_DIR,
         default_name="recording.aac",
         max_bytes=settings.MAX_RECORDING_MB * 1024 * 1024,
+        policy=RECORDING_POLICY,
     )
     recording = Recording(
         user_id=current_user.id,

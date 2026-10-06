@@ -84,6 +84,13 @@ async def test_hostile_filenames_cannot_escape_the_upload_dir(
 ):
     h = auth_headers(await make_user("hf"))
     r = await up_ev(client, h, name=hostile)
+    if not hostile.rstrip().lower().endswith(".png") or hostile.strip() in ("", ".."):
+        # no allow-listed extension after sanitising: refused outright (stronger than storing it)
+        assert r.status_code == 415, r.text
+        assert files_in(_dirs, "evidence") == []
+        assert list(_dirs.glob("*.png")) == []
+        assert not (_dirs.parent / "passwd").exists()
+        return
     assert r.status_code == 200, r.text
     stored = files_in(_dirs, "evidence")
     assert len(stored) == 1 and stored[0].parent == _dirs / "evidence"
@@ -100,10 +107,10 @@ async def test_size_cap_returns_413_and_leaves_no_partial_file(
 
     monkeypatch.setattr(settings, "MAX_EVIDENCE_MB", 1)
     h = auth_headers(await make_user("big"))
-    r = await up_ev(client, h, data=b"x" * (1024 * 1024 + 10))
+    r = await up_ev(client, h, data=PNG + b"x" * (1024 * 1024 + 10))
     assert r.status_code == 413
     assert files_in(_dirs, "evidence") == []
-    assert (await up_ev(client, h, data=b"x" * 1000)).status_code == 200
+    assert (await up_ev(client, h, data=PNG + b"x" * 1000)).status_code == 200
 
 
 async def test_empty_upload_is_rejected(client, make_user, auth_headers, _dirs):
@@ -244,7 +251,9 @@ async def test_recording_hostile_names_size_cap_and_bounds(
     stored = files_in(_dirs, "recordings")
     assert len(stored) == 1 and stored[0].parent == _dirs / "recordings"
     monkeypatch.setattr(settings, "MAX_RECORDING_MB", 1)
-    assert (await up_rec(client, h, data=b"x" * (1024 * 1024 + 5))).status_code == 413
+    assert (
+        await up_rec(client, h, data=MP4 + b"x" * (1024 * 1024 + 5))
+    ).status_code == 413
     assert len(files_in(_dirs, "recordings")) == 1  # no partial file
     assert (await up_rec(client, h, duration_seconds="-5")).status_code == 422
     assert (await up_rec(client, h, duration_seconds="99999999")).status_code == 422

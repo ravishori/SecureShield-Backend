@@ -27,7 +27,7 @@ every row**: no provider credentials were available and Railway was off limits (
 
 | Check | Result |
 |---|---|
-| Backend `pytest` (real PostgreSQL, Alembic-migrated) | **592 passed** (full suite, real PostgreSQL, 0 skipped; verified after the EncryptionService/detector change). Flutter: `flutter analyze` clean, **69/69** tests pass |
+| Backend `pytest` (real PostgreSQL, Alembic-migrated) | **691 passed** (full suite, real PostgreSQL, 0 skipped; verified after the FG-071 upload-policy change; 592 before it). Flutter: `flutter analyze` clean, **69/69** tests pass |
 | `ruff check` / `ruff format --check` (repo-pinned 0.9.4; `app tests scripts`) | clean / 162 files formatted |
 | `pip check`, Alembic | clean; single linear head `s4t5u6v7w8x9` |
 | Real gitleaks 8.21.2 | backend HEAD tree clean; Flutter tree + history clean; backend history = 14 known historical findings in 2 old commits (rotation DEFERRED) |
@@ -57,7 +57,7 @@ every row**: no provider credentials were available and Railway was off limits (
 | 14 | VPN monitor | yes | yes | no | n/a | **yes**: started, system VPN dialog, flagged range attempts blocked and listed, normal traffic unaffected. **Found: the old design routed ALL traffic into the tunnel and dropped it (no internet while on); rewritten to blocklist mode** | no | no | domain-based detection no longer possible (documented in the UI); `BIND_VPN_SERVICE` Play declaration | AMBER |
 | 15 | Package monitor | yes | yes | no | yes (idempotent sync, alert fix) | no | no | no | not driven | AMBER |
 | 16 | Network activity monitor | yes | **yes - added this session** (VPN events batched to `/network/activity`) | yes (6 reporter tests) | yes | **yes**: blocked attempts reached the backend, the flagged one stored as suspicious | no | no | only runs while the VPN monitor is on | AMBER |
-| 17 | Evidence locker | yes | yes | yes (format, rotation, failure injection: 14 tests) | yes (upload/download/delete, caps, path safety, encryption) | no | no | no | not driven through the UI; encryption disabled until `FILE_ENCRYPTION_KEY` is set | AMBER |
+| 17 | Evidence locker | yes | yes | yes (format, rotation, failure injection: 14 tests) | yes (upload/download/delete, caps, path safety, encryption) | no | no | no | not driven through the UI; encryption disabled until `FILE_ENCRYPTION_KEY` is set; **upload type policy added (extension allow-list + content signature + fixed served media types, 99 tests; IMPLEMENTED + TESTED, not device-driven)**; no AV scan, no per-user quota | AMBER |
 | 18 | AI security coach | yes | yes | no | yes (fake client: IDOR, timeouts, rate limit, leakage) | no | **no** | no | real `ANTHROPIC_API_KEY` | AMBER |
 | 19 | Complaint e-mail generator | yes | yes | no | partial | no | **no** | no | as #18 | AMBER |
 | 20 | Family safety dashboard | yes | yes | yes (localization tests) | yes (consent, dashboard) | **yes**: invitation received, **Accept** -> backend `accepted`, inviter dashboard showed the invitee's alert; **Decline** -> `declined` | no | no | adding a member through the dialog and the Kids tab not driven; panic is not pushed to family members | AMBER |

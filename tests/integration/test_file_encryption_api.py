@@ -199,8 +199,8 @@ async def test_large_upload_streams_in_multiple_records(
     client, make_user, auth_headers, _dirs, keyed
 ):
     h = auth_headers(await make_user("big"))
-    data = os.urandom(fc.RECORD * 2 + 123)
-    r = await up(client, h, data=data, name="big.bin")
+    data = b"ID3" + os.urandom(fc.RECORD * 2 + 123)  # valid audio header, random body
+    r = await up(client, h, data=data, name="big.mp3")
     assert r.status_code == 200
     d = await client.get(r.json()["download_url"], headers=h)
     assert d.content == data
