@@ -41,3 +41,16 @@ for _k, _v in _FORCED.items():
     os.environ[_k] = _v
 # Never allow integration/unit runs to talk to Redis-backed limiter config.
 os.environ.pop("REDIS_URL", None)
+
+
+import pytest  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _reset_admin_failure_budget():
+    """FG-166: the admin failed-attempt budget lives in the process-wide limiter; every test starts with it empty."""
+    from app.middleware.rate_limiter import rate_limiter
+
+    rate_limiter.reset("admin_auth_fail")
+    yield
+    rate_limiter.reset("admin_auth_fail")

@@ -127,6 +127,10 @@ class Settings(BaseSettings):
     OTP_SEND_LIMIT: int = 5
     OTP_VERIFY_LIMIT: int = 10
     API_RATE_LIMIT: int = 100
+    # Failed admin-token attempts allowed (across ALL sources) per window before every admin
+    # authentication is answered 429. See app/routers/admin_errors.py and FG-166.
+    ADMIN_AUTH_FAIL_LIMIT: int = 10
+    ADMIN_AUTH_FAIL_WINDOW_SECONDS: int = 900
 
     # ============================================================
     # SECURITY

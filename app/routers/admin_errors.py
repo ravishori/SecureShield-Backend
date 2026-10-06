@@ -11,6 +11,7 @@ Set ADMIN_TOKEN in .env to a strong secret. Then call with:
 from __future__ import annotations
 
 import hmac
+import threading
 from typing import Any, Optional
 
 from fastapi import APIRouter, Header, HTTPException, Query
@@ -20,9 +21,39 @@ from fastapi import Depends
 
 from app.config import settings
 from app.database import get_db
+from app.middleware.rate_limiter import rate_limiter
 from app.models.error_log import ErrorLog
+from app.services.logger_service import get_logger
 
+logger = get_logger(__name__)
 router = APIRouter(prefix="/admin", tags=["admin-errors"])
+
+
+# FG-166: failed-attempt throttle for the shared admin token.
+#
+# Why ONE global budget and not a per-IP one: the token is shared, so an attacker's identity does not matter,
+# and the client IP the app can see is attacker-controlled (the global limiter trusts the first X-Forwarded-For
+# value), so any per-IP key could be bypassed by changing a header. Only wrong, non-empty tokens count; missing
+# tokens and correct tokens never consume the budget. When the budget is spent EVERY admin authentication is
+# answered with the same 429 (the token is not even compared), so the response never says whether a guess was
+# close. The window slides: throttled requests are not recorded, so access returns once the oldest failures
+# age out - there is no permanent lockout. Trade-off: while an attacker keeps failing, the admin can be
+# locked out for up to one window (denial of the admin surface, not access to it).
+#
+# Backend: the app-wide limiter (in-memory, per process; the Redis backend is not implemented). With several
+# workers/replicas the budget is per process. If the limiter itself fails the request is denied (fail closed).
+_ADMIN_FAIL_KEY = "admin_auth_fail"
+_admin_lock = (
+    threading.Lock()
+)  # sync dependencies run in a thread pool: make check + record atomic
+
+
+def _admin_throttled() -> HTTPException:
+    return HTTPException(
+        status_code=429,
+        detail="Too many failed admin attempts. Try again later.",
+        headers={"Retry-After": str(settings.ADMIN_AUTH_FAIL_WINDOW_SECONDS)},
+    )
 
 
 def _check_admin(token: Optional[str]) -> None:
@@ -32,8 +63,33 @@ def _check_admin(token: Optional[str]) -> None:
             status_code=503,
             detail="Admin endpoint is not configured (ADMIN_TOKEN missing).",
         )
-    if not token or not hmac.compare_digest(token.encode(), expected.encode()):
-        raise HTTPException(status_code=401, detail="Invalid admin token")
+    limit = settings.ADMIN_AUTH_FAIL_LIMIT
+    window = settings.ADMIN_AUTH_FAIL_WINDOW_SECONDS
+    with _admin_lock:
+        try:
+            if rate_limiter.current_count(_ADMIN_FAIL_KEY, window) >= limit:
+                raise _admin_throttled()
+        except HTTPException:
+            raise
+        except Exception as exc:  # limiter unavailable -> deny, never fail open
+            logger.error(f"admin throttle unavailable: {type(exc).__name__}")
+            raise HTTPException(
+                status_code=503, detail="Admin temporarily unavailable."
+            )
+        if not token:
+            raise HTTPException(status_code=401, detail="Invalid admin token")
+        if hmac.compare_digest(token.encode(), expected.encode()):
+            return
+        try:
+            rate_limiter.is_allowed(
+                _ADMIN_FAIL_KEY, max_hits=limit, window_seconds=window
+            )
+        except Exception as exc:
+            logger.error(f"admin throttle unavailable: {type(exc).__name__}")
+            raise HTTPException(
+                status_code=503, detail="Admin temporarily unavailable."
+            )
+    raise HTTPException(status_code=401, detail="Invalid admin token")
 
 
 @router.get("/errors")
