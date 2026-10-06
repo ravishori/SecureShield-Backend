@@ -28,6 +28,9 @@ SUSPICIOUS_IPS = [
     "185.220.",
     "5.188.",
     "77.73.",
+    # Also blocked on the device by the VPN monitor (SecureShieldVpnService.SUSPICIOUS_IP_PREFIXES):
+    "45.142.",
+    "91.108.56.",
 ]
 
 

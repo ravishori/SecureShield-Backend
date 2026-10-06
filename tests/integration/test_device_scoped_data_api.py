@@ -271,3 +271,55 @@ async def test_erasure_removes_owned_scans(client, make_user, auth_headers, db):
     assert r.status_code == 200, r.text
     assert (await db.execute(select(AppScan))).scalars().all() == []
     assert (await db.execute(select(WifiScan))).scalars().all() == []
+
+
+async def test_server_flags_every_range_the_device_blocks(
+    client, make_user, auth_headers, session_factory
+):
+    u = await make_user("rng")
+    dev = await _device(session_factory, u, "tok-ranges")
+    acts = [
+        {"destination_ip": ip}
+        for ip in ("185.220.101.5", "45.142.1.1", "91.108.56.20", "8.8.8.8")
+    ]
+    r = await client.post(
+        f"{API}/network/activity",
+        headers=auth_headers(u),
+        json={"device_id": dev, "activities": acts},
+    )
+    assert r.status_code == 200
+    flagged = {
+        x["destination_ip"]
+        for x in (
+            await client.get(f"{API}/network/suspicious", headers=auth_headers(u))
+        ).json()
+    }
+    assert flagged == {"185.220.101.5", "45.142.1.1", "91.108.56.20"}
+
+
+async def test_user_reported_calls_are_scored_from_the_users_own_description(
+    client, make_user, auth_headers
+):
+    h = auth_headers(await make_user("rep"))
+
+    async def report(**body):
+        r = await client.post(
+            f"{API}/scam-calls/report",
+            headers=h,
+            json={"caller_number": "+919876500011", **body},
+        )
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    plain = await report()
+    assert plain["risk_score"] >= 50 and plain["is_blocked"] is False
+    scripted = await report(detection_reason="asked for my OTP and gift cards")
+    assert (
+        scripted["risk_score"] >= 90
+        and scripted["is_blocked"] is True
+        and scripted["risk_score"] <= 100
+    )
+    one = await report(detection_reason="they mentioned a courier parcel")
+    assert 50 <= one["risk_score"] <= 100
+    alerts = (await client.get(f"{API}/alerts/", headers=h)).json()
+    assert alerts["total"] == 3  # every report is >= 50, so each raises an alert

@@ -13,6 +13,28 @@ from app.services.threat_analyzer import analyze_scam_call
 
 router = APIRouter(prefix="/scam-calls", tags=["scam-calls"])
 
+USER_REPORT_FLOOR = 50.0  # a call the user reports is at least a warning
+SCAM_SCRIPT_KEYWORDS = (
+    "otp",
+    "gift card",
+    "kyc",
+    "arrest",
+    "cbi",
+    "customs",
+    "courier",
+    "parcel",
+    "anydesk",
+    "teamviewer",
+    "remote access",
+    "lottery",
+    "prize",
+    "refund",
+    "upi pin",
+    "cvv",
+    "bank account",
+    "digital arrest",
+)
+
 
 @router.post("/report", response_model=ScamCallResponse)
 async def report_scam_call(
@@ -28,6 +50,16 @@ async def report_scam_call(
 
     if request.detection_reason:
         detection_reason = request.detection_reason
+        # The user's own description is evidence too: a call they chose to report is at least suspicious, and
+        # well-known scam scripts raise the score further.
+        risk_score = max(risk_score, USER_REPORT_FLOOR)
+        hits = {
+            kw for kw in SCAM_SCRIPT_KEYWORDS if kw in request.detection_reason.lower()
+        }
+        if hits:
+            risk_score = min(100.0, risk_score + 20.0 * min(len(hits), 2))
+    else:
+        risk_score = max(risk_score, USER_REPORT_FLOOR)
 
     scam_call = ScamCall(
         user_id=current_user.id,
