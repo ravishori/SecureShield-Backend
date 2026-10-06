@@ -25,7 +25,8 @@ Status: **written plan only.** Nothing has been pushed, deployed or changed on R
    * provider keys only if the owner supplies *staging* keys (Resend/Twilio/GSB/URLhaus/Anthropic); otherwise leave them
      unset - features that need them must then fail closed (verified in tests) and are marked EXTERNAL-unverified,
    * `FILE_ENCRYPTION_KEY` (new) if encryption is to be exercised,
-   * `ENVIRONMENT=staging`.
+   * `ENVIRONMENT=staging`,
+   * `TRUSTED_PROXIES` = the range the platform proxy connects from (FG-167; unverified for Railway - determine it first; the staging environment does not enforce this check, so it must be set by hand).
 4. **No real user data.** Seed with the scripted fixtures below; never restore a production dump into this project.
 5. Config as code: copy `.railway/railway.ts` and edit `source` to the *new* repository branch/service names; keep
    `preDeploy: "alembic upgrade head"`, `healthcheck: "/health"`, `checkSuites: false` (see the known stale-check-suite problem).
@@ -82,7 +83,8 @@ migrator role (seven revisions `m8n9o0p1q2r3` ... `s4t5u6v7w8x9` on top of `l7m8
 6. Admin console `/api/v1/admin/console` loads; token required for data; disable/enable a test user; the audit log shows both.
 7. Reports: `/reports/daily` returns a security score; `/reports/daily/email` returns 200 only with a configured provider.
 8. Run `node scripts/admin_console_browser_e2e.mjs` against a staging-sized local copy if a browser-based check of the real URL is required.
-9. Point the **release APK** (`--dart-define=API_BASE_URL=https://<staging>/api/v1`) at it on an emulator: login, dashboard score, family invite, SOS.
+9. Rate-limit identity (FG-167): send more than `API_RATE_LIMIT` (default 100) requests within a minute to any non-exempt URL from one machine while changing `X-Forwarded-For` on every request; expect `429` after the budget. Then confirm a *second* machine is NOT limited at the same time (proving users are not collapsed onto the proxy address).
+10. Point the **release APK** (`--dart-define=API_BASE_URL=https://<staging>/api/v1`) at it on an emulator: login, dashboard score, family invite, SOS.
 
 ### 2.8 Clean-up
 Delete the test users with `DELETE /auth/me` (full erasure), remove the temporary `ADMIN_TOKEN`, keep `before.txt`, `after.txt` and the dump with the release record.

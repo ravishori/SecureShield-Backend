@@ -172,6 +172,7 @@ class TestRunStartupChecks:
         s = _settings(
             ENVIRONMENT="production",
             TRUST_PROXY_TLS=True,
+            TRUSTED_PROXIES="100.64.0.0/10",  # FG-167: required behind a proxy
             SECRET_KEY="k9-F2Jx7mZ.LpQw3-RVnTbU6Yx8Ag4Bc5De1Hi2JkMo7PqRsTvWxYz0A",
             ADMIN_TOKEN="a-real-admin-token",
             CORS_ALLOWED_ORIGINS="https://admin.example.com",

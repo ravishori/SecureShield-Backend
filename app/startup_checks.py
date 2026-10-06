@@ -9,6 +9,7 @@ an insecure configuration to production:
   • CORS fail-closed must be configured
   • JWT secret must not be the development default
   • ADMIN_TOKEN must not be the placeholder
+  • behind a TLS-terminating proxy, TRUSTED_PROXIES must be set (client IP / rate limiting)
 
 In development the checks are permissive — they log warnings but don't
 raise, so local work stays frictionless.
@@ -109,11 +110,29 @@ def check_cors_configuration(settings: Settings) -> None:
         )
 
 
+def check_trusted_proxies(settings: Settings) -> None:
+    """Production behind a TLS-terminating proxy must say which proxies it trusts (FG-167).
+
+    Without TRUSTED_PROXIES the app (correctly) ignores X-Forwarded-For, so behind a proxy every user would be
+    rate-limited under the proxy's single address: one noisy client could lock everybody out. Fail loudly at boot
+    instead of degrading silently."""
+    if not settings.is_production():
+        return
+    if settings.TRUST_PROXY_TLS and not settings.TRUSTED_PROXIES.strip():
+        raise StartupCheckError(
+            "TRUST_PROXY_TLS=true but TRUSTED_PROXIES is empty. Behind a reverse proxy the client IP can only be "
+            "recovered from X-Forwarded-For if the proxy's address/range is listed explicitly (e.g. "
+            "TRUSTED_PROXIES=100.64.0.0/10). Without it all users share the proxy's address for rate limiting. "
+            "Refusing to boot."
+        )
+
+
 _CHECKS = (
     check_tls_configuration,
     check_jwt_secret,
     check_admin_token,
     check_cors_configuration,
+    check_trusted_proxies,
 )
 
 

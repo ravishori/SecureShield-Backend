@@ -27,7 +27,7 @@ every row**: no provider credentials were available and Railway was off limits (
 
 | Check | Result |
 |---|---|
-| Backend `pytest` (real PostgreSQL, Alembic-migrated) | **805 passed** (full suite, real PostgreSQL, 0 skipped; verified after the FG-166 admin throttle; 777 after FG-035, 733 after FG-165, 711 after FG-041, 691 after FG-071, 592 before). Flutter: `flutter analyze` clean, **69/69** tests pass |
+| Backend `pytest` (real PostgreSQL, Alembic-migrated) | **886 passed** (full suite, real PostgreSQL, 0 skipped; verified after the FG-167 client-IP trust change; 805 after FG-166, 777 after FG-035, 733 after FG-165, 711 after FG-041, 691 after FG-071, 592 before). Flutter: `flutter analyze` clean, **69/69** tests pass |
 | `ruff check` / `ruff format --check` (repo-pinned 0.9.4; `app tests scripts`) | clean / 162 files formatted |
 | `pip check`, Alembic | clean; single linear head `s4t5u6v7w8x9` |
 | Real gitleaks 8.21.2 | backend HEAD tree clean; Flutter tree + history clean; backend history = 14 known historical findings in 2 old commits (rotation DEFERRED) |
@@ -94,6 +94,7 @@ every row**: no provider credentials were available and Railway was off limits (
 | Android release build | yes | n/a | n/a | release APK launches | n/a | n/a | **debug-key signing** (no keystore); R8 only smoke-tested | AMBER |
 | Play Store readiness | doc | n/a | n/a | n/a | n/a | n/a | restricted permissions (SMS, call log), `QUERY_ALL_PACKAGES`, FGS types, data-safety form, privacy policy: owner decisions | AMBER |
 | Localization | 352 keys x 6 | key/placeholder parity + Hindi render tests | n/a | Hindi verified on the Settings screen | n/a | n/a | 43.8% coverage; native-speaker review is an external quality blocker | AMBER |
+| Client-IP trust for IP-keyed rate limits (FG-167) | yes (`client_ip.py`, `TRUSTED_PROXIES`, startup check, Dockerfile uvicorn flags) | yes (policy, parsing, startup check, Dockerfile flags: 63) | yes (real middleware, simulated peers: 18) | n/a | n/a | no | **no**: Railway/host proxy range unknown and unverified; `TRUSTED_PROXIES` must be set before deploy (staging does not enforce the check); per-process limiter; IPv6 not aggregated per /64 | AMBER |
 
 ## Not done (explicitly)
 

@@ -70,6 +70,19 @@ class Settings(BaseSettings):
     DATABASE_URL: str
     MIGRATOR_DATABASE_URL: str
 
+    @field_validator("TRUSTED_PROXIES")
+    @classmethod
+    def _validate_trusted_proxies(cls, v: str) -> str:
+        from app.services.client_ip import parse_trusted_proxies
+
+        parse_trusted_proxies(v)  # raises ValueError -> startup fails closed
+        return v
+
+    def trusted_proxy_networks(self):
+        from app.services.client_ip import parse_trusted_proxies
+
+        return parse_trusted_proxies(self.TRUSTED_PROXIES)
+
     @field_validator("DATABASE_URL", "MIGRATOR_DATABASE_URL", mode="before")
     @classmethod
     def _normalize_db_urls(cls, v):
@@ -186,6 +199,16 @@ class Settings(BaseSettings):
     #   • Local dev → leave both false
     FORCE_HTTPS: bool = False
     TRUST_PROXY_TLS: bool = False
+
+    # ============================================================
+    # TRUSTED PROXIES (client IP for rate limiting / attribution) - FG-167
+    # ============================================================
+    # Comma-separated IPs / CIDR ranges of the reverse proxies whose X-Forwarded-For header may be believed
+    # (e.g. "100.64.0.0/10,10.0.0.5"). Empty (default) = trust NO forwarding header: the TCP peer address is the
+    # client. Wildcards / "/0" and malformed entries refuse to start. Behind a proxy this MUST be set, otherwise
+    # every user shares the proxy's address (production startup refuses to boot in that case when
+    # TRUST_PROXY_TLS=true). The same value is passed to uvicorn as --forwarded-allow-ips (see Dockerfile).
+    TRUSTED_PROXIES: str = ""
 
     model_config = SettingsConfigDict(
         env_file=_resolve_env_files() or (str(_PROJECT_ROOT / ".env"),),

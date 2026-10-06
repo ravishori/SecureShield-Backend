@@ -31,6 +31,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from app.config import settings
+from app.services.client_ip import resolve_client_ip
 from app.services.logger_service import get_logger
 
 logger = get_logger(__name__)
@@ -242,11 +243,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
     @staticmethod
     def _get_client_ip(request: Request) -> str:
-        """Extract real IP, respecting X-Forwarded-For for reverse proxies."""
-        forwarded_for = request.headers.get("X-Forwarded-For")
-        if forwarded_for:
-            # Take the first (client) IP in the chain
-            return forwarded_for.split(",")[0].strip()
-        if request.client:
-            return request.client.host
-        return "unknown"
+        """Client identity for IP limits: the TCP peer, unless the peer is a configured trusted proxy
+        (``TRUSTED_PROXIES``), in which case the first untrusted hop of X-Forwarded-For (read right-to-left) is
+        used. An untrusted peer can NOT choose its own identity with a forwarding header (FG-167)."""
+        peer = request.client.host if request.client else None
+        forwarded = ",".join(request.headers.getlist("x-forwarded-for")) or None
+        return resolve_client_ip(peer, forwarded, settings.trusted_proxy_networks())

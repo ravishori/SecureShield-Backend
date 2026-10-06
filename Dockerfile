@@ -24,4 +24,6 @@ COPY alembic.ini .
 EXPOSE 8000
 
 # Railway injects PORT; default 8000 for local runs
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# --forwarded-allow-ips mirrors the app's TRUSTED_PROXIES (FG-167): uvicorn only believes X-Forwarded-* from those
+# peers (default 127.0.0.1 when unset), never from arbitrary clients.
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers --forwarded-allow-ips \"${TRUSTED_PROXIES:-127.0.0.1}\""]

@@ -71,6 +71,23 @@ settings: Dockerfile build (auto-detected), healthcheck `/health`, pre-deploy
 `railway config migrate --service secureshield-api` (dry-run by default), review with
 `railway config plan`, then `--apply`. `restartPolicy*` is not carried over (Railway defaults apply).
 
+## Client IP and trusted proxies (FG-167) - REQUIRED before the next deploy
+The app no longer believes `X-Forwarded-For` from arbitrary clients (it was possible to evade the per-IP rate
+limit by rotating that header). The rule is: the TCP peer is the client, unless the peer is listed in
+`TRUSTED_PROXIES`, in which case the first *untrusted* hop of `X-Forwarded-For` (read right-to-left) is used.
+
+* Set `TRUSTED_PROXIES` to the address range(s) the platform's proxy connects from (comma-separated IPs/CIDRs;
+  wildcards are rejected). **This repository does not know that range and it has not been verified on Railway** -
+  determine it from the platform before deploying (for example log the peer address of a request in a throw-away
+  environment), do not guess.
+* If it is left empty behind a proxy, every user is rate-limited under the proxy's single address (one noisy
+  client can lock everybody out). `ENVIRONMENT=production` with `TRUST_PROXY_TLS=true` refuses to boot in that case;
+  `ENVIRONMENT=staging` does **not** run that check, so set it explicitly on staging as well.
+* The Dockerfile passes the same value to uvicorn (`--proxy-headers --forwarded-allow-ips "$TRUSTED_PROXIES"`,
+  default `127.0.0.1`), so `request.client` used by audit/error logs is consistent with the rate limiter.
+* Check after deploy: from one machine send more than `API_RATE_LIMIT` requests in a minute while rotating
+  `X-Forwarded-For`; you must get 429 (see `STAGING_DEPLOYMENT_PLAN.md` section 2.7, item 9).
+
 ## Known issues (staging)
 1. **Email OTP cannot work from Railway on this plan.** Railway allows outbound SMTP only on
    Pro and above; from the container IPv4 587/465 time out and IPv6 is unreachable. Railway
