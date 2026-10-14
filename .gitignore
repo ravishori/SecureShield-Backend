@@ -1,4 +1,4 @@
-# Secrets ΓÇö never commit
+# Secrets - never commit
 .env
 .env.*
 !.env.example
@@ -23,7 +23,7 @@ logs/
 *.sha256
 *.backup
 
-# User uploads (evidence / recordings) ΓÇö live on a persistent volume, never in Git
+# User uploads - persistent storage only; never commit
 uploads/
 
 # Local test / scratch artifacts
