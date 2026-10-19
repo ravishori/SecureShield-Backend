@@ -126,14 +126,21 @@ async def _cleanup_old_error_logs() -> None:
     from app.database import AsyncSessionLocal
 
     retention_days = settings.LOG_RETENTION_DAYS
+    if retention_days < 1:
+        # 0 or a negative value would make the cutoff "now" or the future and delete EVERY row.
+        logger.warning(
+            f"Startup cleanup skipped: LOG_RETENTION_DAYS={retention_days} is not a positive number of days."
+        )
+        return
     try:
         async with AsyncSessionLocal() as session:
             result = await session.execute(
                 text(
-                    f"DELETE FROM error_logs "
-                    f"WHERE created_at < NOW() - INTERVAL '{retention_days} days' "
-                    f"RETURNING id"
-                )
+                    "DELETE FROM error_logs "
+                    "WHERE created_at < NOW() - make_interval(days => :days) "
+                    "RETURNING id"
+                ),
+                {"days": retention_days},
             )
             deleted_count = len(result.fetchall())
             await session.commit()
