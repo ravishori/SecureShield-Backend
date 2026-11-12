@@ -14,8 +14,9 @@ from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import JWTError, jwt
-from sqlalchemy import delete, select
+import jwt
+from jwt import PyJWTError as JWTError
+from sqlalchemy import delete, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -51,7 +52,13 @@ from app.services.google_auth import (
     GoogleNotConfigured,
     verify_google_id_token,
 )
-from app.services.otp_codes import generate_code, hash_code
+from app.services.otp_codes import (
+    OTP_MAX_ATTEMPTS,
+    OTP_TTL_MINUTES,
+    codes_match,
+    generate_code,
+    hash_code,
+)
 from app.services.log_scrubber import mask_email_for_log, mask_phone_for_log
 from app.services.otp_service import deliver_otp, _normalize_phone
 
@@ -87,6 +94,46 @@ def _mask_for_log(identifier: str) -> str:
     if "@" in str(identifier):
         return mask_email_for_log(identifier)
     return mask_phone_for_log(identifier)
+
+
+# ---------------------------------------------------------------------------
+# OTP helpers
+# ---------------------------------------------------------------------------
+OTP_SEND_IP_LIMIT = (
+    20  # OTP sends per source address per hour (SMS-pumping / mail-bombing guard)
+)
+OTP_FAILURE_DETAIL = "Invalid or expired OTP. Please request a new one."
+
+
+def _check_otp_send_ip(client_ip: str | None) -> None:
+    """Cap how many codes one source can trigger per hour, independent of the target identifier: the per-identifier
+    limit alone lets one client send a code to every phone number it can enumerate."""
+    if not rate_limiter.is_allowed(
+        f"otp_send_ip:{client_ip or 'unknown'}",
+        max_hits=OTP_SEND_IP_LIMIT,
+        window_seconds=3600,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many verification codes requested from this network. Please try again later.",
+            headers={"Retry-After": "3600"},
+        )
+
+
+async def _invalidate_open_otps(
+    db: AsyncSession, *, email: str | None = None, phone: str | None = None
+) -> None:
+    """A new code replaces every still-open one for the same target, so at most one code is ever valid
+    (several valid codes would multiply an attacker's odds of a lucky guess)."""
+    conds = []
+    if email:
+        conds.append(OTP.email == email)
+    if phone:
+        conds.append(OTP.phone == phone)
+    if conds:
+        await db.execute(
+            update(OTP).where(OTP.is_used.is_(False), or_(*conds)).values(is_used=True)
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -294,7 +341,8 @@ async def register_user(
 
         # ── Generate OTP (single code, dual delivery) ──────────────────────
         code = generate_code()
-        expires_at = datetime.utcnow() + timedelta(minutes=10)
+        expires_at = datetime.utcnow() + timedelta(minutes=OTP_TTL_MINUTES)
+        await _invalidate_open_otps(db, email=email_lower, phone=normalized_phone)
 
         # One OTP record with both channels populated (whichever apply)
         otp = OTP(
@@ -361,11 +409,12 @@ async def send_otp(
     If the user has BOTH email and phone on file, sends to both channels.
     """
     client_ip = http_request.client.host if http_request.client else None
+    _check_otp_send_ip(client_ip)
     check_otp_send_rate(request.identifier)
 
     try:
         code = generate_code()
-        expires_at = datetime.utcnow() + timedelta(minutes=10)
+        expires_at = datetime.utcnow() + timedelta(minutes=OTP_TTL_MINUTES)
 
         identifier = request.identifier
         if not request.is_email:
@@ -391,6 +440,11 @@ async def send_otp(
                 other_email = user.email
 
         # ── Create OTP record with all applicable channels ─────────────────
+        await _invalidate_open_otps(
+            db,
+            email=identifier.lower() if request.is_email else other_email,
+            phone=other_phone if request.is_email else identifier,
+        )
         if request.is_email:
             otp = OTP(
                 email=identifier.lower(),
@@ -493,21 +547,33 @@ async def verify_otp(
             otp_filter = OTP.phone == identifier
             user_filter = User.phone == identifier
 
-        otp_result = await db.execute(
-            select(OTP)
-            .where(
-                otp_filter,
-                OTP.code == hash_code(request.code),
-                OTP.is_used.is_(False),  # noqa: E712
-                OTP.expires_at > datetime.utcnow(),
+        # Only the newest open code for this identifier can be used. The row is locked (FOR UPDATE) so two
+        # concurrent requests cannot both consume it, and wrong guesses are counted on the row itself, so the
+        # limit survives restarts and holds across workers. Every failure returns the same response.
+        otp = (
+            await db.execute(
+                select(OTP)
+                .where(
+                    otp_filter,
+                    OTP.is_used.is_(False),  # noqa: E712
+                    OTP.expires_at > datetime.utcnow(),
+                )
+                .order_by(OTP.created_at.desc())
+                .limit(1)
+                .with_for_update()
             )
-            .order_by(OTP.created_at.desc())
-        )
-        otp = otp_result.scalar_one_or_none()
-        if not otp:
+        ).scalar_one_or_none()
+        if otp is None:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid or expired OTP. Please request a new one.",
+                status_code=status.HTTP_400_BAD_REQUEST, detail=OTP_FAILURE_DETAIL
+            )
+        if otp.attempts >= OTP_MAX_ATTEMPTS or not codes_match(otp.code, request.code):
+            otp.attempts += 1
+            if otp.attempts >= OTP_MAX_ATTEMPTS:
+                otp.is_used = True  # burned: a new code must be requested
+            await db.commit()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail=OTP_FAILURE_DETAIL
             )
 
         otp.is_used = True

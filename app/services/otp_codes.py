@@ -12,6 +12,9 @@ import secrets
 
 from app.config import settings
 
+OTP_TTL_MINUTES = 10  # keep in sync with the "Valid for 10 minutes" text of the SMS / e-mail templates
+OTP_MAX_ATTEMPTS = 5  # wrong guesses against one code before it is burned
+
 
 def generate_code() -> str:
     return f"{secrets.randbelow(900000) + 100000}"
@@ -20,3 +23,8 @@ def generate_code() -> str:
 def hash_code(code: str) -> str:
     key = hashlib.sha256(f"otp-key:{settings.SECRET_KEY}".encode()).digest()
     return hmac.new(key, code.encode(), hashlib.sha256).hexdigest()
+
+
+def codes_match(stored_hash: str, presented_code: str) -> bool:
+    """Constant-time comparison of the stored HMAC with the HMAC of the presented code."""
+    return hmac.compare_digest(stored_hash, hash_code(presented_code))
