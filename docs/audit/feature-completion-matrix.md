@@ -1,6 +1,6 @@
 # Feature completion matrix
 
-Last assessed: **2026-11-12** (backend `30664ce`, Flutter `ac5cd50`). Every row was re-derived from code, tests and the recorded runs listed in
+Last assessed: **2026-11-13** (baseline audit 2026-11-12 on backend `30664ce` / Flutter `ac5cd50`; re-scored after the P1 remediation of 2026-11-13, see `audit-history.md`). Every row was re-derived from code, tests and the recorded runs listed in
 [`testing-and-qa.md`](testing-and-qa.md); earlier register statements (`../SECURESHIELD_FEATURE_COMPLETION_MATRIX.md`,
 `../SECURESHIELD_FEATURE_GAPS_AND_ERRORS.md`) were treated as claims, not as evidence.
 
@@ -37,7 +37,7 @@ Percentages in [`project-status.md`](project-status.md) are weight-weighted mean
 
 | # | Feature | W | Status | FE | BE | INT | TEST | SEC | Impl |
 |---|---|---|---|---|---|---|---|---|---|
-| 1 | Phone/e-mail OTP login and registration | 3 | **TESTED** | 85 | 90 | 55 | 85 | 80 | 77 |
+| 1 | Phone/e-mail OTP login and registration | 3 | **TESTED** | 85 | 95 | 55 | 90 | 90 | 78 |
 | 2 | Google Sign-In | 1 | **BUILDING** | 60 | 75 | 20 | 50 | 70 | 52 |
 | 3 | Session / JWT lifecycle (access, refresh rotation, replay revoke) | 3 | **REVIEWED** | 80 | 95 | 80 | 90 | 85 | 85 |
 | 4 | Device registration and new-device alert | 1 | **TESTED** | 70 | 80 | 60 | 65 | 70 | 70 |
@@ -64,7 +64,7 @@ Percentages in [`project-status.md`](project-status.md) are weight-weighted mean
 | 25 | Panic button and emergency contacts | 3 | **TESTED** | 80 | 80 | 40 | 75 | 70 | 67 |
 | 26 | Security reports (daily, weekly, history) | 1 | **TESTED** | 80 | 80 | 60 | 60 | 75 | 73 |
 | 27 | Consent / permission manager | 1 | **BUILT** | 80 | n/a | n/a | 15 | 65 | 80 |
-| 28 | Anti-screenshot protection (FLAG_SECURE) | 1 | **BUILDING** | 10 | n/a | 0 | 0 | 0 | 5 |
+| 28 | Anti-screenshot protection (FLAG_SECURE) | 1 | **BUILT** | 75 | n/a | 40 | 60 | 60 | 58 |
 | 29 | Clone / fake-app detection | 1 | **TESTED** | 80 | 85 | 80 | 65 | 70 | 82 |
 | 30 | Message, job-offer and bullying analyzer | 1 | **TESTED** | 80 | 80 | 40 | 60 | 65 | 67 |
 | 31 | Community scam reports and news feed | 1 | **TESTED** | 75 | 80 | 70 | 50 | 65 | 75 |
@@ -72,18 +72,18 @@ Percentages in [`project-status.md`](project-status.md) are weight-weighted mean
 | 33 | Client-only detectors (digital arrest, payment verifier, QR, fake-bank SMS, SIM integrity, scam news) | 1 | **BUILT** | 70 | n/a | n/a | 10 | 50 | 70 |
 | 34 | Video-call room and FIR draft | 1 | **BUILT** | 70 | 65 | 55 | 25 | 60 | 63 |
 | 35 | Cyber Warriors programme (backend only, no client) | 1 | **BUILDING** | 0 | 90 | 0 | 70 | 80 | 30 |
-| 36 | Admin API and web console | 2 | **TESTED** | 70 | 85 | 80 | 70 | 65 | 78 |
+| 36 | Admin API and web console | 2 | **TESTED** | 75 | 95 | 80 | 90 | 85 | 83 |
 | 37 | Account deletion / data erasure | 2 | **REVIEWED** | 60 | 95 | 80 | 90 | 90 | 78 |
 | 38 | Localization (6 languages) | 1 | **BUILDING** | 44 | n/a | n/a | 60 | n/a | 44 |
 
-Status counts: TESTED 21, BUILT 11, BUILDING 4, REVIEWED 2, PLANNED 0, PRODUCTION 0.
+Status counts: TESTED 21, BUILT 12, BUILDING 3, REVIEWED 2, PLANNED 0, PRODUCTION 0.
 
 ## Working functionality vs placeholders
 
-* **Real and tested end to end in code (providers simulated):** sessions/JWT, alerts, recordings and evidence storage, family consent, account erasure, admin API, link/app/Wi-Fi scanners' server side.
+* **Real and tested end to end in code (providers simulated):** sessions/JWT, OTP hardening (attempt limits, single valid code), alerts, recordings and evidence storage, family consent, account erasure, named admin accounts with TOTP MFA, link/app/Wi-Fi scanners' server side.
 * **Real but unverified against its provider:** every OTP channel, Anthropic features (coach, complaint e-mail, message analyzer, FIR draft), Safe Browsing / URLhaus, Google Sign-In, panic/guardian/report SMS and e-mail.
 * **Client-side only, no automated test:** Kotlin detectors (bank OTP, remote access, device integrity, VPN, package install, SIM), consent manager, the six client-only detectors (row 33).
-* **Does not work:** anti-screenshot protection (row 28).
+* **Fixed but device-unverified:** anti-screenshot protection (row 28) - the Dart/Kotlin method mismatch is resolved and 12 screens are wrapped; the flag itself has not been observed on a device.
 * **Backend without a client:** Cyber Warriors (row 35); backend endpoints that no screen calls: `GET /app-scanner/spyware-check`, `GET /app-scanner/results/{scan_id}`,
   `GET /ai/history/{session_id}`, `GET /family/members/{member_id}/alerts`, `POST /family/links/{link_id}/revoke`, `GET /network/suspicious`,
   `POST /reports/daily/email`, `POST /reports/log-behavior`, `GET /recordings/`, `GET /recordings/{id}/download`.
@@ -95,7 +95,7 @@ Effort is developer-days for one engineer, excluding owner-side waiting (credent
 
 | # | UI -> state -> API -> router -> service -> model -> provider (verified in code) | Tests / runs | Missing or unverified | Effort (days) |
 |---|---|---|---|---|
-| 1 | Flutter `features/auth` -> `POST /auth/{register,send-otp,verify-otp}` (`routers/auth.py`) -> `otp_service.deliver_otp` -> `otps` (HMAC) -> Twilio / WhatsApp / Resend / SMTP | `test_otp_auth_flow_api`, `test_auth_hardening_api`, `test_otp_delivery_logging`, unit `test_otp_resend`; local-outbox emulator run only | No live OTP channel works: Twilio 20003 (diagnosed), no e-mail provider key/domain, India DLT not done | 3-5 (owner credentials + provider setup + live verification) |
+| 1 | Flutter `features/auth` -> `POST /auth/{register,send-otp,verify-otp}` (`routers/auth.py`) -> `otp_service.deliver_otp` -> `otps` (HMAC, `attempts`) -> Twilio / WhatsApp / Resend / SMTP | `test_otp_auth_flow_api`, `test_auth_hardening_api`, `test_otp_hardening_api` (12: one valid code, per-code attempt limit, atomic single use, per-source send limit, uniform failures), `test_otp_delivery_logging`; `scripts/otp_provider_check.py` | No live OTP channel proven: Twilio rejects the credentials (error 20003, re-confirmed 2026-11-13); SMTP login with the configured account succeeds locally (no mail sent) but Railway blocks SMTP and no Resend key exists; India DLT not done. Registration/`check-user` still reveal whether an account exists (rate-limited by design) | 2-3 (owner credentials + one live send per channel) |
 | 2 | `google_auth_service.dart` (disabled without `GOOGLE_WEB_CLIENT_ID`) -> `POST /auth/google` -> `google_auth.py` (token verification) | `test_google_signin_api` (locally signed tokens), `google_auth_service_test.dart` | OAuth client IDs; never run against Google | 1-2 |
 | 3 | `dio_client.dart` interceptor (single in-flight refresh) -> `POST /auth/refresh` -> `refresh_tokens` family/jti | `test_refresh_rotation_api`, `test_token_types_api`, unit `test_jwt`; `evidence_token_refresh_test.dart` (loopback HTTP) | HS256 shared secret; 60-min access / 30-day refresh unchanged; client path not device-driven | 1 |
 | 4 | `/devices/register` -> `device_service.send_new_device_alert` (e-mail) | `test_devices_alerts_api`, `test_device_scoped_data_api` | Alert e-mail cannot be sent (no working transport) | 1 |
@@ -122,7 +122,7 @@ Effort is developer-days for one engineer, excluding owner-side waiting (credent
 | 25 | `POST /alerts/panic` -> `_notify_emergency_contacts` -> Twilio/e-mail; `/emergency-contacts` | `test_devices_alerts_api`, `test_emergency_contacts_api`, `test_guardian_alert_logging` (providers mocked) | Family e-mail and recording share token promised in the feature text are not implemented; nothing real ever sent | 3 |
 | 26 | `reports` screen -> `/reports/{daily,history,weekly-insights}` | `test_reports_api` | `POST /reports/daily/email` and `/reports/log-behavior` unused by the app; no scheduler | 3 |
 | 27 | `consent_manager_screen.dart` + `permission_handler` | None automated; emulator run (SMS grant) | Other permissions not driven | 1 |
-| 28 | Dart `ScreenshotPrevention` calls `addFlags/clearFlags`; Kotlin `window_flags` handles only `enableSecure/disableSecure`; no screen calls either | None | Feature does not work and is not applied anywhere (verified by code reading) | 1 |
+| 28 | Dart `ScreenshotPrevention` (ref-counted, serialised, re-applied on resume) -> channel `secureshield/window_flags` -> Kotlin `MainActivity` (`enableSecure`/`disableSecure`/`isSecure`); applied in `core/router.dart` to 12 sensitive screens | `screenshot_prevention_test.dart` (10, mocked channel + contract test against the Kotlin source; mutation-checked) | Fixed 2026-11-13 (the Dart side called `addFlags/clearFlags`, which Kotlin never handled). **Not verified on a device**: the actual window flag, recents thumbnail and screen capture are untested; Android cannot stop a photo of the screen, accessibility services or rooted devices | 1 (device check) |
 | 29 | `clone_detector` + `fake_app_detector.dart` -> `/clone-detection/*` | `test_app_monitor_clone_api`, `similarity_metrics_test.dart` | - | 1 |
 | 30 | `message_analyzer` -> `/message/*` -> `ai_service` | `test_message_analyzer_api` (fake AI) | No live AI run; registry seeded only on staging | 1-2 |
 | 31 | `community_scam`, `scam_news` -> `/community-scams/*` | `test_community_news_feed_api` | Moderation of user reports not implemented | 2 |
@@ -130,6 +130,6 @@ Effort is developer-days for one engineer, excluding owner-side waiting (credent
 | 33 | `digital_arrest`, `payment_verifier`, `qr_scanner`, `fake_bank_sms`, `sim_integrity` (Kotlin `SimFingerprintProvider`), `scam_news`: client-side logic, no backend call | None automated | Not documented in the feature list; never run on a device; accuracy unmeasured | 5 |
 | 34 | `video_call` -> `/video-call/*` (room, police contacts, FIR) | None dedicated | Streaming FIR draft code unreviewed; no tests | 2 |
 | 35 | `/warriors/*` (apply, status, admin approve/reject) | `test_cyber_warriors_api`, unit rbac/schema | No Flutter client; no admin profile management | 5-8 |
-| 36 | `/admin/{stats,users,audit,errors}` + `/admin/console` (static page) | `test_admin_users_api`, `test_admin_auth_throttle` (28), `test_admin_token_compare` (44); browser run 24/24 (2026-10-06) | Single shared token, no identity/MFA; throttle per process | 4-6 |
+| 36 | Named admin accounts: `/admin/auth/*` (login password + TOTP, setup, sessions, accounts) -> `admin_access.require_role` -> `admin_accounts`/`admin_sessions`/`admin_audit_logs`; `/admin/{stats,users,audit,errors}`; console page; CLI `app.cli.admin_accounts`; legacy `X-Admin-Token` kept as `admin`-role break-glass while `ADMIN_LEGACY_TOKEN_ENABLED` | `test_admin_accounts_api` (32), `test_admin_cli` (3), `test_admin_security` (unit, RFC 6238 vectors), `test_admin_console_page`, existing throttle/token-compare/users suites (updated); 13 mutation checks all caught; console flow driven in the built-in browser against a local server (2026-11-13) | Legacy shared token still enabled by default (migration path); lockout can be used to deny a known admin for 15 min (superadmin/CLI unlock); no admin e-mail/SMS recovery (CLI/superadmin only); no per-session idle timeout beyond the 30-min token; throttle state per process | 1-2 (switch legacy off after enrolment, alerting on admin actions) |
 | 37 | `DELETE /auth/me` -> `account_erasure.py` | `test_account_deletion_api` (7), `test_delete_account_schema` | UI path not assessed; retained tombstone + warrior audit trail by design | 1 |
 | 38 | `lib/l10n/*.arb` x6, `flutter gen-l10n` | `localization_test.dart` (parity, Hindi render) | 44% coverage by heuristic; unreviewed machine translations | 6-8 |

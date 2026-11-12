@@ -10,18 +10,34 @@ Planned work is **not** counted as complete anywhere in these documents.
 | 1 Security and supply chain | 15.5 |
 | 2 Functional completion and verification | 33.5 |
 | 3 Compliance, deployment, operations | 29.5 |
-| **Phases 0-3 (to CONDITIONAL GO / closed beta)** | **~80 (range 70-95)** |
+| **Phases 0-3 (to CONDITIONAL GO / closed beta), original estimate** | **~80 (range 70-95)**; remaining after 2026-11-13: ~68 (60-75) |
 | 4 Post-launch scope | 15-20 |
+
+## Progress 2026-11-13 (P1 blockers worked; estimates below are the original figures, status marked per row)
+
+| Item | Status | Evidence |
+|---|---|---|
+| 1.1 Dependency upgrade (python-jose -> PyJWT, FastAPI/Starlette, python-multipart, cryptography) | **DONE in repo** (not deployed) | `b9be388`; 1006 tests; clean-install audit 0 runtime advisories |
+| 1.5 FLAG_SECURE fix and application | **DONE, device check pending** (1 day left) | `5d4d16a`; 10 tests |
+| 1.6 Named admin identities + MFA | **DONE** (alerting on admin actions and switching the legacy token off remain) | `86b3ba2`; browser-verified |
+| 1.8 Signed release build | **Code DONE; blocked on the owner's keystore** | `6cd21d4` |
+| 2.1 OTP channels | **Hardening DONE; live verification blocked on credentials** (about 3 days left) | `f06a3d8` |
+| 1.2 / 1.3 / 1.4 / 1.7 / 1.9 / 1.10, 0.x, 2.2-2.9, Phase 3-4 | not started | - |
+
+Remaining after this progress: Phase 0 about 2 days, Phase 1 about 4 days (pip-audit in CI 0.5, docs gate 0.5, non-root image 0.5, `/ready` 0.5, Flutter CI 1, coverage 1),
+Phase 2 about 32.5 days, Phase 3 about 29.5 days = **~68 developer-days (range 60-75)**.
 
 ## Phase 0 - immediate containment (this week)
 
 | # | Task | Owner | Dev-days | Closes |
 |---|---|---|---|---|
 | 0.1 | Make both GitHub repositories private; rotate every credential listed in `security-audit.md`; decide history rewrite vs abandon | Owner | - | S-01, G2 |
-| 0.2 | Verify the Twilio SID/token pair in the Console (see 2026-10-18 diagnosis); choose and onboard an HTTPS e-mail provider | Owner | - | S-03, G1 |
+| 0.2 | Verify the Twilio SID/token pair in the Console (rejected 20003 again on 2026-11-13); choose and onboard an HTTPS e-mail provider; then run `python scripts/otp_provider_check.py --live` | Owner | - | S-03, G1 |
 | 0.3 | Review and commit (or discard) the uncommitted Neon connection fix (`app/config.py`, `app/database.py`, `.env.example`, `tests/unit/test_database_engine.py`) and decide the fate of `scripts/seed_sms_registry.py` / `start.bat` | Owner + dev | 1 | architecture |
 | 0.4 | Remove stale credential copies and the drive-wide `D:\.git` once rotation is done | Owner | 0.5 | S-15 |
 | 0.5 | Decide retention periods (FG-034) and the SMS/call-log feature scope | Owner | 0.5 | S-05, S-07 |
+| 0.6 | Create the upload keystore (outside the repository), set `SECURESHIELD_*` or `android/key.properties`, build and run `tool/verify_apk_signature.py --expect-sha256 <fingerprint>` | Owner | - | S-04, G7 |
+| 0.7 | Create the first superadmin (`python -m app.cli.admin_accounts create`), enrol MFA, set `ADMIN_LEGACY_TOKEN_ENABLED=false`; rebuild the local `.venv` from `requirements.txt` | Owner/ops | 0.5 | S-06, S-02 |
 
 ## Phase 1 - security and supply chain
 

@@ -1,6 +1,6 @@
 # Production readiness - Go / No-Go
 
-Assessed 2026-11-12. **Verdict: NO-GO.** Overall production readiness **40%** (raw weighted composite 52%, capped at 40% because go-live blockers are open;
+Assessed 2026-11-12, updated 2026-11-13 after the P1 remediation. **Verdict: NO-GO.** Overall production readiness **40%** (raw weighted composite 55.5%, was 52.3%, capped at 40% because go-live blockers are open;
 method in [`project-status.md`](project-status.md)). Proposed next verdict after phases 0-2 of [`development-roadmap.md`](development-roadmap.md): CONDITIONAL GO for a limited
 closed beta; GO only after every gate below passes.
 
@@ -8,20 +8,20 @@ closed beta; GO only after every gate below passes.
 
 | # | Gate | State | Evidence |
 |---|---|---|---|
-| G1 | A user can receive a login code (at least one real OTP channel verified live) | **FAIL** | Twilio 20003; no e-mail provider; delivery only simulated (`otp_service.py`, FG-001..003) |
+| G1 | A user can receive a login code (at least one real OTP channel verified live) | **FAIL** | OTP logic hardened 2026-11-13 (attempt limit, single code, per-source cap). Twilio still rejects the credentials (20003, live read-only check); SMTP login works locally but Railway blocks SMTP; no Resend key; no message has been sent end to end. Use `scripts/otp_provider_check.py --live --send-test-email/--send-test-sms` once credentials are fixed |
 | G2 | All credentials that ever appeared in Git history rotated; repositories private | **FAIL** | repos PUBLIC (verified); rotation deferred (security-audit S-01) |
-| G3 | No known-vulnerable runtime dependency left unmitigated | **FAIL** | 147 advisories / 16 packages (S-02) |
+| G3 | No known-vulnerable runtime dependency left unmitigated | **PARTIAL** | Fixed in the repository (commit `b9be388`): a clean install has 0 runtime advisories, Dart 0 (OSV). Not yet shown on a Docker/Railway build or in CI; the local `.venv` is stale and must be rebuilt (S-02) |
 | G4 | CI green on GitHub at the release SHA for both repositories | **FAIL** | backend: one green run on an SHA 61 commits old; Flutter repo has no workflow |
 | G5 | Production environment configured: real secrets, `TRUSTED_PROXIES` verified for the host, CORS, `ENVIRONMENT=production` startup checks pass | **FAIL** | proxy range unmeasured (FG-167); production environment not created |
 | G6 | Production database ready and backed up with a proven restore | **PARTIAL** | Neon schema + data migrated and validated 2026-10-18, cutover not done; backup tooling exists, schedule disabled |
-| G7 | Release APK/AAB signed with an upload key | **FAIL** | debug-key fallback (S-04) |
+| G7 | Release APK/AAB signed with an upload key | **FAIL** | Debug-key fallback removed and release builds fail without an external key (verified); **no upload keystore exists**, so no signed build or fingerprint check yet (S-04) |
 | G8 | Play Console compliance: permission declarations, data-safety form, privacy policy | **FAIL** | restricted permissions (S-05); no notice artefacts |
 | G9 | Real-provider verification of each shipped integration (Anthropic, Safe Browsing, URLhaus, Google, panic SMS/e-mail) | **FAIL** | none run |
 | G10 | Device end-to-end on the release build (Android 10/13/15) including evidence retrieval and panic | **FAIL** | no device run in this audit; manual runs of 2026-10-06 are historical and used a local backend |
 | G11 | Retention and DPDP basics: retention periods implemented, notice/consent captured, erasure path reachable in the UI | **FAIL** | FG-034 open; erasure UI path not assessed |
-| G12 | Monitoring and incident response: alerting that works, error mail transport, a named admin with individual identity | **FAIL** | error alert e-mail blocked on Railway; shared admin token; no admin created |
+| G12 | Monitoring and incident response: alerting that works, error mail transport, a named admin with individual identity | **PARTIAL** | Named admin accounts with TOTP MFA, RBAC, sessions and audit exist and are tested (S-06); **no admin account has been created in any real environment**, the legacy token is still enabled by default, error alert e-mail is blocked on Railway, no alerting on admin actions |
 
-## Deployment controls scored (12 weighted controls; result 32%)
+## Deployment controls scored (12 weighted controls; result 34.5%, was 32.3%)
 
 | Control | Weight | Credit | Note |
 |---|---|---|---|
@@ -34,20 +34,20 @@ closed beta; GO only after every gate below passes.
 | Trusted proxy verified | 2 | 0 | unknown |
 | Monitoring/alerting | 2 | 0.1 | none working |
 | Horizontal scale readiness | 1 | 0 | in-memory limiter, local-disk uploads, 1 replica |
-| Release signing and Play prerequisites | 3 | 0.1 | debug key |
+| Release signing and Play prerequisites | 3 | 0.3 | signing is enforced fail-closed and verifiable (`tool/verify_apk_signature.py`); no keystore, no Play prerequisites |
 | Rollback and DR procedure | 2 | 0.8 | `../neon-migration/ROLLBACK_PROCEDURE.md`, backup tooling; rehearsed |
 | Live provider verification | 3 | 0 | none |
 
 ## What is solid
 
-Sessions and token lifecycle, object-level authorisation tests, upload/evidence safety, log scrubbing, account erasure, schema-drift protection, a
-rehearsed and validated database migration, a guarded migration toolkit, clean static analysis, 923 backend tests and 85 Flutter tests.
+Sessions and token lifecycle, object-level authorisation tests, hardened OTP verification, named admin accounts with MFA, upload/evidence safety, log scrubbing, account erasure, schema-drift protection, a
+rehearsed and validated database migration, a guarded migration toolkit, clean static analysis, a clean dependency scan, 1006 backend tests and 95 Flutter tests.
 
 ## Outstanding requirements to reach GO (owner / external)
 
 1. Rotate credentials, make repositories private, decide history handling (owner).
-2. Twilio Console verification + e-mail provider + India DLT (owner).
-3. Upload keystore, Play Console set-up and restricted-permission declarations (owner).
+2. Twilio Console verification (the SID/token pair is rejected) + e-mail provider + India DLT (owner); then one live send per channel.
+3. Upload keystore (the build now refuses to produce a release without it), Play Console set-up and restricted-permission declarations (owner).
 4. Legal review of DPDP position, retention periods, minors (owner/legal).
 5. Provide and verify the proxy range of the chosen host (owner/ops).
 6. Provide real provider keys with spend limits for verification (owner).
@@ -56,3 +56,5 @@ rehearsed and validated database migration, a guarded migration toolkit, clean s
 
 Retention periods (FG-034); whether to keep SMS/call-log features given Play policy; per-person admin identities vs shared token; Neon vs Railway as the
 production database; whether the Cyber Warriors programme and the client-only detectors ship in v1.
+7. Create the first superadmin with `python -m app.cli.admin_accounts create`, enrol MFA, then set `ADMIN_LEGACY_TOKEN_ENABLED=false` (owner/ops).
+8. Rebuild the local virtual environment from the new `requirements.txt`, and verify the Docker build and a Railway deploy of the upgraded stack (ops).

@@ -7,6 +7,40 @@ test; no exploit was attempted and no production system was touched. **No secret
 
 Ratings: Critical (exploitable now / blocks any release), High, Medium, Low. "Verified" = observed in this audit; "Register" = recorded earlier and not re-verified.
 
+## Status update 2026-11-13 (P1 remediation)
+
+The findings below are the 2026-11-12 baseline text. Current state of each item that was worked:
+
+| ID | Baseline finding | Status now | Evidence |
+|---|---|---|---|
+| S-01 | Public repositories with exposed history | **OPEN, Critical (unchanged)** - needs the owner (make private, rotate) | not touched |
+| S-02 | 147 advisories / 16 packages | **FIXED IN REPO, not deployed.** A clean install of the new `requirements.txt` has 0 runtime advisories (only pip 24.0 / setuptools 65.5.0 build tooling, 11 advisories, not imported by the app). Stale local `.venv` must be rebuilt | `pip-audit` on a clean venv; commit `b9be388`; 1006 tests pass on that install; Dart: 0 advisories for 207 packages (OSV) |
+| S-03 | No working OTP channel | **STILL BLOCKED (external).** Twilio rejects the credentials (`20003`, live read-only check 2026-11-13). SMTP login with the configured account succeeds locally (no message sent) but Railway blocks SMTP and delivery was never sent end to end | `scripts/otp_provider_check.py --live` |
+| S-04 | Debug-key release signing | **MITIGATED in code.** Release builds fail without an external key; placeholders, missing or in-project keystores are rejected; verifier fails on the debug certificate. **No upload keystore exists yet**, so a signed build is unverified | `build.gradle.kts`, `tool/verify_apk_signature.py`, 5 failing-build runs, commit `6cd21d4` |
+| S-06 | Shared static admin token | **MITIGATED.** Named accounts with scrypt passwords, mandatory TOTP, sessions, RBAC, audit; shared token kept as `admin`-role break-glass while `ADMIN_LEGACY_TOKEN_ENABLED` (default **true**) - switch it off after enrolment | commit `86b3ba2`; 31 + 3 + 33 tests; 13 mutation checks caught; browser flow verified |
+| S-08 | Anti-screenshot never works | **FIXED, device-unverified.** Method names aligned, ref-counted lifecycle, 12 screens protected | commit `5d4d16a`; 10 tests (mutation-checked) |
+| S-10 | In-memory rate limiter | OPEN (unchanged); OTP attempt limits are now persistent per code | `otps.attempts` |
+
+### Found and fixed during this remediation
+
+| ID | Finding | Severity | Fix / evidence |
+|---|---|---|---|
+| S-24 | OTP verification had no per-code attempt limit (only an in-memory per-identifier limiter), allowed several valid codes at once, was not atomic (two concurrent requests could both consume one code) and `send-otp` had no per-source cap (SMS-pumping / mail-bombing; one source could trigger a code to every number it could enumerate) | High | `otps.attempts` (migration `t5u6v7w8x9y0`), burn after 5 wrong guesses, newest-code-only + invalidate on resend, row lock, 20 sends/hour/source; 13 tests, 4 mutations caught (commit `f06a3d8`) |
+| S-25 | Race in my first admin implementation: two superadmins could disable or demote each other concurrently and leave no active superadmin (reproduced 3/3 in a test) | High (design) | account changes serialised with `pg_advisory_xact_lock`; last-superadmin guard; test + mutation (commit `86b3ba2`) |
+| S-26 | Admin console script had a JS escaping slip that silently broke the whole page (found only by driving a real browser) | Medium | fixed; syntax tests incl. `node --check` (commit `86b3ba2`) |
+| S-27 | PyJWT refuses to encode `alg=none` / empty-key tokens, so two existing forgery tests could not build them | Info | tests now craft the attacker's tokens by hand (still reject) |
+
+### Residual risks after the remediation
+
+* **Lockout is a denial vector:** anyone who knows an admin e-mail can lock that account for 15 minutes with wrong passwords; a superadmin or the CLI unlocks it. Locked and unknown accounts are indistinguishable.
+* **Legacy admin token** stays enabled by default (migration path) and has no identity or MFA until switched off; it cannot manage admin accounts.
+* **No e-mail/SMS recovery for admins** by design (recovery codes, another superadmin, or the CLI with database access).
+* `/auth/register` (409) and `/auth/check-user` still reveal whether an account exists (rate-limited; UX trade-off).
+* `SECRET_KEY` shorter than 32 bytes makes PyJWT emit `InsecureKeyLengthWarning`; production must use a long random key (startup already refuses the placeholder).
+* The TOTP secret is encrypted with a key derived from `SECRET_KEY`: rotating `SECRET_KEY` invalidates enrolled authenticators (use the CLI `reset-mfa` afterwards).
+* Admin throttles/limits remain per process (S-10).
+* The Docker image still installs from `python:3.11-slim`'s bundled pip; not built or deployed in this session.
+
 ## Critical
 
 | ID | Finding | Evidence | Recommendation |
@@ -67,8 +101,8 @@ local `.env` files are ever shared. **Rotate all of them; then re-run secret sca
 | CRYPTO | Met | GCM with authentication, CSPRNG key, legacy CBC read-only |
 | AUTH | Partly met | Biometric/PIN gate for the vault (`local_auth`, `FlutterFragmentActivity` fix); no re-auth for evidence |
 | NETWORK | Partly met | Cleartext off in release, system trust anchors only; no pinning |
-| PLATFORM | Not met | `FLAG_SECURE` broken (S-08); exported receiver (S-17); broad permissions (S-05) |
-| CODE | Partly met | R8 minify + shrink enabled; dependency scan missing for Dart; debug-key release (S-04) |
+| PLATFORM | Partly met | `FLAG_SECURE` fixed and applied to 12 screens, device-unverified (S-08); exported receiver (S-17); broad permissions (S-05) |
+| CODE | Partly met | R8 minify + shrink enabled; Dart packages scanned via OSV (0); release signing now fail-closed, no keystore yet (S-04) |
 | RESILIENCE | Partly met | Detects rooted/emulated device (`DeviceIntegrityProbe.kt`) - no self-integrity or anti-tamper of the app itself |
 | PRIVACY | Not met | Permission rationale/consent manager exists; no privacy notice, data-safety form or deletion UI path assessed |
 
@@ -77,10 +111,10 @@ local `.env` files are ever shared. **Rotate all of them; then re-run secret sca
 | Item | Result | Evidence |
 |---|---|---|
 | API1 BOLA | Good | Owner filters + other-user 404 tests: evidence, recordings, family (consent), scans, devices, alerts, reports (`test_device_scoped_data_api`, `test_family_api`, `test_evidence_recordings_api`); register FG-130/131/132 fixed |
-| API2 Broken authentication | Good in code, unusable in practice | type-separated JWT, rotation with replay revocation, HMAC'd OTP, send/verify limits; delivery blocked |
+| API2 Broken authentication | Good in code, unusable in practice | type-separated JWT, rotation with replay revocation, HMAC'd OTP with per-code attempt limit, atomic single use, per-source send limit, named admins with mandatory TOTP; delivery blocked |
 | API3 Property-level authorisation | Fair | response models used; not systematically audited |
 | API4 Resource consumption | Fair | body/upload caps, AI rate limits, global IP limiter (in-memory) |
-| API5 Function-level authorisation | Fair | admin routes require the shared token; warrior admin uses role >= admin; shared token is weak (S-06) |
+| API5 Function-level authorisation | Good | admin routes enforce support/admin/superadmin server-side (tested for escalation); legacy token confined to the admin role and still enabled by default (S-06) |
 | API6 Sensitive business flows | Fair | OTP send limits (5/h), panic limit 10/10 min |
 | API7 SSRF | Low exposure | outbound calls go to fixed provider hosts; scanned URLs are sent *to* providers, not fetched by the server |
 | API8 Misconfiguration | Fair | CORS fail-closed in production, production startup checks; docs exposed (S-09), root container (S-12) |

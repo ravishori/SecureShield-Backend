@@ -10,6 +10,13 @@ checked out as `../flutter_app`). Layout: `app/routers`, `app/services`, `app/mo
 * Lint: `ruff check app tests scripts` and `ruff format --check app tests scripts` (ruff 0.9.4).
 * Migrations: `python -m alembic upgrade head` (single linear head; add a migration for every schema change; `tests/integration/test_schema_drift.py` must stay green).
 
+## Operations commands
+
+* Dependencies: `pip install -r requirements.txt` into a fresh virtual environment (the repository pins; stale environments carry old advisories). Audit with `pip-audit` (install it outside the project environment); keep the result at zero runtime advisories and record it in `docs/audit/`.
+* Admin accounts (the shared `X-Admin-Token` is legacy break-glass; set `ADMIN_LEGACY_TOKEN_ENABLED=false` once named admins are enrolled): `python -m app.cli.admin_accounts create --email <e-mail> --role superadmin` (hidden password prompt), `list`, `reset-mfa`, `set-password`, `unlock`, `disable`, `enable`. Passwords are never passed on the command line.
+* OTP providers: `python scripts/otp_provider_check.py` (configuration by variable name only) and `--live` (read-only authentication, sends nothing). `--send-test-email/--send-test-sms` really send a dummy message: use only with an address/number you own.
+* Admin auth rules to keep: role and account state are re-read from the database on every request; account-management changes stay serialised; every privileged action is audited with its actor; no code path may print passwords, TOTP secrets, recovery codes or OTPs.
+
 ## Non-negotiable rules
 
 * Never print, log, commit or paste secrets, connection strings, tokens or personal data. Name them, do not show them. `.env*` files are git-ignored; keep it that way.

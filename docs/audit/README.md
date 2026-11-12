@@ -4,7 +4,7 @@ This folder is the authoritative record of what the SecureShield AI project **ac
 from production. It covers both repositories (backend: this repository; Flutter app: `SecureShield-Frontend`, checked out beside it as `../flutter_app`).
 It is **evidence-based**: a feature is never listed as TESTED or PRODUCTION because a file, screen or document says so.
 
-Last full audit: **2026-11-12** - verdict **NO-GO**, production readiness **40%** (see [`project-status.md`](project-status.md)).
+Last full audit: **2026-11-12**; last update **2026-11-13** (P1 remediation) - verdict **NO-GO**, production readiness **40%** (see [`project-status.md`](project-status.md)).
 
 | Document | Contents |
 |---|---|

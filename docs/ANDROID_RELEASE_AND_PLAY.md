@@ -4,7 +4,7 @@
 
 | Item | State |
 |---|---|
-| Release signing | `android/app/build.gradle.kts` reads `android/key.properties` (git-ignored, with `*.jks`/`*.keystore`). Without it the build falls back to the **debug key and prints a warning** - such a build must never be uploaded. |
+| Release signing | `android/app/build.gradle.kts` reads `android/key.properties` (git-ignored, with `*.jks`/`*.keystore`). Since 2026-11-13 a release build **fails** without it (no debug-key fallback); see `flutter_app/docs/ANDROID_RELEASE.md`. |
 | R8 / resource shrinking | `isMinifyEnabled = true`, `isShrinkResources = true`, rules in `android/app/proguard-rules.pro` |
 | Cleartext HTTP | Release: HTTPS only (`network_security_config.xml`, `cleartextTrafficPermitted=false`). Debug/profile override it so LAN dev servers still work. `usesCleartextTraffic="true"` was removed from the main manifest. |
 | Backups | `android:allowBackup="false"` (the app stores encrypted evidence keys / tokens) |

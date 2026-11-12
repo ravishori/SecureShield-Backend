@@ -3,6 +3,26 @@
 Newest first. Each entry records what was assessed or changed, the evidence, and the effect on [`project-status.md`](project-status.md). Entries are append-only; corrections are
 new entries.
 
+## 2026-11-13 - P1 functional blockers remediation (five items)
+
+**Commits (nothing pushed):** backend `f06a3d8` (OTP), `b9be388` (dependencies), `86b3ba2` (admin identity); Flutter `5d4d16a` (FLAG_SECURE), `6cd21d4` (release signing); documentation commits follow this entry.
+**Migrations (both additive, nothing destroyed):** `t5u6v7w8x9y0` adds `otps.attempts` (default 0); `u6v7w8x9y0z1` creates `admin_accounts`, `admin_sessions` and adds nullable `actor_admin_id`/`actor_label` to `admin_audit_logs`. Neither was applied to Neon or any real database; head is now `u6v7w8x9y0z1`.
+**Results:** backend **1006 passed** (923 before) on a clean install of the new requirements; Flutter analyze clean, **95** tests (85 before); `ruff` clean; 13/13 security mutations caught; details in [`testing-and-qa.md`](testing-and-qa.md).
+
+| Blocker | Root cause | Change | Status after |
+|---|---|---|---|
+| OTP delivery | Twilio 20003 = credentials rejected by Twilio (present and well-formed; wrong/rotated token, or token of another account); no e-mail provider configured for Railway; verification also lacked a per-code attempt limit, allowed several valid codes, was non-atomic and `send-otp` had no per-source cap | `routers/auth.py`, `services/otp_codes.py`, `models/user.py`, migration `t5u6v7w8x9y0`, `scripts/otp_provider_check.py`, 13 tests | Logic hardened and tested. **Delivery still not working:** Twilio rejected live (read-only check), SMTP login works locally, nothing sent. Provider-verified: **no** |
+| Release signing | `build.gradle.kts` silently fell back to the debug key | fail-closed signing config, `key.properties.example`, ignore rules, `docs/ANDROID_RELEASE.md`, `tool/verify_apk_signature.py`, `tool/compare_apks.py` + tests | Fail-closed behaviour verified (5 negative builds). **No keystore; signed build unverified** |
+| Anti-screenshot | Dart called `addFlags`/`clearFlags`, Kotlin handled `enableSecure`/`disableSecure`; no screen used the wrapper | Dart rewrite (ref-count, queue, resume), Kotlin `isSecure`, 12 routes wrapped, 10 tests | Code complete and unit-tested. **Device-verified: no** |
+| Dependencies | stale pins (python-jose 3.3.0, starlette 0.38.6, python-multipart 0.0.12, cryptography 43.0.3); 147 advisories in a stale venv, 36 in a clean install of the old pins | `requirements.txt` (FastAPI 0.133, Starlette >= 1.3.1, python-multipart 0.0.33, cryptography 50.0.2, PyJWT 2.15.1; passlib removed; floors), `google_auth.py` and 7 tests ported | Clean install: 0 runtime advisories; Dart 0 (OSV, 207 packages). Docker/Railway/CI not verified |
+| Admin identity + MFA | single shared static token | models, migration, `admin_security`, `admin_access`, `admin_auth`, CLI, console page, 4 older tests updated | Code complete, tested, mutation-checked, browser-verified locally. Not deployed; legacy token still enabled by default |
+
+**Defects found in my own work and fixed before commit:** naive-UTC timestamps in the admin token (tokens appeared expired by the UTC offset); a JS escaping slip that broke the console page (found only in the browser); a superadmin self-removal race (reproduced 3/3, fixed with an advisory lock); four surviving mutants turned into tests.
+**Note:** python-jose was used by `routers/auth.py` and `services/google_auth.py`; both now use PyJWT (`jwt`, `PyJWK`).
+**Percentages:** implementation 74.5, frontend 75.2, backend 85.7, integration 63.7, testing/QA 45.0, security 60.7, deployment 34.5, production readiness 40 (raw 55.5). **Verdict: NO-GO** (unchanged).
+**Unresolved:** repositories still public (S-01); no live OTP; no keystore; no device test; legacy admin token enabled; nothing deployed.
+**Manual verification steps (not done):** (1) Twilio Console: compare SID/token, then `python scripts/otp_provider_check.py --live`; (2) after credentials are fixed, `--send-test-email <your address>` / `--send-test-sms <your number>`; (3) device: open Evidence, OTP vault, Family and confirm a screenshot is blocked/black and the recents thumbnail is blank, then confirm an unprotected screen can be captured again; (4) create the keystore, build, `python tool/verify_apk_signature.py <apk> --expect-sha256 <fingerprint>`; (5) `python -m app.cli.admin_accounts create ...`, sign in at `/api/v1/admin/console`, enrol MFA, then set `ADMIN_LEGACY_TOKEN_ENABLED=false` and confirm the old token is refused; (6) rebuild the venv and Docker image from `requirements.txt` and re-run `pip-audit`.
+
 ## 2026-11-12 - Comprehensive audit and creation of `docs/audit/`
 
 **Scope:** both repositories (backend `30664ce`, Flutter `ac5cd50`), all documentation, code, tests, builds, dependencies, GitHub state (read-only).
