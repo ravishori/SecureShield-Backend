@@ -3,6 +3,10 @@
 Newest first. Each entry records what was assessed or changed, the evidence, and the effect on [`project-status.md`](project-status.md). Entries are append-only; corrections are
 new entries.
 
+## 2026-11-13 - Staging deployment attempt: STOPPED at preflight
+
+Preflight (read-only) on 2026-11-13, backend `cef1407` / Flutter `5898b1e`: repositories **PUBLIC** (both); Twilio still **rejected (20003)**, so credentials are not rotated/valid and there is no phone OTP channel; no Resend key (SMTP login works locally only); **no upload keystore** (no `key.properties`, no `SECURESHIELD_KEYSTORE_PATH`); **Docker not installed**; Railway CLI logged in but **no project linked** and no isolated staging environment exists. Working trees unchanged (only the pre-existing Neon-fix / seed / `start.bat` files). Mandatory prerequisites failed, so nothing was built, migrated, deployed or sent; no secrets were touched. Steps 2-6 remain to be run after the owner actions in `p1-closure-report.md`.
+
 ## 2026-11-13 - P1 closure verification and deployment preparation
 
 **Commits (nothing pushed):** backend `be9faad` (provider-check double-send fix), `1bcdf16` (exact-value gitleaks allowlist for fake test passwords), `28a490c` (API docs off in production), documentation commit follows; Flutter `5898b1e` (signing doc: bundle verification, checklist). **No migration applied anywhere; no deployment; repositories still PUBLIC.**
