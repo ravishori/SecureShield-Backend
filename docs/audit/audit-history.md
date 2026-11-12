@@ -3,6 +3,10 @@
 Newest first. Each entry records what was assessed or changed, the evidence, and the effect on [`project-status.md`](project-status.md). Entries are append-only; corrections are
 new entries.
 
+## 2026-11-13 - Staging preflight re-run: still STOPPED
+
+Re-checked with fresh evidence (backend `6f8296c`, Flutter `5898b1e`): both repositories still PUBLIC; Twilio still rejected (20003); no Resend key; no keystore; Docker absent; Railway CLI has no linked project; no adb device. Nothing changed since the previous entry, so no build, migration, deployment or send was attempted. Security prerequisites failed, so execution stopped immediately. **Staging verdict: NO-GO.**
+
 ## 2026-11-13 - Staging deployment attempt: STOPPED at preflight
 
 Preflight (read-only) on 2026-11-13, backend `cef1407` / Flutter `5898b1e`: repositories **PUBLIC** (both); Twilio still **rejected (20003)**, so credentials are not rotated/valid and there is no phone OTP channel; no Resend key (SMTP login works locally only); **no upload keystore** (no `key.properties`, no `SECURESHIELD_KEYSTORE_PATH`); **Docker not installed**; Railway CLI logged in but **no project linked** and no isolated staging environment exists. Working trees unchanged (only the pre-existing Neon-fix / seed / `start.bat` files). Mandatory prerequisites failed, so nothing was built, migrated, deployed or sent; no secrets were touched. Steps 2-6 remain to be run after the owner actions in `p1-closure-report.md`.
