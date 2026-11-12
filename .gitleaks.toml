@@ -14,6 +14,19 @@ regexes = [
   '''disabled-by-e2e-harness''',
   '''SMTP_PASSWORD: preserve\(\)''',
   '''ACabcdef0123456789abcdef0123456789''',
+  # Deliberately fake values in tests/integration/test_admin_*.py and tests/unit/test_admin_security.py (exact values only):
+  '''Correct-Horse-9-battery''',
+  '''Wrong-Password-1234''',
+  '''Temp-Passw0rd-xyz''',
+  '''Brand-New-Passw0rd!''',
+  '''Another-Strong-Passw0rd''',
+  '''Yet-Another-Passw0rd''',
+  '''Fresh-Temp-Passw0rd''',
+  '''Zebra-Quartz-Passw0rd-123''',
+  '''nope-nope-nope-1''',
+  '''Tr0ub4dor&3-horse-staple''',
+  '''GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ''',
+  '''JBSWY3DPEHPK3PXP''',
   '''k9-F2Jx7mZ\.LpQw3-RVnTbU6Yx8Ag4Bc5De1Hi2JkMo7PqRs''',
 ]
 paths = [
