@@ -40,10 +40,19 @@ logger = get_logger(__name__)
 # mask those before any handler formats the line.
 install_access_log_redaction()
 
+
+def api_doc_urls(current) -> dict:
+    """Interactive API docs (/docs, /redoc, /openapi.json) are development tools: they list every route, so they are off in production."""
+    if current.is_production():
+        return {"docs_url": None, "redoc_url": None, "openapi_url": None}
+    return {}
+
+
 app = FastAPI(
     title="SecureShield AI API",
     description="Cyber Safety & Threat Prevention Backend",
     version="1.0.0",
+    **api_doc_urls(settings),
 )
 
 # ── Middleware (order matters: error handler must be outermost) ──────────────
