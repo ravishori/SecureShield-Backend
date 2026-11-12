@@ -229,7 +229,9 @@ async def test_every_admin_route_family_shares_one_budget(client, clock):
         good = await client.get(BASE + path, headers={"X-Admin-Token": TOKEN})
         bad = await client.get(BASE + path, headers=wrong)
         none = await client.get(BASE + path)
-        assert good.status_code == bad.status_code == none.status_code == 429, path
+        assert good.status_code == bad.status_code == 429, path
+        # No credentials at all is not an attempt on the shared token: a plain 401 that never reveals throttle state.
+        assert none.status_code == 401, path
         assert good.headers["retry-after"] == str(WINDOW)
         assert TOKEN not in good.text and "wrong-token" not in bad.text
 

@@ -20,6 +20,7 @@ from app.routers import recordings, emergency_contacts
 from app.routers import community_scam, message_analyzer, video_call
 from app.routers import app_monitor, clone_detection, elderly_protection
 from app.routers import admin_errors
+from app.routers import admin_auth
 from app.routers import admin_users
 from app.routers import admin_console
 from app.routers import cyber_warrior
@@ -86,6 +87,7 @@ app.include_router(elderly_protection.router, prefix=PREFIX)
 app.include_router(video_call.router, prefix=PREFIX)
 app.include_router(emergency_contacts.router, prefix=PREFIX)
 app.include_router(admin_errors.router, prefix=PREFIX)
+app.include_router(admin_auth.router, prefix=PREFIX)
 app.include_router(admin_users.router, prefix=PREFIX)
 app.include_router(admin_console.router, prefix=PREFIX)
 app.include_router(cyber_warrior.router, prefix=PREFIX)
@@ -106,6 +108,7 @@ async def on_startup():
     # the declared environment (missing TLS, dev-default secrets, etc.).
     # In dev these are no-ops. See app/startup_checks.py.
     run_startup_checks(settings)
+    _warn_if_legacy_admin_token()
 
     # ── Cleanup old error logs ────────────────────────────────────────────
     await _cleanup_old_error_logs()
@@ -119,6 +122,18 @@ async def on_startup():
         logger.info(f"Error alerts will be emailed to: {notify_email}")
     else:
         logger.warning("ERROR_NOTIFY_EMAIL not set — no email alerts will be sent")
+
+
+def _warn_if_legacy_admin_token() -> None:
+    """The shared X-Admin-Token has no identity and no MFA: say so loudly in production until it is switched off."""
+    from app.admin_settings import admin_settings
+
+    if admin_settings.ADMIN_LEGACY_TOKEN_ENABLED:
+        level = logger.warning if settings.ENVIRONMENT == "production" else logger.info
+        level(
+            "Legacy shared admin token is ENABLED (no identity, no MFA). Create named admin accounts "
+            "(python -m app.cli.admin_accounts) and set ADMIN_LEGACY_TOKEN_ENABLED=false."
+        )
 
 
 async def _cleanup_old_error_logs() -> None:

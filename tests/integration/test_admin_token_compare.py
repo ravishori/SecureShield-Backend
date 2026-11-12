@@ -130,15 +130,19 @@ async def test_rejected_and_accepted_requests_never_log_the_token(
 
 async def test_unconfigured_admin_is_503_over_http(client, monkeypatch):
     monkeypatch.setattr(settings, "ADMIN_TOKEN", "")
-    for headers in ({}, {"X-Admin-Token": ""}):
-        assert (await client.get(BASE + "/stats", headers=headers)).status_code == 503
+    # An empty token header is an attempt on an unconfigured shared token; no credentials at all is just unauthenticated.
+    assert (
+        await client.get(BASE + "/stats", headers={"X-Admin-Token": ""})
+    ).status_code == 503
+    assert (await client.get(BASE + "/stats")).status_code == 401
 
 
-def test_admin_users_guard_delegates_to_the_same_check(monkeypatch):
+async def test_admin_users_guard_delegates_to_the_same_check(client, monkeypatch):
+    """The legacy header is judged by admin_errors._check_admin for EVERY admin router (one comparison, one throttle)."""
     calls = []
-    monkeypatch.setattr(admin_users, "_check_admin", lambda t: calls.append(t))
-    admin_users.require_admin("whatever")
-    assert calls == ["whatever"]
+    monkeypatch.setattr(admin_errors, "_check_admin", lambda t: calls.append(t))
+    r = await client.get(BASE + "/stats", headers={"X-Admin-Token": "whatever"})
+    assert r.status_code == 200 and calls == ["whatever"]
 
 
 # ------------------------------------------------------------------ structure

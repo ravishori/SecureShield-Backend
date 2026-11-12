@@ -1,8 +1,8 @@
 """Admin operations: platform statistics and user account control.
 
-Protected by the same static ``X-Admin-Token`` as the error-log admin API (constant-time compare).
-Responses never include credentials, OTPs, tokens or hashed passwords. Every state change is
-written to the application log (actor is the token holder, i.e. "admin") with the target id only.
+Requires an admin session (``Authorization: Bearer`` from /admin/auth/login) or, while ADMIN_LEGACY_TOKEN_ENABLED is
+true, the legacy shared ``X-Admin-Token``. Responses never include credentials, OTPs, tokens or hashed passwords.
+Every state change is written to the audit log with the actor (named admin or ``legacy-token``) and the target id.
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,15 +20,16 @@ from app.models.admin_audit import AdminAuditLog
 from app.models.evidence import Evidence
 from app.models.recording import Recording
 from app.models.user import User
-from app.routers.admin_errors import _check_admin
+from app.services.admin_access import AdminPrincipal, add_audit, require_role
 from app.services.logger_service import get_logger
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 
-def require_admin(x_admin_token: Optional[str] = Header(None)) -> None:
-    _check_admin(x_admin_token)
+# Read-only views need any admin role; changing an end user needs "admin" (the legacy token counts as "admin").
+require_admin = require_role("support")
+require_operator = require_role("admin")
 
 
 class StatusBody(BaseModel):
@@ -117,11 +118,12 @@ async def list_users(
     }
 
 
-@router.patch("/users/{user_id}/status", dependencies=[Depends(require_admin)])
+@router.patch("/users/{user_id}/status")
 async def set_user_status(
     user_id: str,
     body: StatusBody,
     request: Request,
+    principal: AdminPrincipal = Depends(require_operator),
     db: AsyncSession = Depends(get_db),
 ):
     """Disable or re-enable an account. A disabled account fails every authenticated request
@@ -135,13 +137,13 @@ async def set_user_status(
         raise HTTPException(status_code=404, detail="User not found")
     if user.is_active != body.is_active:
         user.is_active = body.is_active
-        db.add(
-            AdminAuditLog(
-                action="user.enable" if body.is_active else "user.disable",
-                target_user_id=user.id,
-                detail={"is_active": body.is_active},
-                client_ip=request.client.host if request.client else None,
-            )
+        add_audit(
+            db,
+            principal,
+            "user.enable" if body.is_active else "user.disable",
+            request,
+            target_user_id=user.id,
+            detail={"is_active": body.is_active},
         )
         await db.commit()
         logger.warning(
@@ -188,6 +190,8 @@ async def audit_log(
                 "id": r.id,
                 "action": r.action,
                 "target_user_id": r.target_user_id,
+                "actor": r.actor_label,
+                "actor_admin_id": r.actor_admin_id,
                 "detail": r.detail,
                 "client_ip": r.client_ip,
                 "created_at": r.created_at,

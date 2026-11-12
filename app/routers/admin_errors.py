@@ -1,9 +1,10 @@
 """
 Admin / observability router — query and inspect the error_logs table.
 
-NOT exposed to end users. Protected by a static admin-token header check.
+NOT exposed to end users. Requires an admin session (``Authorization: Bearer`` from /admin/auth/login, any role) or,
+while ADMIN_LEGACY_TOKEN_ENABLED is true, the legacy shared token below.
 
-Set ADMIN_TOKEN in .env to a strong secret. Then call with:
+Legacy call (set ADMIN_TOKEN in .env to a strong secret):
     curl -H "X-Admin-Token: $ADMIN_TOKEN" \
          http://localhost:8000/api/v1/admin/errors?level=CRITICAL&limit=20
 """
@@ -14,7 +15,7 @@ import hmac
 import threading
 from typing import Any, Optional
 
-from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import Depends
@@ -23,6 +24,7 @@ from app.config import settings
 from app.database import get_db
 from app.middleware.rate_limiter import rate_limiter
 from app.models.error_log import ErrorLog
+from app.services.admin_access import AdminPrincipal, require_role
 from app.services.logger_service import get_logger
 
 logger = get_logger(__name__)
@@ -99,11 +101,9 @@ async def list_errors(
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
-    x_admin_token: Optional[str] = Header(None),
+    _principal: AdminPrincipal = Depends(require_role("support")),
 ) -> dict[str, Any]:
     """List recent error_logs rows with optional filters."""
-    _check_admin(x_admin_token)
-
     q = select(ErrorLog)
     if level:
         q = q.where(ErrorLog.level == level.upper())
@@ -138,11 +138,9 @@ async def list_errors(
 async def get_error(
     error_id: int,
     db: AsyncSession = Depends(get_db),
-    x_admin_token: Optional[str] = Header(None),
+    _principal: AdminPrincipal = Depends(require_role("support")),
 ) -> dict[str, Any]:
     """Fetch one error_log row including full traceback + extra."""
-    _check_admin(x_admin_token)
-
     row = await db.get(ErrorLog, error_id)
     if not row:
         raise HTTPException(status_code=404, detail=f"error_log {error_id} not found")
@@ -166,11 +164,9 @@ async def get_error(
 @router.get("/errors/stats/summary")
 async def errors_summary(
     db: AsyncSession = Depends(get_db),
-    x_admin_token: Optional[str] = Header(None),
+    _principal: AdminPrincipal = Depends(require_role("support")),
 ) -> dict[str, Any]:
     """Aggregate counts by level + top noisy endpoints (last 24h)."""
-    _check_admin(x_admin_token)
-
     # Per-level counts
     level_rows = (
         await db.execute(select(ErrorLog.level, func.count()).group_by(ErrorLog.level))
