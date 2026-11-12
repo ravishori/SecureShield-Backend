@@ -11,7 +11,8 @@ import time
 from dataclasses import dataclass
 
 import httpx
-from jose import JWTError, jwt
+import jwt
+from jwt import PyJWK, PyJWTError as JWTError
 
 from app.config import settings
 
@@ -97,11 +98,18 @@ async def verify_google_id_token(id_token: str) -> GoogleIdentity:
     if key is None:
         raise GoogleAuthError("unknown signing key")
 
+    try:
+        signing_key = PyJWK.from_dict(key).key
+    except Exception as exc:  # malformed JWK from the endpoint: never trust it
+        raise GoogleAuthError("unusable signing key") from exc
+
     claims = None
     last_error = "audience mismatch"
     for aud in audiences:
         try:
-            claims = jwt.decode(id_token, key, algorithms=["RS256"], audience=aud)
+            claims = jwt.decode(
+                id_token, signing_key, algorithms=["RS256"], audience=aud
+            )
             break
         except JWTError as exc:
             last_error = type(exc).__name__

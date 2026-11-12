@@ -7,7 +7,8 @@ threading) is a direct auth bypass risk, so these are run on every PR.
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from jose import jwt, JWTError
+import jwt
+from jwt import PyJWTError as JWTError
 
 from app.config import settings
 from app.routers.auth import create_token
@@ -66,7 +67,7 @@ class TestCreateToken:
     def test_algorithm_cannot_be_forced_to_none(self):
         """Classic JWT 'none' algorithm attack must not work.
 
-        We can't use jose's encoder to forge the token — jose refuses to
+        We can't use the library's encoder to forge the token — it refuses to
         encode with `algorithm='none'` outright (which is good; that's one
         layer of defence). Here we hand-craft the raw bytes of a token
         claiming `alg=none` and verify the DECODER also refuses it, which

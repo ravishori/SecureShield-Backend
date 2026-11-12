@@ -8,7 +8,7 @@ import httpx
 import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
-from jose import jwt
+import jwt
 from sqlalchemy import select
 
 import app.services.google_auth as ga
@@ -150,13 +150,26 @@ async def test_bad_tokens_are_rejected_with_a_generic_401(client, signer, google
 
 @pytest.mark.security
 async def test_alg_none_and_hs256_confusion_are_rejected(client, signer):
-    forged_none = jwt.encode(
-        {"aud": CLIENT_ID, "email": "x@example.com"},
-        "",
-        algorithm="HS256",
-        headers={"kid": "k1"},
+    # PyJWT refuses to *encode* these (alg=none, empty HMAC key), so the attacker's tokens are built by hand.
+    import hashlib
+    import hmac as _hmac
+    import json
+
+    def _seg(obj) -> str:
+        return base64.urlsafe_b64encode(json.dumps(obj).encode()).rstrip(b"=").decode()
+
+    claims = {"aud": CLIENT_ID, "email": "x@example.com"}
+    unsigned = f"{_seg({'alg': 'none', 'kid': 'k1'})}.{_seg(claims)}."
+    assert (await login(client, unsigned)).status_code == 401
+    head = f"{_seg({'alg': 'HS256', 'kid': 'k1'})}.{_seg(claims)}"
+    sig = (
+        base64.urlsafe_b64encode(_hmac.new(b"", head.encode(), hashlib.sha256).digest())
+        .rstrip(b"=")
+        .decode()
     )
-    assert (await login(client, forged_none)).status_code == 401
+    assert (
+        await login(client, f"{head}.{sig}")
+    ).status_code == 401  # HS256 signed with an empty secret
     # HS256 signed with the public modulus as the secret (classic algorithm confusion)
     confused = jwt.encode(
         {

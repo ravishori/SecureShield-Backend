@@ -1,7 +1,7 @@
 """Scrubber unit tests: redact credentials/PII, keep diagnostics, never raise."""
 
 import pytest
-from jose import jwt
+import jwt
 
 from app.services.log_scrubber import MAX_MESSAGE, scrub_obj, scrub_text
 

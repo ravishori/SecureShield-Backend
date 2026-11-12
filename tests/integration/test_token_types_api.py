@@ -5,7 +5,7 @@ Real routes, real PostgreSQL, tokens minted with the application's own functions
 from datetime import timedelta
 
 import pytest
-from jose import jwt
+import jwt
 
 from app.config import settings
 from app.routers.auth import create_token, create_tokens

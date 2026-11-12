@@ -7,7 +7,7 @@ import time
 
 import httpx
 import pytest
-from jose import jwt
+import jwt
 from pydantic import BaseModel, EmailStr, ValidationError
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError

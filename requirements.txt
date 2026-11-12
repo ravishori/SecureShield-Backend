@@ -1,4 +1,6 @@
-fastapi==0.115.0
+fastapi==0.133.0
+# FastAPI 0.133 is the first release that accepts Starlette 1.x; Starlette < 1.3.1 has 7 known advisories (pip-audit 2026-11-12).
+starlette>=1.3.1
 uvicorn[standard]==0.30.6
 gunicorn==23.0.0
 sqlalchemy[asyncio]==2.0.35
@@ -6,13 +8,25 @@ asyncpg==0.29.0
 alembic==1.13.3
 pydantic==2.9.2
 pydantic-settings==2.5.2
-python-jose[cryptography]==3.3.0
-passlib[bcrypt]==1.7.4
-python-multipart==0.0.12
+# JWT: PyJWT replaces python-jose (3.5.0 still has unfixed advisories, plus the unmaintained ecdsa dependency). passlib was unused and is removed.
+PyJWT==2.15.1
+# python-multipart < 0.0.31 has 7 advisories (DoS, header/path handling); 0.0.33 is current.
+python-multipart==0.0.33
 anthropic==0.40.0
 httpx==0.27.2
-cryptography==43.0.3
+# cryptography < 50.0.0 has 7 advisories (bundled OpenSSL, certificate validation, PKCS7 decrypt oracle).
+cryptography==50.0.2
 twilio==9.3.7
 
 # Cyber Warriors — EmailStr validation
 email-validator>=2.0,<3.0
+
+# Security floors for transitive dependencies (versions below these carry known advisories). Fresh installs already resolve
+# to newer releases; the floors keep an old cached or long-lived environment from drifting back.
+aiohttp>=3.14.4
+urllib3>=2.8.0
+anyio>=4.14.2
+certifi>=2026.10.18
+idna>=3.15
+dnspython>=2.9.0
+multidict>=6.9.1
