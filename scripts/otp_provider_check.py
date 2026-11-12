@@ -183,19 +183,6 @@ def main() -> int:
         for target in (args.send_test_email, args.send_test_sms):
             if target:
                 res = asyncio.run(deliver_otp(target, "000000"))
-                print(
-                    f"  {'e-mail' if '@' in target else 'sms/whatsapp'}: {'delivered via ' + res.method if res.success else 'FAILED (' + str(res.error) + ')'}"
-                )
-
-    if args.send_test_email or args.send_test_sms:
-        import asyncio
-
-        from app.services.otp_service import deliver_otp
-
-        print("== Test delivery (dummy code 000000; this is NOT a login code)")
-        for target in (args.send_test_email, args.send_test_sms):
-            if target:
-                res = asyncio.run(deliver_otp(target, "000000"))
                 kind = "e-mail" if "@" in target else "sms/whatsapp"
                 outcome = (
                     f"delivered via {res.method}"
