@@ -3,6 +3,10 @@
 Newest first. Each entry records what was assessed or changed, the evidence, and the effect on [`project-status.md`](project-status.md). Entries are append-only; corrections are
 new entries.
 
+## 2026-11-13 - Infrastructure setup audit (preparation only)
+
+Read-only audit: both repositories public; no GitHub `staging`/`android-release` environments, secrets or variables; Railway project `secureshield-staging` exists (environment named `production`); no Resend key/domain; no keystore (JDK keytool available). Verified required vs optional settings from code. Added `docs/audit/infrastructure-setup.md` (per-task A-F classification, Resend DNS record template without invented values, keystore commands, Railway readiness, secrets inventory, registers) and three preserved variables in `.railway/railway.ts`. No external change, no e-mail, no key, no push. All six tasks PLANNED; next actions are owner steps listed there.
+
 ## 2026-11-13 - Docker-free architecture and infrastructure completion (configuration only)
 
 **Decision:** no Docker; Railway native Python build; separate Railway PostgreSQL per environment; Resend for e-mail OTP; GitHub Actions without Docker; repositories to stay private (they were still PUBLIC when checked, so nothing was pushed).

@@ -17,6 +17,7 @@ Last full audit: **2026-11-12**; last update **2026-11-13** (P1 remediation) - v
 | [`development-roadmap.md`](development-roadmap.md) | Prioritised remaining work with estimates |
 | [`p1-closure-report.md`](p1-closure-report.md) | P1 closure verification: four-level status per blocker, evidence for the seven closure checks, owner actions, GO/NO-GO |
 | [`deployment-runbook.md`](deployment-runbook.md) | Configuration checklist, migration/backend/Flutter procedures, staging smoke plan, DNS/monitoring/backup/rollback, Play checklist (prepared, not executed) |
+| [`infrastructure-setup.md`](infrastructure-setup.md) | Owner action plan for Resend, keystore, Railway staging, GitHub environments, staging secrets inventory, registers |
 | [`audit-history.md`](audit-history.md) | Dated, append-only history of findings, changes and test evidence |
 
 Related older records (kept, not replaced): `../SECURESHIELD_FEATURE_COMPLETION_MATRIX.md`, `../SECURESHIELD_FEATURE_GAPS_AND_ERRORS.md`
