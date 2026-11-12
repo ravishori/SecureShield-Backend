@@ -5,6 +5,8 @@ Assessed **2026-11-13** (baseline audit 2026-11-12; P1 remediation 2026-11-13). 
 
 ## Verdict
 
+Update 2026-11-13 (closure verification, backend `28a490c`): see [`p1-closure-report.md`](p1-closure-report.md) - **no P1 blocker is CLOSED** (none has external or production evidence) and publishing/deploying is blocked while the repositories are public. Backend suite at HEAD: 1009 passed. Interactive API docs are now off in production.
+
 **NO-GO for production** (unchanged). About **40%** production-ready (capped; raw weighted composite 55.5%). Details and the 12 go-live gates are in
 [`production-readiness.md`](production-readiness.md).
 
@@ -42,7 +44,7 @@ Feature status counts: **TESTED 21, BUILT 12, BUILDING 3, REVIEWED 2, PLANNED 0,
 | Item | Value |
 |---|---|
 | Backend app code | 25 router modules / 126 routes, 22 services, 25 model files (32 ORM tables), 23 Alembic revisions (head `u6v7w8x9y0z1`) |
-| Backend tests | 63 test files; **1006 passed** (was 923) |
+| Backend tests | 63 test files; **1009 passed** at `1bcdf16` (was 923); +3 docs-gate tests added afterwards |
 | Flutter app | 160 Dart files, 48 screens; **95 tests** in 12 files (was 85); 3 Python tool tests |
 | Android native | 12 Kotlin files; no automated tests |
 

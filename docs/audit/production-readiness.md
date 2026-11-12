@@ -4,6 +4,8 @@ Assessed 2026-11-12, updated 2026-11-13 after the P1 remediation. **Verdict: NO-
 method in [`project-status.md`](project-status.md)). Proposed next verdict after phases 0-2 of [`development-roadmap.md`](development-roadmap.md): CONDITIONAL GO for a limited
 closed beta; GO only after every gate below passes.
 
+Closure verification of 2026-11-13 and the procedures needed to pass these gates: [`p1-closure-report.md`](p1-closure-report.md), [`deployment-runbook.md`](deployment-runbook.md).
+
 ## Go-live gates (all must pass; 0 of 12 pass today)
 
 | # | Gate | State | Evidence |

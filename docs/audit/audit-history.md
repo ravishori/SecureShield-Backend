@@ -3,6 +3,13 @@
 Newest first. Each entry records what was assessed or changed, the evidence, and the effect on [`project-status.md`](project-status.md). Entries are append-only; corrections are
 new entries.
 
+## 2026-11-13 - P1 closure verification and deployment preparation
+
+**Commits (nothing pushed):** backend `be9faad` (provider-check double-send fix), `1bcdf16` (exact-value gitleaks allowlist for fake test passwords), `28a490c` (API docs off in production), documentation commit follows; Flutter `5898b1e` (signing doc: bundle verification, checklist). **No migration applied anywhere; no deployment; repositories still PUBLIC.**
+**Evidence:** backend 1009 passed at `1bcdf16`; clean-worktree unit run 315 passed; migrations verified on a populated disposable DB; legacy-token switch verified on a real server; added-lines secret scan clean. Details in [`p1-closure-report.md`](p1-closure-report.md) and [`testing-and-qa.md`](testing-and-qa.md).
+**Verdict:** no blocker CLOSED; NO-GO. Procedures prepared in [`deployment-runbook.md`](deployment-runbook.md).
+**Requested but not possible without you:** staging deployment, signed APK/AAB, provider tests, device tests (private repositories, rotation, keystore, provider credentials, an approved isolated environment and a device are required).
+
 ## 2026-11-13 - P1 functional blockers remediation (five items)
 
 **Commits (nothing pushed):** backend `f06a3d8` (OTP), `b9be388` (dependencies), `86b3ba2` (admin identity); Flutter `5d4d16a` (FLAG_SECURE), `6cd21d4` (release signing); documentation commits follow this entry.

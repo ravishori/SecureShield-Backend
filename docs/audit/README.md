@@ -15,6 +15,8 @@ Last full audit: **2026-11-12**; last update **2026-11-13** (P1 remediation) - v
 | [`testing-and-qa.md`](testing-and-qa.md) | Commands executed, results, coverage, what could not be verified |
 | [`production-readiness.md`](production-readiness.md) | The 12 go-live gates, deployment controls, Go/No-Go |
 | [`development-roadmap.md`](development-roadmap.md) | Prioritised remaining work with estimates |
+| [`p1-closure-report.md`](p1-closure-report.md) | P1 closure verification: four-level status per blocker, evidence for the seven closure checks, owner actions, GO/NO-GO |
+| [`deployment-runbook.md`](deployment-runbook.md) | Configuration checklist, migration/backend/Flutter procedures, staging smoke plan, DNS/monitoring/backup/rollback, Play checklist (prepared, not executed) |
 | [`audit-history.md`](audit-history.md) | Dated, append-only history of findings, changes and test evidence |
 
 Related older records (kept, not replaced): `../SECURESHIELD_FEATURE_COMPLETION_MATRIX.md`, `../SECURESHIELD_FEATURE_GAPS_AND_ERRORS.md`

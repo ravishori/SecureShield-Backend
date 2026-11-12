@@ -33,6 +33,20 @@ same id as the admin; (d) the last-superadmin guard was masked by the self-guard
 
 **Not run / unverified in this session:** any real device or emulator (FLAG_SECURE effect, share sheet, signed APK install), a signed release build, any real provider send, the Docker/Railway build, GitHub CI.
 
+## Closure verification run, 2026-11-13 (backend `1bcdf16` / `28a490c`)
+
+| # | Command | Result |
+|---|---|---|
+| 1 | full backend suite on the clean venv at `1bcdf16` | **1009 passed, 0 failed, 0 skipped** (449 s) |
+| 2 | clean `git worktree` of HEAD, `pytest tests/unit` | **315 passed** - the commits do not depend on the uncommitted Neon-fix files |
+| 3 | temporary migration test on a populated disposable DB (50 OTP rows + 1 audit row): downgrade to `s4t5u6v7w8x9`, upgrade to head, repeat upgrade, old-style INSERTs, downgrade, re-upgrade; plus `test_schema_drift` | **passed** (test file deleted afterwards, not committed) |
+| 4 | real server runs with `ADMIN_LEGACY_TOKEN_ENABLED` unset / `false` / `true` | 200 / **401** / 200 for the legacy token; no credentials always 401 |
+| 5 | regex secret scan of all added lines in committed work (backend 4,327, Flutter 1,219) | 0 credential patterns, 0 credential files, 0 personal e-mails; gitleaks not run |
+| 6 | `tests/unit/test_api_docs_gate.py` + startup checks | 20 passed; docs routes 404 in production mode |
+| 7 | `otp_provider_check.py` send path with the provider stubbed | exposed a double-send defect (fixed, 3 mutation-checked tests) |
+
+Not run: Docker build (Docker absent), Railway/staging deploy, GitHub CI, any device, any real provider send, signed build.
+
 ## Baseline commands executed on 2026-11-12
 
 | # | Command (from the repository folder) | Result |

@@ -27,6 +27,11 @@ Planned work is **not** counted as complete anywhere in these documents.
 Remaining after this progress: Phase 0 about 2 days, Phase 1 about 4 days (pip-audit in CI 0.5, docs gate 0.5, non-root image 0.5, `/ready` 0.5, Flutter CI 1, coverage 1),
 Phase 2 about 32.5 days, Phase 3 about 29.5 days = **~68 developer-days (range 60-75)**.
 
+## Critical path to a verified staging (added 2026-11-13)
+
+Owner first (see `p1-closure-report.md`): private repositories + rotation -> Twilio/e-mail provider -> keystore -> approval of an isolated staging environment. Then development, about 8-12 days:
+Docker build + non-root image (1-2), CI run on the release SHA incl. gitleaks and a Flutter workflow (1-2), staging bring-up with migrations and first superadmin (1-2), provider smoke tests (1-2), device end-to-end of the nine priority flows and fixes (3-4), backup/restore rehearsal and rollback drill (1).
+
 ## Phase 0 - immediate containment (this week)
 
 | # | Task | Owner | Dev-days | Closes |
