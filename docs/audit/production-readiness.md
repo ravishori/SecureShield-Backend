@@ -6,6 +6,8 @@ closed beta; GO only after every gate below passes.
 
 Closure verification of 2026-11-13 and the procedures needed to pass these gates: [`p1-closure-report.md`](p1-closure-report.md), [`deployment-runbook.md`](deployment-runbook.md).
 
+Architecture note 2026-11-13: deployment is Docker-free (Railway native Python); Docker is **not** a prerequisite for any gate. See `deployment-runbook.md`.
+
 ## Go-live gates (all must pass; 0 of 12 pass today)
 
 | # | Gate | State | Evidence |

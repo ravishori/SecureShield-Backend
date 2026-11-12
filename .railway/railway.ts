@@ -14,11 +14,15 @@ export default defineRailway(() => {
   const secureshieldApi = service("secureshield-api", {
     source: github("ravishori/SecureShield-Backend", { branch: "staging/railway-snapshot", checkSuites: false }),
     replicas: { "europe-west4-drams3a": 1 },
+    // Docker-free: Railway builds with Railpack straight from requirements.txt (Python from .python-version). The Dockerfile is kept
+    // only until staging proves this path; builder is set explicitly so its presence cannot select the Dockerfile builder.
+    build: { builder: "RAILPACK" },
+    startCommand: "uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips \"${TRUSTED_PROXIES:-127.0.0.1}\"",
     healthcheck: "/health",
     healthcheckTimeout: 60,
     preDeploy: "alembic upgrade head",
     volumeMounts: { "/app/uploads": secureshieldApiVolume },
-    env: { ACCESS_TOKEN_EXPIRE_MINUTES: preserve(), ADMIN_TOKEN: preserve(), ALGORITHM: preserve(), ANTHROPIC_API_KEY: preserve(), APP_DB_PASSWORD: preserve(), DATABASE_URL: preserve(), ENVIRONMENT: preserve(), ERROR_NOTIFY_EMAIL: preserve(), GOOGLE_SAFE_BROWSING_API_KEY: preserve(), MIGRATOR_DATABASE_URL: preserve(), MIGRATOR_DB_PASSWORD: preserve(), REFRESH_TOKEN_EXPIRE_DAYS: preserve(), SECRET_KEY: preserve(), SMTP_FROM_EMAIL: preserve(), SMTP_HOST: preserve(), SMTP_PASSWORD: preserve(), SMTP_PORT: preserve(), SMTP_USER: preserve(), SQL_ECHO: preserve(), TWILIO_ACCOUNT_SID: preserve(), TWILIO_AUTH_TOKEN: preserve(), TWILIO_SMS_NUMBER: preserve(), TWILIO_WHATSAPP_NUMBER: preserve() },
+    env: { ACCESS_TOKEN_EXPIRE_MINUTES: preserve(), ADMIN_LEGACY_TOKEN_ENABLED: preserve(), ADMIN_TOKEN: preserve(), CORS_ALLOWED_ORIGINS: preserve(), FILE_ENCRYPTION_KEY: preserve(), LOG_RETENTION_DAYS: preserve(), RESEND_API_KEY: preserve(), RESEND_FROM_EMAIL: preserve(), TRUST_PROXY_TLS: preserve(), TRUSTED_PROXIES: preserve(), ALGORITHM: preserve(), ANTHROPIC_API_KEY: preserve(), APP_DB_PASSWORD: preserve(), DATABASE_URL: preserve(), ENVIRONMENT: preserve(), ERROR_NOTIFY_EMAIL: preserve(), GOOGLE_SAFE_BROWSING_API_KEY: preserve(), MIGRATOR_DATABASE_URL: preserve(), MIGRATOR_DB_PASSWORD: preserve(), REFRESH_TOKEN_EXPIRE_DAYS: preserve(), SECRET_KEY: preserve(), SMTP_FROM_EMAIL: preserve(), SMTP_HOST: preserve(), SMTP_PASSWORD: preserve(), SMTP_PORT: preserve(), SMTP_USER: preserve(), SQL_ECHO: preserve(), TWILIO_ACCOUNT_SID: preserve(), TWILIO_AUTH_TOKEN: preserve(), TWILIO_SMS_NUMBER: preserve(), TWILIO_WHATSAPP_NUMBER: preserve() },
   });
 
   return project("secureshield-staging", {

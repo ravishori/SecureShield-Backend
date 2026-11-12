@@ -71,6 +71,19 @@ jobs:
           "$RUNNER_TEMP/gitleaks" detect --no-git --source . --config .gitleaks.toml --redact --no-banner
       - name: Lint (syntax errors / undefined names only)
         run: ruff check app tests --select E9,F63,F7,F82
+      - name: Lint and format (project standard)
+        run: |
+          pip install ruff==0.9.4
+          ruff check app tests scripts
+          ruff format --check app tests scripts
+      - name: Dependency vulnerability scan (runtime packages; no Docker)
+        # pip-audit lives in its own venv so it never changes what is tested. The audited environment is the one just
+        # installed from requirements.txt. A finding fails the build; do not suppress without a written justification.
+        run: |
+          python -m venv "$RUNNER_TEMP/audit"
+          "$RUNNER_TEMP/audit/bin/pip" install --quiet pip-audit==2.10.1
+          python -m pip install --quiet --upgrade pip setuptools
+          "$RUNNER_TEMP/audit/bin/pip-audit" --path "$(python -c 'import sysconfig;print(sysconfig.get_paths()["purelib"])')" --progress-spinner off
       - name: Apply migrations to a blank database (validates the whole chain)
         run: python -m alembic upgrade head
       - name: Run tests

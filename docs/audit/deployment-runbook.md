@@ -3,6 +3,32 @@
 Prepared 2026-11-13 from the code at backend `28a490c` / Flutter `5898b1e`. **Nothing here has been executed against a real environment.** Hard rules: no push or deploy while the
 repositories are public with exposed history; never deploy a credential that has appeared in Git history; do not disable authentication, MFA or startup checks to go faster.
 
+## Docker-free architecture (decided 2026-11-13; configured, not yet deployed)
+
+* **Backend:** Railway native Python build (Railpack) from `requirements.txt`; Python from `.python-version` (3.11); start command `uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips "${TRUSTED_PROXIES:-127.0.0.1}"`; healthcheck `/health`; **migrations run as Railway's pre-deploy step (`alembic upgrade head`), separate from application start**; one replica; volume at `/app/uploads`. All in `.railway/railway.ts` (`build: { builder: "RAILPACK" }`; secrets are `preserve()` only). `railway config plan` must be reviewed before `apply`.
+* **Database:** a separate Railway PostgreSQL per environment (staging now, production later in its own project/environment); never shared. Existing data is untouched; migrations are additive.
+* **CI/CD (GitHub Actions, no Docker):** `backend-ci` (tests on a Postgres service, gitleaks, ruff check+format, `pip-audit`, migrations on a blank DB), `flutter-ci` (analyze, test, tool tests, OSV scan; signed APK/AAB build + signature verification only in the approval-gated `android-release` environment), `deploy-staging` (manual, approval-gated `staging` environment, staging-scoped `RAILWAY_TOKEN`, `railway up`, smoke test). No workflow builds an image. All YAML parses; **no workflow has run** (repositories are public and nothing is pushed).
+* **Dockerfile / `.dockerignore`:** no longer a prerequisite. Kept unchanged until the Railpack deployment is proven on staging; the only references are in documentation and the superseded builder choice. Remove them in a separate commit after that.
+* **Non-root / healthcheck:** Railpack manages the runtime user; Railway volumes require the app to run as the volume owner, so this is a platform property to verify on staging (check that evidence upload works and note the process user), not a Dockerfile `USER` line.
+* **Email OTP:** Resend only (see `docs/RESEND_SETUP.md`); Twilio stays dormant (placeholders) and is not introduced anywhere new.
+
+### Checklist (no duplicate work)
+
+| Item | State | Evidence |
+|---|---|---|
+| Resend e-mail provider, OTP hashing/expiry/attempts/resend limits/replay, failure handling, masked logs | **ALREADY IMPLEMENTED** - verified, not rewritten | `otp_service.py`, `otp_codes.py`, 16 OTP tests + provider tests; `docs/RESEND_SETUP.md` added |
+| Provider verification tool | **ALREADY IMPLEMENTED** | `scripts/otp_provider_check.py` (offline / `--live` / opt-in send) |
+| Android Gradle signing, verifier, comparer, docs | **ALREADY IMPLEMENTED** | `build.gradle.kts`, `tool/verify_apk_signature.py`, `docs/ANDROID_RELEASE.md` |
+| Backend CI (tests, gitleaks, migrations) | **ALREADY IMPLEMENTED**; ruff format + pip-audit steps **added** | `backend-ci.yml` |
+| Railway IaC (preDeploy migration, healthcheck, volume) | **PARTIALLY** -> builder, start command and new variables **added** | `.railway/railway.ts`, `.python-version` |
+| Controlled staging deploy workflow | **NOT -> IMPLEMENTED** (unrun) | `deploy-staging.yml` |
+| Flutter CI (analyze, test, OSV, signed build, signature check) | **NOT -> IMPLEMENTED** (unrun) | `flutter_app/.github/workflows/flutter-ci.yml`, `tool/osv_pub_scan.py` |
+| Device/emulator utilities | adb + AVD `Pixel_5` exist; no scripted E2E | - |
+| Private repositories | **NOT DONE** (both still public when checked 2026-11-13) | `gh repo view` |
+| Railway staging project/environment, Resend domain/key, upload keystore, device | **NOT DONE (owner)** | - |
+
+Estimated monthly cost (list prices, verify before committing; USD): Railway Hobby about 5 (usage credit included) to Pro 20/seat; staging API + small Postgres + 5 GB volume roughly 8-15 of usage; GitHub Actions private repos: 2,000 free Linux minutes/month (this pipeline uses roughly 15-25 min per run); Resend free tier 3,000 e-mails/month then about 20/month for 50,000; Anthropic and Safe Browsing are usage-based; Twilio none (not used). Typical staging total: about 15-35/month.
+
 ## 0. Go/no-go preconditions (all owner actions)
 
 1. Repositories private; all historical credentials rotated (see `p1-closure-report.md`).
@@ -47,11 +73,11 @@ Injection: set variables in the platform's secret store (Railway variables / CI 
 ## 3. Backend deployment procedure (staging, then production)
 
 1. Release SHA chosen; CI green on that SHA (`backend-ci`: gitleaks, ruff, migrations on a blank DB, full pytest). A Flutter workflow does not exist yet.
-2. `docker build backend` and run it locally against a scratch database; check `/health`, `/ready`, `/version`. (Docker was not available when this was prepared.)
-3. Deploy from a `git archive` export (never from a working folder), healthcheck `/health`, one replica (in-memory limiter, local-disk uploads).
+2. Run the app locally from a clean venv against a scratch database (`uvicorn app.main:app`), check `/health`, `/ready`, `/version`; CI runs the same suite. (Docker is not used.)
+3. Deploy with the `deploy-staging` workflow (or `railway up` from a clean `git archive` export, never a working folder); Railpack builds, pre-deploy migrates, healthcheck `/health`; one replica (in-memory limiter, local-disk uploads).
 4. Smoke (section 5), then watch logs for 30 minutes.
 5. Rollback: redeploy the previous image/commit (schema is compatible); restore variables if changed.
-6. Open items for the image: it runs as root and has no `HEALTHCHECK`; a non-root user needs the volume to be writable by that user (on Railway set `RAILWAY_RUN_UID` or chown at start) - change and test once Docker is available.
+6. Runtime user and healthcheck are platform-managed on the native builder; on staging confirm the process can write `/app/uploads` (upload an evidence file) and that the Railway healthcheck gates the switch-over. The Dockerfile is no longer part of the procedure.
 
 ## 4. Flutter release procedure
 

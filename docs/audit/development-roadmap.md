@@ -27,6 +27,8 @@ Planned work is **not** counted as complete anywhere in these documents.
 Remaining after this progress: Phase 0 about 2 days, Phase 1 about 4 days (pip-audit in CI 0.5, docs gate 0.5, non-root image 0.5, `/ready` 0.5, Flutter CI 1, coverage 1),
 Phase 2 about 32.5 days, Phase 3 about 29.5 days = **~68 developer-days (range 60-75)**.
 
+Docker is no longer part of this path (decision 2026-11-13): the image/Dockerfile items below are replaced by verifying the Railway native build on staging, and the Dockerfile can be removed afterwards.
+
 ## Critical path to a verified staging (added 2026-11-13)
 
 Owner first (see `p1-closure-report.md`): private repositories + rotation -> Twilio/e-mail provider -> keystore -> approval of an isolated staging environment. Then development, about 8-12 days:

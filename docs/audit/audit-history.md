@@ -3,6 +3,13 @@
 Newest first. Each entry records what was assessed or changed, the evidence, and the effect on [`project-status.md`](project-status.md). Entries are append-only; corrections are
 new entries.
 
+## 2026-11-13 - Docker-free architecture and infrastructure completion (configuration only)
+
+**Decision:** no Docker; Railway native Python build; separate Railway PostgreSQL per environment; Resend for e-mail OTP; GitHub Actions without Docker; repositories to stay private (they were still PUBLIC when checked, so nothing was pushed).
+**Changed (uncommitted work preserved):** backend `.python-version`, `.railway/railway.ts` (Railpack builder, start command, new preserved variables), `.github/workflows/backend-ci.yml` (+ruff format, +pip-audit), `.github/workflows/deploy-staging.yml` (new, manual + approval), `docs/RESEND_SETUP.md` (new); Flutter `.github/workflows/flutter-ci.yml`, `tool/osv_pub_scan.py`, `tool/test_osv_pub_scan.py` (new). Existing Resend integration, OTP controls, signing tools and CI were reused, not rewritten.
+**Verified:** YAML parses; 9 tool tests pass; OSV scan 0 advisories. **Not verified:** any workflow run, `railway config plan`, a Railway build, Resend domain/key, signed build.
+**Note:** the latest request text was cut off at "3. Android upload signing"; the existing signing implementation was inspected and left as is.
+
 ## 2026-11-13 - Staging preflight re-run: still STOPPED
 
 Re-checked with fresh evidence (backend `6f8296c`, Flutter `5898b1e`): both repositories still PUBLIC; Twilio still rejected (20003); no Resend key; no keystore; Docker absent; Railway CLI has no linked project; no adb device. Nothing changed since the previous entry, so no build, migration, deployment or send was attempted. Security prerequisites failed, so execution stopped immediately. **Staging verdict: NO-GO.**

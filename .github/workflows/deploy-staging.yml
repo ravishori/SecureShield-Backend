@@ -1,0 +1,47 @@
+name: deploy-staging
+
+# Controlled, manual deployment of an approved ref to the STAGING Railway environment. No Docker: Railway builds natively (Railpack).
+# Not run yet. Requires: a GitHub environment named "staging" with required reviewers, and a staging-scoped Railway project token in
+# the secret RAILWAY_TOKEN (never a production token). Migrations are NOT run here: Railway runs `alembic upgrade head` as the
+# service's pre-deploy step (see .railway/railway.ts), separately from application startup.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch or tag to deploy (must already pass backend-ci)"
+        required: true
+        default: "staging/railway-snapshot"
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: staging # approval gate
+    concurrency: deploy-staging
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - name: Refuse anything but approved refs
+        run: |
+          case "${{ inputs.ref }}" in
+            staging/*|release/*|v[0-9]*) ;;
+            *) echo "ref must be staging/*, release/* or a v* tag"; exit 1 ;;
+          esac
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Deploy to the staging service
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          test -n "$RAILWAY_TOKEN" || { echo "RAILWAY_TOKEN (staging project token) is not configured"; exit 1; }
+          npx --yes @railway/cli up --ci --service secureshield-api --environment staging
+      - name: Smoke test
+        env:
+          STAGING_URL: ${{ vars.STAGING_URL }}
+        run: |
+          test -n "$STAGING_URL" || { echo "repository variable STAGING_URL is not set"; exit 1; }
+          for i in 1 2 3 4 5 6; do curl -fsS "$STAGING_URL/health" && exit 0; sleep 20; done; exit 1

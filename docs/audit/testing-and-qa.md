@@ -33,6 +33,13 @@ same id as the admin; (d) the last-superadmin guard was masked by the self-guard
 
 **Not run / unverified in this session:** any real device or emulator (FLAG_SECURE effect, share sheet, signed APK install), a signed release build, any real provider send, the Docker/Railway build, GitHub CI.
 
+## Docker-free CI/CD validation, 2026-11-13
+
+* `backend-ci.yml`, `deploy-staging.yml`, `flutter-ci.yml` parse as YAML (PyYAML). **No workflow has executed** (nothing is pushed; GitHub Actions cannot be run locally).
+* `tool/test_osv_pub_scan.py` + the 7 APK tool tests: **9 passed**; `python tool/osv_pub_scan.py pubspec.lock` -> 207 packages, 0 advisories.
+* The pip-audit and ruff-format CI steps are the commands already run locally on a clean environment (0 runtime advisories; 184 files formatted).
+* `.railway/railway.ts` edited against the installed Railway SDK types (`build: { builder: "RAILPACK" }`, `startCommand`); `railway config plan` was **not** run (no linked project) - unverified.
+
 ## Closure verification run, 2026-11-13 (backend `1bcdf16` / `28a490c`)
 
 | # | Command | Result |
