@@ -32,6 +32,7 @@ from app.config import settings
 from app.database import get_db
 from app.models.admin_account import AdminAccount, AdminSession
 from app.models.admin_audit import AdminAuditLog
+from app.services.client_ip import client_ip_for
 
 ROLE_RANK = {"support": 1, "admin": 2, "superadmin": 3}
 LEGACY_LABEL = "legacy-token"
@@ -114,9 +115,7 @@ def add_audit(
             action=action,
             target_user_id=target_user_id,
             detail=detail or {},
-            client_ip=request.client.host
-            if request is not None and request.client
-            else None,
+            client_ip=client_ip_for(request, None) if request is not None else None,
             actor_admin_id=actor,
             actor_label=label,
         )

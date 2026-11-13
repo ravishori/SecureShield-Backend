@@ -172,3 +172,91 @@ def test_save_text_encrypts_when_key_set_and_plain_when_optional(cfg, tmp_path):
     cfg()
     path, _ = upload_safety.save_text(str(tmp_path), "draft", name="fir2.txt")
     assert open(path, "rb").read() == b"draft" and not fc.is_encrypted_file(path)
+
+
+# ── no partial or plaintext file after an encryption failure ─────────────────────────────────────────────────────────
+@pytest.mark.asyncio
+async def test_save_upload_removes_the_partial_file_when_encryption_fails_midway(
+    cfg, tmp_path, monkeypatch
+):
+    cfg(key=KEY, required=True)
+
+    def boom(self, data):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(fc.EncryptingWriter, "write", boom)
+    with pytest.raises(OSError):
+        await upload_safety.save_upload(
+            _Upload(b"secret" * 10),
+            str(tmp_path),
+            default_name="x.txt",
+            max_bytes=10_000,
+        )
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_save_text_removes_the_partial_file_when_encryption_fails(
+    cfg, tmp_path, monkeypatch
+):
+    cfg(key=KEY, required=True)
+
+    def boom(self, data):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(fc.EncryptingWriter, "write", boom)
+    with pytest.raises(OSError):
+        upload_safety.save_text(str(tmp_path), "draft", name="fir.txt")
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_error_text_never_contains_key_material(cfg):
+    bad = base64.urlsafe_b64encode(os.urandom(16)).decode()
+    cfg(key=bad, keys="1:" + bad, required=True)
+    with pytest.raises(StartupCheckError) as e:
+        check_file_encryption(settings)
+    assert bad not in str(e.value) and KEY not in str(e.value)
+    with pytest.raises(fc.FileCryptoError) as e2:
+        fc.active_key()
+    assert bad not in str(e2.value)
+
+
+def test_tampered_ciphertext_and_wrong_tag_are_rejected(cfg, tmp_path):
+    cfg(key=KEY, required=True)
+    path, _ = upload_safety.save_text(str(tmp_path), "authentic content", name="a.txt")
+    blob = bytearray(open(path, "rb").read())
+    blob[-1] ^= 0x01  # flips a bit of the GCM tag
+    open(path, "wb").write(bytes(blob))
+    with pytest.raises(fc.FileCryptoError):
+        b"".join(fc.decrypt_iter(path))
+    path2, _ = upload_safety.save_text(str(tmp_path), "authentic content", name="b.txt")
+    blob = bytearray(open(path2, "rb").read())
+    blob[len(fc.MAGIC) + 8 + 4 + 2] ^= 0x01  # flips a ciphertext byte
+    open(path2, "wb").write(bytes(blob))
+    with pytest.raises(fc.FileCryptoError):
+        b"".join(fc.decrypt_iter(path2))
+
+
+def test_nonces_are_unique_per_file(cfg, tmp_path):
+    cfg(key=KEY, required=True)
+    a, _ = upload_safety.save_text(str(tmp_path), "same", name="a.txt")
+    b, _ = upload_safety.save_text(str(tmp_path), "same", name="b.txt")
+    assert (
+        open(a, "rb").read()[8:16] != open(b, "rb").read()[8:16]
+    )  # SSENC1: MAGIC(8) then 8-byte nonce prefix
+
+
+def test_existing_plaintext_file_is_still_readable_when_required(cfg, tmp_path):
+    p = tmp_path / "old.txt"
+    p.write_bytes(b"legacy plaintext")
+    cfg(key=KEY, required=True)
+    assert not fc.is_encrypted_file(str(p))
+    assert (
+        p.read_bytes() == b"legacy plaintext"
+    )  # downloads stream plaintext files unchanged (see integration test)
+
+
+def test_optional_mode_with_no_key_starts_and_stores_plaintext(cfg, tmp_path):
+    cfg()
+    check_file_encryption(settings)
+    path, _ = upload_safety.save_text(str(tmp_path), "plain", name="p.txt")
+    assert open(path, "rb").read() == b"plain"

@@ -54,6 +54,7 @@ from app.services.admin_security import (
     verify_password,
     verify_totp,
 )
+from app.services.client_ip import client_ip_for
 from app.services.logger_service import get_logger
 
 logger = get_logger(__name__)
@@ -104,7 +105,7 @@ def _bad_credentials() -> HTTPException:
 
 
 def _ip(request: Request) -> str:
-    return request.client.host if request.client else "unknown"
+    return client_ip_for(request)
 
 
 def _setup_pending(acct: AdminAccount) -> list[str]:

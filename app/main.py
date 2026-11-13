@@ -1,5 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+from app.cors_policy import ALLOWED_HEADERS, ALLOWED_METHODS, resolve_cors
 from sqlalchemy import text
 
 from app.routers import (
@@ -58,12 +60,14 @@ app = FastAPI(
 # ── Middleware (order matters: error handler must be outermost) ──────────────
 app.add_middleware(GlobalErrorHandlerMiddleware)
 
+# Explicit allowlist, validated at import (a malformed CORS_ALLOWED_ORIGINS stops the app). See app/cors_policy.py.
+_cors = resolve_cors(settings.ENVIRONMENT, settings.CORS_ALLOWED_ORIGINS)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_allow_origins(),
-    allow_credentials=settings.cors_allow_credentials(),
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=list(_cors.origins),
+    allow_credentials=_cors.allow_credentials,
+    allow_methods=ALLOWED_METHODS,
+    allow_headers=ALLOWED_HEADERS,
 )
 
 # Rate limiting — 100 requests per IP per minute

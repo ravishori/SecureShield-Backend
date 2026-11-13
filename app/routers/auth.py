@@ -45,6 +45,7 @@ from app.schemas.auth import (
     VerifyOtpRequest,
 )
 from app.services.account_erasure import RETAINED, erase_user_data, remove_files
+from app.services.client_ip import client_ip_for
 from app.services.device_service import register_and_check_device, send_new_device_alert
 from app.services.logger_service import get_logger, log_error
 from app.services.google_auth import (
@@ -233,7 +234,7 @@ async def check_user(
     identifier = identifier.strip()
     # IP-based limit: 30 lookups per minute per IP catches scripted enumeration
     # without affecting a single human user who types two addresses.
-    client_ip = http_request.client.host if http_request.client else "unknown"
+    client_ip = client_ip_for(http_request)
     if not rate_limiter.is_allowed(
         f"check_user_ip:{client_ip}", max_hits=30, window_seconds=60
     ):
@@ -274,7 +275,7 @@ async def register_user(
       4. Send OTP to email (required) + phone (if provided)
       5. Return masked identifiers so Flutter can display them on OTP screen
     """
-    client_ip = http_request.client.host if http_request.client else None
+    client_ip = client_ip_for(http_request, None)
 
     # ── Rate limiting ──────────────────────────────────────────────────────
     # Registration is OTP-sending — both per-IP (abuse) and per-identifier
@@ -408,7 +409,7 @@ async def send_otp(
     Login OTP: sends to the provided identifier.
     If the user has BOTH email and phone on file, sends to both channels.
     """
-    client_ip = http_request.client.host if http_request.client else None
+    client_ip = client_ip_for(http_request, None)
     _check_otp_send_ip(client_ip)
     check_otp_send_rate(request.identifier)
 
@@ -532,7 +533,7 @@ async def verify_otp(
     http_request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    client_ip = http_request.client.host if http_request.client else None
+    client_ip = client_ip_for(http_request, None)
     check_otp_verify_rate(request.identifier)
 
     try:
@@ -645,7 +646,7 @@ async def google_login(
     db: AsyncSession = Depends(get_db),
 ):
     """Sign in (or sign up) with a Google ID token verified server-side."""
-    client_ip = http_request.client.host if http_request.client else None
+    client_ip = client_ip_for(http_request, None)
     if not rate_limiter.is_allowed(
         f"google_login_ip:{client_ip}", max_hits=20, window_seconds=60
     ):
@@ -715,7 +716,7 @@ async def refresh_token(
     http_request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    client_ip = http_request.client.host if http_request.client else None
+    client_ip = client_ip_for(http_request, None)
     try:
         payload = jwt.decode(
             request.refresh_token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
@@ -828,7 +829,7 @@ async def update_profile(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    client_ip = http_request.client.host if http_request.client else None
+    client_ip = client_ip_for(http_request, None)
     try:
         if request.email is not None:
             current_user.email = request.email.lower()
@@ -916,7 +917,7 @@ async def delete_account(
     must discard its JWT (the account's is_active=False will block any
     subsequent refresh).
     """
-    client_ip = http_request.client.host if http_request.client else None
+    client_ip = client_ip_for(http_request, None)
     user_id = str(current_user.id)
     try:
         logger.info(f"Account deletion requested by user {user_id}")

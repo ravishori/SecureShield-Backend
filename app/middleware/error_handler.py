@@ -15,6 +15,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from app.services.client_ip import client_ip_for
 from app.services.logger_service import get_logger, log_error
 
 logger = get_logger(__name__)
@@ -75,7 +76,7 @@ class GlobalErrorHandlerMiddleware(BaseHTTPMiddleware):
             return response
 
         except Exception as exc:
-            client_ip = request.client.host if request.client else None
+            client_ip = client_ip_for(request, None)
             endpoint = _safe_endpoint(request)
             method = request.method
 
@@ -110,7 +111,7 @@ def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(HTTPException)
     async def http_exception_handler(request: Request, exc: HTTPException):
         """Log 4xx/5xx HTTP exceptions and return consistent JSON."""
-        client_ip = request.client.host if request.client else None
+        client_ip = client_ip_for(request, None)
         level = "ERROR" if exc.status_code >= 500 else "WARNING"
 
         await log_error(
@@ -153,7 +154,7 @@ def register_exception_handlers(app: FastAPI) -> None:
         request: Request, exc: RequestValidationError
     ):
         """Handle Pydantic / FastAPI validation errors (422)."""
-        client_ip = request.client.host if request.client else None
+        client_ip = client_ip_for(request, None)
 
         # Errors raised by custom @field_validator functions carry the raw
         # exception object in ``ctx['error']``; it is not JSON serialisable and
@@ -186,7 +187,7 @@ def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(Exception)
     async def generic_exception_handler(request: Request, exc: Exception):
         """Catch-all for anything the middleware misses."""
-        client_ip = request.client.host if request.client else None
+        client_ip = client_ip_for(request, None)
 
         await log_error(
             message="Unhandled generic exception",

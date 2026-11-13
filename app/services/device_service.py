@@ -17,6 +17,7 @@ from email.mime.text import MIMEText
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.delivery_settings import delivery_settings
 from app.config import settings
 from app.models.device import Device
 from app.models.user import User
@@ -117,6 +118,10 @@ async def send_new_device_alert(
     recipient = user.email
     if not recipient:
         logger.info(f"Skipping new-device alert for user {user.id} — no email on file")
+        return
+    if not delivery_settings.SMTP_FALLBACK_ENABLED:
+        # This alert is SMTP-only; SMTP_FALLBACK_ENABLED=false switches it off (no connection, no credentials used).
+        logger.info(f"New-device alert for user {user.id} not sent: SMTP disabled")
         return
 
     timestamp_utc = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")

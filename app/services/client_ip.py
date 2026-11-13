@@ -109,3 +109,19 @@ def resolve_client_ip(
             continue
         return addr.compressed
     return peer_id
+
+
+def client_ip_for(request, default: str | None = "unknown") -> str | None:
+    """THE client identity for a request, used by rate limits, security logs and audit rows alike.
+
+    Reads the socket peer and X-Forwarded-For from the request and applies :func:`resolve_client_ip` with the configured
+    ``TRUSTED_PROXIES``. Never read ``request.client.host`` directly elsewhere: behind a proxy that is the proxy's address, and
+    ``X-Forwarded-For`` from an untrusted peer is attacker-controlled. ``default`` is returned when there is no peer at all."""
+    from app.config import settings
+
+    if request.client is None:
+        return default
+    forwarded = ",".join(request.headers.getlist("x-forwarded-for")) or None
+    return resolve_client_ip(
+        request.client.host, forwarded, settings.trusted_proxy_networks()
+    )

@@ -95,19 +95,15 @@ def check_admin_token(settings: Settings) -> None:
 
 
 def check_cors_configuration(settings: Settings) -> None:
-    """In production, empty CORS_ALLOWED_ORIGINS is correct (fail-closed),
-    but wildcard ``*`` with explicit credentials is dangerous. Also warn
-    when CORS is wide-open in production.
-    """
-    if not settings.is_production():
-        return
-    origins = settings.cors_allow_origins()
-    if "*" in origins:
-        raise StartupCheckError(
-            "CORS_ALLOWED_ORIGINS=['*'] in production exposes the API to "
-            "every browser origin. List explicit admin/console origins "
-            "instead, or leave empty to disable browser access entirely."
-        )
+    """CORS_ALLOWED_ORIGINS must be a valid explicit allowlist in EVERY environment (malformed entries, wildcard outside
+    development and non-https in production all stop the boot). Empty is correct for staging/production: no browser origin is
+    allowed (the Flutter app is native and does not use CORS)."""
+    from app.cors_policy import CorsConfigError, resolve_cors
+
+    try:
+        resolve_cors(settings.ENVIRONMENT, settings.CORS_ALLOWED_ORIGINS)
+    except CorsConfigError as exc:
+        raise StartupCheckError(f"CORS configuration refused: {exc}") from None
 
 
 def check_trusted_proxies(settings: Settings) -> None:
@@ -116,9 +112,15 @@ def check_trusted_proxies(settings: Settings) -> None:
     Without TRUSTED_PROXIES the app (correctly) ignores X-Forwarded-For, so behind a proxy every user would be
     rate-limited under the proxy's single address: one noisy client could lock everybody out. Fail loudly at boot
     instead of degrading silently."""
-    if not settings.is_production():
-        return
     if settings.TRUST_PROXY_TLS and not settings.TRUSTED_PROXIES.strip():
+        if not settings.is_production():
+            # Staging/dev: do not block the deploy (the proxy range may still be being measured), but say so loudly. Failing
+            # safe: X-Forwarded-For is ignored, so nobody can spoof an address; the cost is one shared rate-limit bucket.
+            logger.warning(
+                "TRUST_PROXY_TLS=true but TRUSTED_PROXIES is empty: X-Forwarded-For is ignored and every client shares the "
+                "proxy's address for per-IP limits. Set TRUSTED_PROXIES to the verified proxy range."
+            )
+            return
         raise StartupCheckError(
             "TRUST_PROXY_TLS=true but TRUSTED_PROXIES is empty. Behind a reverse proxy the client IP can only be "
             "recovered from X-Forwarded-For if the proxy's address/range is listed explicitly (e.g. "

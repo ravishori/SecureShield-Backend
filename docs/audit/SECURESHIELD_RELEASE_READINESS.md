@@ -74,7 +74,7 @@ Android security companion for India: OTP login, scam/phishing/app/Wi-Fi/link sc
 * Both repositories were made **private** by the owner on 2026-11-13 (`infrastructure-setup.md` execution record). History still contains previously exposed credentials (R-01).
 * **Uncommitted owner work in the backend (must be preserved, never staged by release tooling):** Neon connection fix (`app/config.py`, `app/database.py`, `.env.example`, `tests/unit/test_db_url_normalization.py`, `tests/unit/test_database_engine.py`), `scripts/seed_sms_registry.py`, `start.bat`, `docs/audit/infrastructure-setup.md`.
 * **Uncommitted Phase 7 work (this branch):** `app/delivery_settings.py`, edits to `otp_service.py`, `notifications.py`, `logger_service.py`, `file_crypto.py`, `upload_safety.py`, `startup_checks.py`, new `tests/unit/test_smtp_fallback_switch.py`. See section 4 and section 12.
-* Release-range secret scan (`976ce42..a91c79a`, 214 files, about 21,163 added lines, session record 2026-11-13): only deliberately fake test fixtures (allowlisted in `.gitleaks.toml`); no real secrets, keystores, `.env` files, logs or personal e-mail addresses. gitleaks itself has not been run (CI will).
+* Release-range secret scan (`976ce42..a91c79a`, 214 files, about 21,163 added lines, session record 2026-11-13): only deliberately fake test fixtures (allowlisted in `.gitleaks.toml`); no real secrets, keystores, `.env` files, logs or personal e-mail addresses. gitleaks (current tree) then passed in CI run `43399687864` on `b130d04` (2026-11-13); it scans the checked-out tree, not full history, so exposed history credentials remain R-01.
 
 ## 4. Feature Implementation Inventory
 
@@ -176,7 +176,7 @@ No provider has been verified live from this code. All entries are TESTED agains
 
 | Workflow | Trigger | Behaviour | Executed? |
 |---|---|---|---|
-| `backend-ci.yml` | push to `main` and `staging/**`; pull requests | gitleaks, ruff check/format, pip-audit, alembic on a blank DB, pytest on a Postgres service; inert CI placeholder values only | **Run 43381648865 on `e367eb6` (2026-11-13): FAILED** at the ruff format step (see CI-1 below); later steps (pip-audit, alembic, pytest) did not execute. Previous green run: 2026-10-05 at `976ce42` |
+| `backend-ci.yml` | push to `main` and `staging/**`; pull requests | gitleaks, ruff check/format, pip-audit, alembic on a blank DB, pytest on a Postgres service; inert CI placeholder values only | **Run 43399687864 on `b130d04` (branch `staging/candidate-2026-11-13`, 2026-11-13): SUCCESS** - every step passed (see CI result below). Earlier run 43381648865 on `e367eb6` failed at ruff format (CI-1, fixed). Previous green run before this: 2026-10-05 at `976ce42` |
 | `deploy-staging.yml` | `workflow_dispatch` only; GitHub environment `staging` | `railway up` to staging; requires secret `RAILWAY_TOKEN` | never |
 | `flutter-ci.yml` (frontend) | push/PR | analyze, test, build; approval-gated `android-release` job | never |
 
@@ -184,13 +184,21 @@ No provider has been verified live from this code. All entries are TESTED agains
 * **Candidate-branch protection (verified by reading the workflows, nothing run):** `staging/candidate-2026-11-13` matches `staging/**`, so CI runs on it. Railway watches only `staging/railway-snapshot`, so a push of the candidate does not deploy. **R-16 (partly mitigated 2026-11-13):** `deploy-staging.yml` now accepts only the exact branch `staging/railway-snapshot`; `v*` tags and candidate branches are rejected (guard tested locally, uncommitted); candidate branches cannot pass it. Still open: `staging` environment required reviewers are not configured and the workflow has never run on GitHub.
 * CI workflows give candidate runs **no production secrets**: they use inert placeholders; the only secret planned (`RAILWAY_TOKEN`) is scoped to the `staging` environment used by the manual deploy workflow.
 
+### CI result for this candidate revision (2026-11-13)
+
+* **Commit** `b130d04` on `staging/candidate-2026-11-13`; **workflow run** [43399687864](https://github.com/ravishori/SecureShield-Backend/actions/runs/43399687864) (`backend-ci`); **conclusion: SUCCESS**.
+* Steps that all passed (from the run's step list): secret scan (gitleaks, current tree), lint for syntax errors/undefined names, lint and format (ruff check and format, project standard), dependency vulnerability scan (pip-audit, runtime packages), apply migrations to a blank database (full Alembic chain), run tests (pytest on a PostgreSQL service).
+* Individual test counts were **not** read from the workflow logs and are not recorded here; the 1069-passed figure is from the local clean-checkout run, not from CI.
+* **CI validation is complete for this candidate revision (`b130d04`).** This does **not** close any open infrastructure, credential, deployment or provider risk (R-01..R-20 unchanged), and it validates only this revision; any later commit needs a new CI run.
+* Nothing was deployed or migrated: Railway still watches only `staging/railway-snapshot` (remote `976ce42`), and no database change was made.
+
 ### CI failure record
 
 | ID | Run | Failure | Root cause | Status |
 |---|---|---|---|---|
-| CI-1 | [43381648865](https://github.com/ravishori/SecureShield-Backend/actions/runs/43381648865), job `pytest (unit + PostgreSQL integration)`, step "Lint and format", commit `e367eb6` | `Would reformat: scripts/seed_sms_registry.py` / `1 file would be reformatted, 188 files already formatted`, exit 1 | **Genuine formatting defect in the committed file** `scripts/seed_sms_registry.py` (from commit `984c190`, inside the 74-commit range). Local ruff runs had passed because the working-tree copy of that file carries the owner's **uncommitted** change, which is exactly the ruff-formatted version (verified byte-identical apart from line endings), masking the defect. Not a PostgreSQL, environment, ordering or dependency issue; `ruff check` passed in CI (ruff 0.9.4 pinned) | **FIX READY, NOT COMMITTED** - see below |
+| CI-1 | [43381648865](https://github.com/ravishori/SecureShield-Backend/actions/runs/43381648865), job `pytest (unit + PostgreSQL integration)`, step "Lint and format", commit `e367eb6` | `Would reformat: scripts/seed_sms_registry.py` / `1 file would be reformatted, 188 files already formatted`, exit 1 | **Genuine formatting defect in the committed file** `scripts/seed_sms_registry.py` (from commit `984c190`, inside the 74-commit range). Local ruff runs had passed because the working-tree copy of that file carries the owner's **uncommitted** change, which is exactly the ruff-formatted version (verified byte-identical apart from line endings), masking the defect. Not a PostgreSQL, environment, ordering or dependency issue; `ruff check` passed in CI (ruff 0.9.4 pinned) | **FIXED, VERIFIED IN CI** - fixed by `b130d04`; run 43399687864 green |
 
-Fix: commit the ruff-formatted `scripts/seed_sms_registry.py` (format-only: 36 insertions, 12 deletions, no behavioural change). The working-tree file already contains it; it is owner-owned and was deliberately left alone. A corrective commit **is required** (do not amend `e367eb6`). Verified in a **clean checkout of `e367eb6` with only that formatting applied**: `ruff check` and `ruff format --check` clean (189 files) and full backend suite **1069 passed, 0 failed, 0 skipped** (473 s, disposable local DB), which also shows the commits do not depend on any uncommitted file. Not run locally for this commit: gitleaks, `pip-audit` (last clean run earlier on 2026-11-13), a standalone `alembic upgrade head` on a blank DB (covered indirectly by the schema-drift tests); these remain for CI.
+Fix: commit the ruff-formatted `scripts/seed_sms_registry.py` (format-only: 36 insertions, 12 deletions, no behavioural change). The working-tree file already contains it; it is owner-owned and was deliberately left alone. The corrective commit `b130d04` was approved, created (without amending `e367eb6`) and pushed on 2026-11-13. Verified in a **clean checkout of `e367eb6` with only that formatting applied**: `ruff check` and `ruff format --check` clean (189 files) and full backend suite **1069 passed, 0 failed, 0 skipped** (473 s, disposable local DB), which also shows the commits do not depend on any uncommitted file. Not run locally for this commit: gitleaks, `pip-audit` (last clean run earlier on 2026-11-13), a standalone `alembic upgrade head` on a blank DB (covered indirectly by the schema-drift tests); these remain for CI.
 **Lesson (process):** lint, format and tests must be run in a clean checkout of the exact commit, not in a working tree that contains uncommitted owner changes.
 
 ## 11. Test Evidence and Quality Metrics
@@ -211,8 +219,8 @@ Source: `testing-and-qa.md`. All backend runs used a disposable local test datab
 | Ruff check / format (`app tests scripts`) | clean, 190 files | 2026-11-13 |
 | Mutation checks on Phase 7 gates | 11/11 caught (OTP, notifications, error-alert, encryption write/startup/key length, startup registration, workflow ref) | 2026-11-13 |
 | Frontend checks | **NOT RUN** - no Flutter file changed in this phase (tree clean at `815cbd9`); last results (analyze clean, 95 tests) are from 2026-11-13 earlier | - |
-| gitleaks / GitHub CI | **NOT RUN** (nothing pushed) | - |
-| **Not run, ever:** GitHub CI on the release, Railway build/deploy of the new code, any real provider send, any physical device or signed build, coverage measurement, gitleaks | - | - |
+| GitHub CI (gitleaks, ruff, pip-audit, blank-DB Alembic, pytest) | **PASSED** on `b130d04`, run 43399687864 (first run on `e367eb6` failed, CI-1) | 2026-11-13 |
+| **Not run, ever:** Railway build/deploy of the new code, any real provider send, any physical device or signed build, coverage measurement, full-history secret scan | - | - |
 
 ## 12. Deployment Readiness
 
@@ -222,7 +230,7 @@ Gates from `production-readiness.md` (0 of 12 pass). Staging readiness for the 7
 |---|---|
 | Code complete and unit-tested | yes (TESTED), Phase 7 additions not yet in a full run |
 | Release range scanned for secrets | yes, regex scan only (gitleaks pending CI) |
-| Pushed to a CI-only branch and CI green | **no** |
+| Pushed to a CI-only branch and CI green | **yes** - `staging/candidate-2026-11-13` @ `b130d04`, run 43399687864 SUCCESS (CI-only; Railway not triggered) |
 | Backup of staging DB with a proven restore | **no** |
 | Approval to apply 9 migrations | **no** |
 | `FILE_ENCRYPTION_KEY`, `TRUSTED_PROXIES`, CORS configured | **no** |
@@ -231,6 +239,41 @@ Gates from `production-readiness.md` (0 of 12 pass). Staging readiness for the 7
 | Production environment | does not exist; production deploy is not approved |
 
 Release strategy (decision, section 16): push the 74 commits first to a CI-only branch; fast-forward `staging/railway-snapshot` only after CI is green, backup verified, and migrations approved.
+
+### 12a. Phase A - application security hardening (2026-11-13, local, **uncommitted**)
+
+Application-code status is kept separate from actual staging configuration. **Nothing here is deployed; no Railway variable was changed.**
+
+| Task | Code status | Staging configuration status | Files | Variables and safe defaults |
+|---|---|---|---|---|
+| File encryption | TESTED (local) | **not configured** (`FILE_ENCRYPTION_KEY` and `FILE_ENCRYPTION_REQUIRED` unset on Railway) | `app/services/upload_safety.py` (`save_text` now deletes a partial file on failure); Phase 7 files unchanged | `FILE_ENCRYPTION_KEY` (urlsafe-base64, exactly 32 bytes; default empty), `FILE_ENCRYPTION_REQUIRED` (default `false`) |
+| SMTP fallback control | TESTED (local) | **not configured** (`SMTP_FALLBACK_ENABLED` unset; `SMTP_HOST` is set, so SMTP would be used) | `app/services/device_service.py` (**fourth SMTP path found and gated**: the new-device login alert, missed in Phase 7) | `SMTP_FALLBACK_ENABLED` (default `true`; recommended staging value `false`) |
+| Trusted proxy / client IP | TESTED (local) | **not configured** (`TRUSTED_PROXIES` unset while `TRUST_PROXY_TLS=true`) | `app/services/client_ip.py` (`client_ip_for`), `app/middleware/{rate_limiter,error_handler}.py`, `app/routers/{auth,admin_auth}.py`, `app/services/admin_access.py`, `app/startup_checks.py` | `TRUSTED_PROXIES` (default empty = trust nobody; wildcard, `/0` and malformed values stop startup) |
+| CORS | TESTED (local) | **not configured** (`CORS_ALLOWED_ORIGINS` unset; `ENVIRONMENT=staging`) | new `app/cors_policy.py`, `app/main.py`, `app/startup_checks.py` | `CORS_ALLOWED_ORIGINS` (default empty). Empty means no browser origin in staging/production; `*` only in development |
+
+**What changed and why**
+* **SMTP:** every module that calls `smtplib` is now gated (OTP fallback, guardian/panic/report mail, error-alert mail, new-device alert). Resend stays primary. Tests assert that with the switch off none of the paths connects, for every Resend failure mode (401, 403, 429, 500, 503, timeout, connection error), and that failure is never reported as delivery.
+* **Client IP:** the rate limiter honoured `TRUSTED_PROXIES` but 13 other places (auth rate limits, device registration, error logs, admin audit rows) used the raw peer address, so behind a proxy they would all see the proxy. All now use `client_ip_for`. A guard test fails if any module reads `request.client.host` directly. The trust logic is unchanged: `X-Forwarded-For` is believed only from an explicitly trusted peer, read right to left, never the left-most entry.
+* **Proxy startup policy:** production with `TRUST_PROXY_TLS=true` and no `TRUSTED_PROXIES` still refuses to boot (existing). New: staging/dev logs a warning instead of silently degrading; it does not block the deploy.
+* **CORS:** staging used to fall back to `*` when unset (any environment name except `production`). Now only `development`, `dev`, `local`, `test` do; an unknown or mistyped environment name gets no origins. Entries must be plain `scheme://host[:port]`; malformed entries, `*` mixed with origins, `*` outside development and non-https in production all stop startup. Methods and headers are an explicit list (was `*`). Credentials only with an explicit list. No cookies are used (bearer tokens), so there is no CSRF surface. `app/config.py` was **not** modified (owner-owned, uncommitted); `main.py` now uses `cors_policy` and the old `Settings.cors_*` helpers are unused.
+* **Encryption:** key validation, `REQUIRED` enforcement and the 503-without-writing behaviour were done in Phase 7; this phase added partial-file cleanup for generated text files and tests for failure cleanup, tamper (ciphertext and tag), nonce uniqueness, key never in error text, plaintext compatibility and optional-mode startup. Existing files are not re-encrypted; the file format is unchanged.
+
+**Frontend evidence (read-only):** the Flutter app has no web target and is Android/iOS only; native HTTP clients do not use CORS. The admin console is served by the API itself (same origin). The URL in `STAGING_API.md` is the **API** host, not a browser origin. **No cross-origin browser client exists, so no origin was invented and none should be configured.**
+
+**Test evidence (2026-11-13, working tree on `b130d04`, uncommitted)**
+* Full backend suite on the disposable local DB: **1227 passed, 0 failed, 0 skipped** (684 s).
+* New or extended: `tests/unit/test_cors_policy.py`, `test_client_ip_request.py`, `test_email_provider_failures.py`, `test_file_encryption_required.py` (extended), `tests/integration/test_client_ip_endpoint_limits.py`.
+* Clean checkout of `b130d04` with only the Phase A files copied in: ruff check and format clean (194 files), unit suite **526 passed, 0 skipped**.
+* Mutation checks on the new gates: **12/12 caught**. Incident: the mutation script crashed on a file write and left `device_service.py` mutated; it was noticed, restored and re-verified (no mutation markers in any source file).
+* **Not run:** GitHub CI (not pushed), frontend checks (no frontend file changed), real providers, a real proxy or uvicorn socket (proxy tests simulate the peer address), standalone Alembic run (no migration changed).
+
+**Manual Railway actions required from the owner (not performed)**
+1. `SMTP_FALLBACK_ENABLED=false`.
+2. Create and escrow a 32-byte urlsafe-base64 key (`FILE_ENCRYPTION_KEY`), then set `FILE_ENCRYPTION_REQUIRED=true`. Set the key first: with `REQUIRED` and no key the app will not boot. Losing the key makes encrypted files unreadable.
+3. **`TRUSTED_PROXIES`: do not guess.** The only observation so far is one peer address (`100.64.0.1`), which does not establish a range. Deploy with it empty (safe: the header is ignored), log the peer address and `X-Forwarded-For` of a few real requests from different networks, confirm every request arrives from the same private range and the platform appends the real client as the last hop, then set the smallest range covering the observed peers. Keep the start command's `--forwarded-allow-ips` consistent (start command still unverified, R-11).
+4. `CORS_ALLOWED_ORIGINS`: leave **unset** unless a browser client exists.
+
+**Deployment and rollback:** none of this is live; deploying needs a push (separate approval). On first deploy with the variables unset: staging CORS goes from `*` to none (no impact on the native app) and a startup warning about `TRUSTED_PROXIES` appears. Rollback: revert the commit, or set `SMTP_FALLBACK_ENABLED=true`, `FILE_ENCRYPTION_REQUIRED=false`, and clear `TRUSTED_PROXIES` and `CORS_ALLOWED_ORIGINS`. No data or schema is involved; existing encrypted files stay readable as long as the key is kept.
 
 ## 13. Security Risk Register
 
@@ -242,8 +285,8 @@ Owner "Owner" = repository owner (ravishori). Closure evidence is always "to be 
 | R-02 | Staging Railway variables still hold the exposed `SECRET_KEY`, `ADMIN_TOKEN` and old provider keys | High | Railway staging | **OPEN - DEFERRED** | Staging holds no user data; legacy admin token disabled; do not reuse in production | Owner | Owner | variable audit after rotation |
 | R-03 | `FILE_ENCRYPTION_KEY` not set: evidence/recordings stored in plaintext; before Phase 7 a missing key silently stored plaintext (S-11) | High | `file_crypto`, uploads | **OPEN** (code gate TESTED locally, uncommitted; staging key not set) | `FILE_ENCRYPTION_REQUIRED` + startup validation; owner generates and escrows a 32-byte urlsafe-base64 key | Owner (key); dev (tests) | Owner approves key creation | local tests for missing/malformed/valid key pass (done, see section 4); still needed: key set in staging; startup fails without it; round-trip upload verified on staging |
 | R-04 | SMTP fallback would use the exposed SMTP credentials if `SMTP_HOST` is set | High | OTP, notifications, error mail | **OPEN** (switch TESTED locally incl. error-alert path, uncommitted; variable not set on staging) | `SMTP_FALLBACK_ENABLED=false` on staging; Resend only | Dev / Owner | Owner sets variable | all three SMTP paths gated by passing tests (done locally); still needed: variable set on staging + no SMTP connection in staging logs |
-| R-05 | `TRUSTED_PROXIES` not set; only one observed Railway proxy address (`100.64.0.1`) (FG-167) | Medium | client-IP, rate limits, HTTPS detection | **OPEN** | Measure real proxy range on staging, set variable | Owner/ops | Owner | measured range recorded; startup check passes with `TRUST_PROXY_TLS` |
-| R-06 | CORS is a wildcard in non-production; production requires an explicit list | Medium | API | **OPEN** | Set `CORS_ALLOWED_ORIGINS` for staging/production | Owner/ops | Owner | variable set; preflight check from an allowed and a disallowed origin |
+| R-05 | `TRUSTED_PROXIES` not set; only one observed Railway proxy address (`100.64.0.1`) (FG-167) | Medium | client-IP, rate limits, HTTPS detection | **OPEN** (code TESTED locally, uncommitted; staging value unmeasured) | Measure real proxy range on staging, set variable | Owner/ops | Owner | measured range recorded; startup check passes with `TRUST_PROXY_TLS` |
+| R-06 | CORS fell back to `*` outside production (including staging) | Medium | API | **OPEN** (code fix TESTED locally, uncommitted; takes effect only after deploy) | Set `CORS_ALLOWED_ORIGINS` for staging/production | Owner/ops | Owner | variable set; preflight check from an allowed and a disallowed origin |
 | R-07 | No staging database backup and no proven restore (`../BACKUP_AND_RECOVERY.md`) | High | Postgres | **OPEN** | Take backup before migrations; rehearse restore to a scratch DB | Owner/ops | Owner approves backup/restore action | backup artefact id + successful restore with row counts matching |
 | R-08 | 9 pending migrations never applied to a real database; four are destructive on non-empty tables (S-xx in migration review) | High | Alembic | **OPEN** | Apply only after backup, on staging, in a controlled deploy; tables empty at last probe | Owner + dev | **Explicit owner approval** | revision equals `u6v7w8x9y0z1`, row-count probe unchanged, smoke tests pass |
 | R-09 | Admin MFA and initial superadmin not provisioned in any real environment; legacy token break-glass default `true` in code (S-06) | High | Admin console | **OPEN** | Create first superadmin after migration (CLI), enrol MFA; keep legacy token off | Owner/ops | Owner | admin login with MFA on staging; legacy token returns 401 on staging |
@@ -281,7 +324,7 @@ Fixed in the repository (not deployed; "fixed" means code + passing tests, not p
 ## 15. Outstanding Blockers
 
 1. **Owner:** credential rotation (deferred), upload keystore, Play/DPDP decisions, retention periods, approvals for push/backup/migration/deploy/test send.
-2. **CI not run** on the 74-commit range (never pushed).
+2. ~~CI not run~~ **Resolved for `b130d04`** (run 43399687864 SUCCESS). The fast-forward of `staging/railway-snapshot` still needs every later gate below.
 3. **No backup/restore proof** before migrations.
 4. **Nine pending migrations** unapproved.
 5. **Phase 7 changes are uncommitted** and wait for the owner's explicit commit approval; nothing is on GitHub, so CI has not validated them.
@@ -318,7 +361,7 @@ Priority order. Each item needs the stated approval before any external effect.
 | 2 | **SMTP fallback control:** code and tests DONE locally; **commit** (approval) then set `SMTP_FALLBACK_ENABLED=false` on staging later | commit approval; variable change | R-04 closure evidence |
 | 3 | **File encryption startup validation:** code and tests DONE locally; **commit** (approval); owner creates and escrows the key; set `FILE_ENCRYPTION_REQUIRED=true` on staging | commit approval; key creation | R-03 closure evidence |
 | 4 | **CI candidate branch:** commit Phase 7 files only (never the owner's uncommitted files; workflow already narrowed locally); push `staging/candidate-2026-11-13` | **commit approval, then push approval** | branch visible on GitHub, Railway did not deploy |
-| 5 | **Backend CI validation:** read the first CI run (gitleaks, ruff, pip-audit, alembic, pytest); fix failures | - | one green `backend-ci` run on the release SHA |
+| 5 | **Backend CI validation:** read the first CI run (gitleaks, ruff, pip-audit, alembic, pytest); fix failures | - | one green `backend-ci` run on the release SHA - **DONE for `b130d04`** (run 43399687864); repeat if any later commit is added |
 | 6 | **Database backup and restore verification** on staging | backup/restore approval | R-07 closure evidence |
 | 7 | **Migration approval:** owner reviews `../MIGRATION_SAFETY_REVIEW.md`; approval recorded in section 16 | **owner approval** | approval entry exists |
 | 8 | **Controlled Railway staging deployment:** set remaining variables (`TRUSTED_PROXIES` measured, CORS, encryption, SMTP switch), fast-forward `staging/railway-snapshot`, watch pre-deploy migrations and health checks, create first superadmin | **push + deploy + migration approval** | revision `u6v7w8x9y0z1`, `/health` ok, smoke tests pass |
@@ -333,7 +376,9 @@ Milestones: M1 candidate branch CI-green -> M2 staging deployed with migrations 
 |---|---|---|
 | 2026-11-13 | Document created from existing audit reports and reported release facts; no new technical audit; no application source changed by this document | this file |
 | 2026-11-13 | Phase 7 working-tree changes recorded as BUILT / uncommitted (SMTP switch, encryption-required validation, partial tests) | local branch `staging/candidate-2026-11-13` |
-| 2026-11-13 | CI run 43381648865 failed on `e367eb6` (CI-1, ruff format of `scripts/seed_sms_registry.py`); root cause and ready fix recorded; clean-checkout verification 1069 passed; corrective commit pending owner approval | CI log; clean worktree |
+| 2026-11-13 | CI run 43381648865 failed on `e367eb6` (CI-1, ruff format of `scripts/seed_sms_registry.py`); root cause and ready fix recorded; clean-checkout verification 1069 passed; corrective commit `b130d04` approved, created and pushed | CI log; clean worktree |
+| 2026-11-13 | **Phase A (local, uncommitted):** SMTP gate extended to the new-device alert, single client-IP helper everywhere, CORS policy module, encryption cleanup and tests; full suite 1227 passed, 12/12 mutations caught; see section 12a | working tree |
+| 2026-11-13 | **CI SUCCESS** on `b130d04` (run 43399687864): gitleaks, lint, ruff, pip-audit, blank-DB Alembic chain and PostgreSQL pytest all passed; CI validation complete for this candidate revision; infrastructure/credential risks unchanged | `gh run view` step list |
 | 2026-11-13 | Final review: deploy workflow narrowed from `staging/railway-snapshot`+`v*` to the exact branch only; test extended to 14 refs; focused tests 15 passed, ruff clean | working tree |
 | 2026-11-13 | Phase 7 completed locally, **uncommitted**: error-alert gate test fixed (no skip), encryption startup validation tests, `deploy-staging.yml` restricted to the exact branch `staging/railway-snapshot` (no tags); full suite 1062 passed, 11/11 mutations caught. Changed files: `app/delivery_settings.py`, `app/services/{otp_service,notifications,logger_service,file_crypto,upload_safety}.py`, `app/startup_checks.py`, `.github/workflows/deploy-staging.yml`, `tests/unit/test_{smtp_fallback_switch,file_encryption_required,deploy_workflow_refs}.py`, `tests/integration/test_file_encryption_api.py`, this document | working tree |
 
