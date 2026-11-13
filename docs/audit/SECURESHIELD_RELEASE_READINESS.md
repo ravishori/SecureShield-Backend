@@ -176,13 +176,22 @@ No provider has been verified live from this code. All entries are TESTED agains
 
 | Workflow | Trigger | Behaviour | Executed? |
 |---|---|---|---|
-| `backend-ci.yml` | push to `main` and `staging/**`; pull requests | gitleaks, ruff check/format, pip-audit, alembic on a blank DB, pytest on a Postgres service; inert CI placeholder values only | **No** since 2026-10-05 (one stale green run at `976ce42`) |
+| `backend-ci.yml` | push to `main` and `staging/**`; pull requests | gitleaks, ruff check/format, pip-audit, alembic on a blank DB, pytest on a Postgres service; inert CI placeholder values only | **Run 43381648865 on `e367eb6` (2026-11-13): FAILED** at the ruff format step (see CI-1 below); later steps (pip-audit, alembic, pytest) did not execute. Previous green run: 2026-10-05 at `976ce42` |
 | `deploy-staging.yml` | `workflow_dispatch` only; GitHub environment `staging` | `railway up` to staging; requires secret `RAILWAY_TOKEN` | never |
 | `flutter-ci.yml` (frontend) | push/PR | analyze, test, build; approval-gated `android-release` job | never |
 
 * GitHub environments `staging` and `android-release` exist (created by the owner-approved action 2026-11-13). Repository and environment secrets/variables: none found (names-only check, 2026-11-13). **Required reviewers are not configured.**
 * **Candidate-branch protection (verified by reading the workflows, nothing run):** `staging/candidate-2026-11-13` matches `staging/**`, so CI runs on it. Railway watches only `staging/railway-snapshot`, so a push of the candidate does not deploy. **R-16 (partly mitigated 2026-11-13):** `deploy-staging.yml` now accepts only the exact branch `staging/railway-snapshot`; `v*` tags and candidate branches are rejected (guard tested locally, uncommitted); candidate branches cannot pass it. Still open: `staging` environment required reviewers are not configured and the workflow has never run on GitHub.
 * CI workflows give candidate runs **no production secrets**: they use inert placeholders; the only secret planned (`RAILWAY_TOKEN`) is scoped to the `staging` environment used by the manual deploy workflow.
+
+### CI failure record
+
+| ID | Run | Failure | Root cause | Status |
+|---|---|---|---|---|
+| CI-1 | [43381648865](https://github.com/ravishori/SecureShield-Backend/actions/runs/43381648865), job `pytest (unit + PostgreSQL integration)`, step "Lint and format", commit `e367eb6` | `Would reformat: scripts/seed_sms_registry.py` / `1 file would be reformatted, 188 files already formatted`, exit 1 | **Genuine formatting defect in the committed file** `scripts/seed_sms_registry.py` (from commit `984c190`, inside the 74-commit range). Local ruff runs had passed because the working-tree copy of that file carries the owner's **uncommitted** change, which is exactly the ruff-formatted version (verified byte-identical apart from line endings), masking the defect. Not a PostgreSQL, environment, ordering or dependency issue; `ruff check` passed in CI (ruff 0.9.4 pinned) | **FIX READY, NOT COMMITTED** - see below |
+
+Fix: commit the ruff-formatted `scripts/seed_sms_registry.py` (format-only: 36 insertions, 12 deletions, no behavioural change). The working-tree file already contains it; it is owner-owned and was deliberately left alone. A corrective commit **is required** (do not amend `e367eb6`). Verified in a **clean checkout of `e367eb6` with only that formatting applied**: `ruff check` and `ruff format --check` clean (189 files) and full backend suite **1069 passed, 0 failed, 0 skipped** (473 s, disposable local DB), which also shows the commits do not depend on any uncommitted file. Not run locally for this commit: gitleaks, `pip-audit` (last clean run earlier on 2026-11-13), a standalone `alembic upgrade head` on a blank DB (covered indirectly by the schema-drift tests); these remain for CI.
+**Lesson (process):** lint, format and tests must be run in a clean checkout of the exact commit, not in a working tree that contains uncommitted owner changes.
 
 ## 11. Test Evidence and Quality Metrics
 
@@ -324,6 +333,7 @@ Milestones: M1 candidate branch CI-green -> M2 staging deployed with migrations 
 |---|---|---|
 | 2026-11-13 | Document created from existing audit reports and reported release facts; no new technical audit; no application source changed by this document | this file |
 | 2026-11-13 | Phase 7 working-tree changes recorded as BUILT / uncommitted (SMTP switch, encryption-required validation, partial tests) | local branch `staging/candidate-2026-11-13` |
+| 2026-11-13 | CI run 43381648865 failed on `e367eb6` (CI-1, ruff format of `scripts/seed_sms_registry.py`); root cause and ready fix recorded; clean-checkout verification 1069 passed; corrective commit pending owner approval | CI log; clean worktree |
 | 2026-11-13 | Final review: deploy workflow narrowed from `staging/railway-snapshot`+`v*` to the exact branch only; test extended to 14 refs; focused tests 15 passed, ruff clean | working tree |
 | 2026-11-13 | Phase 7 completed locally, **uncommitted**: error-alert gate test fixed (no skip), encryption startup validation tests, `deploy-staging.yml` restricted to the exact branch `staging/railway-snapshot` (no tags); full suite 1062 passed, 11/11 mutations caught. Changed files: `app/delivery_settings.py`, `app/services/{otp_service,notifications,logger_service,file_crypto,upload_safety}.py`, `app/startup_checks.py`, `.github/workflows/deploy-staging.yml`, `tests/unit/test_{smtp_fallback_switch,file_encryption_required,deploy_workflow_refs}.py`, `tests/integration/test_file_encryption_api.py`, this document | working tree |
 

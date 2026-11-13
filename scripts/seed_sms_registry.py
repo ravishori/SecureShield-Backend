@@ -14,6 +14,7 @@ Needs (not in requirements.txt):  pip install -r requirements-seed.txt
 Connects with MIGRATOR_DATABASE_URL: TRUNCATE requires table ownership, which
 the runtime role (secureshield_app) deliberately does not have.
 """
+
 import argparse
 import sys
 import os
@@ -23,6 +24,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.config import settings
+
 
 # ── Connection ─────────────────────────────────────────────────────────────────
 # TRUNCATE needs ownership -> use the migrator role (MIGRATOR_DATABASE_URL).
@@ -86,6 +88,7 @@ def load_sms_headers(xlsx_path: str):
         sys.exit(1)
 
     import warnings
+
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         wb = openpyxl.load_workbook(xlsx_path)
@@ -108,19 +111,24 @@ def load_sms_headers(xlsx_path: str):
 def seed(dry_run: bool = False, replace: bool = False, xlsx: str | None = None):
     xlsx_path = os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-        "..", "List_SMS_Headers_16062020_0.xlsx"
+        "..",
+        "List_SMS_Headers_16062020_0.xlsx",
     )
     xlsx_path = os.path.normpath(xlsx or xlsx_path)
 
     if not os.path.exists(xlsx_path):
         print(f"ERROR: XLSX not found at {xlsx_path}")
-        print("Place 'List_SMS_Headers_16062020_0.xlsx' in D:/ravishori/SecureShieldApp/")
+        print(
+            "Place 'List_SMS_Headers_16062020_0.xlsx' in D:/ravishori/SecureShieldApp/"
+        )
         sys.exit(1)
 
     if dry_run:
         rows = load_sms_headers(xlsx_path)
-        print(f"DRY RUN: would seed {len(TSP_CODES)} TSP codes, {len(LSA_CODES)} LSA codes, "
-              f"{len(rows):,} SMS headers. No database contact.")
+        print(
+            f"DRY RUN: would seed {len(TSP_CODES)} TSP codes, {len(LSA_CODES)} LSA codes, "
+            f"{len(rows):,} SMS headers. No database contact."
+        )
         return
 
     import psycopg2
@@ -130,25 +138,37 @@ def seed(dry_run: bool = False, replace: bool = False, xlsx: str | None = None):
     conn = psycopg2.connect(DSN)
     cur = conn.cursor()
 
-    cur.execute("SELECT (SELECT count(*) FROM tsp_codes), (SELECT count(*) FROM lsa_codes), "
-                "(SELECT count(*) FROM sms_sender_registry)")
+    cur.execute(
+        "SELECT (SELECT count(*) FROM tsp_codes), (SELECT count(*) FROM lsa_codes), "
+        "(SELECT count(*) FROM sms_sender_registry)"
+    )
     existing = cur.fetchone()
     if any(existing) and not replace:
-        print(f"ABORT: tables already hold data (tsp={existing[0]}, lsa={existing[1]}, "
-              f"sms={existing[2]}). Re-run with --replace to wipe and reseed.")
+        print(
+            f"ABORT: tables already hold data (tsp={existing[0]}, lsa={existing[1]}, "
+            f"sms={existing[2]}). Re-run with --replace to wipe and reseed."
+        )
         conn.close()
         sys.exit(2)
 
     # ── Seed TSP codes ──────────────────────────────────────────────────────────
     print("Seeding TSP codes...")
     cur.execute("TRUNCATE TABLE tsp_codes RESTART IDENTITY CASCADE")
-    execute_values(cur, "INSERT INTO tsp_codes (code, provider_name) VALUES %s ON CONFLICT DO NOTHING", TSP_CODES)
+    execute_values(
+        cur,
+        "INSERT INTO tsp_codes (code, provider_name) VALUES %s ON CONFLICT DO NOTHING",
+        TSP_CODES,
+    )
     print(f"  {len(TSP_CODES)} TSP codes inserted")
 
     # ── Seed LSA codes ──────────────────────────────────────────────────────────
     print("Seeding LSA codes...")
     cur.execute("TRUNCATE TABLE lsa_codes RESTART IDENTITY CASCADE")
-    execute_values(cur, "INSERT INTO lsa_codes (code, service_area) VALUES %s ON CONFLICT DO NOTHING", LSA_CODES)
+    execute_values(
+        cur,
+        "INSERT INTO lsa_codes (code, service_area) VALUES %s ON CONFLICT DO NOTHING",
+        LSA_CODES,
+    )
     print(f"  {len(LSA_CODES)} LSA codes inserted")
 
     # ── Seed SMS headers ────────────────────────────────────────────────────────
@@ -182,8 +202,12 @@ def seed(dry_run: bool = False, replace: bool = False, xlsx: str | None = None):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="Seed TRAI SMS sender registry")
-    ap.add_argument("--dry-run", action="store_true", help="parse inputs only; no database")
-    ap.add_argument("--replace", action="store_true", help="TRUNCATE and reseed populated tables")
+    ap.add_argument(
+        "--dry-run", action="store_true", help="parse inputs only; no database"
+    )
+    ap.add_argument(
+        "--replace", action="store_true", help="TRUNCATE and reseed populated tables"
+    )
     ap.add_argument("--xlsx", help="path to List_SMS_Headers_16062020_0.xlsx")
     a = ap.parse_args()
     seed(dry_run=a.dry_run, replace=a.replace, xlsx=a.xlsx)
