@@ -23,6 +23,7 @@ from email.mime.text import MIMEText
 import httpx
 
 from app.config import load_settings
+from app.delivery_settings import delivery_settings
 from app.services.log_scrubber import (
     mask_email_for_log,
     mask_phone_for_log,
@@ -380,7 +381,10 @@ async def deliver_otp(identifier: str, code: str) -> DeliveryResult:
             result = await _send_email_resend(identifier, code)
             if result.success:
                 return result
-        if (settings.SMTP_HOST or "").strip():
+        if (
+            delivery_settings.SMTP_FALLBACK_ENABLED
+            and (settings.SMTP_HOST or "").strip()
+        ):
             # smtplib is blocking: keep it off the event loop.
             result = await asyncio.to_thread(_send_email, identifier, code)
             if result.success:

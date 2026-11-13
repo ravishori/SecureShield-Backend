@@ -1,6 +1,7 @@
 name: deploy-staging
 
 # Controlled, manual deployment of an approved ref to the STAGING Railway environment. No Docker: Railway builds natively (Railpack).
+# Only the exact branch staging/railway-snapshot may be deployed; candidate branches (staging/candidate-*), other branches and v* tags are CI-only.
 # Not run yet. Requires: a GitHub environment named "staging" with required reviewers, and a staging-scoped Railway project token in
 # the secret RAILWAY_TOKEN (never a production token). Migrations are NOT run here: Railway runs `alembic upgrade head` as the
 # service's pre-deploy step (see .railway/railway.ts), separately from application startup.
@@ -8,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: "Branch or tag to deploy (must already pass backend-ci)"
+        description: "Branch to deploy: only staging/railway-snapshot is accepted (must already pass backend-ci)"
         required: true
         default: "staging/railway-snapshot"
 
@@ -21,15 +22,17 @@ jobs:
     environment: staging # approval gate
     concurrency: deploy-staging
     steps:
+      - name: Refuse anything but approved refs
+        env:
+          REF: ${{ inputs.ref }}
+        run: |
+          case "$REF" in
+            staging/railway-snapshot) ;;
+            *) echo "only the exact branch staging/railway-snapshot may be deployed; candidate branches and tags are CI-only"; exit 1 ;;
+          esac
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.ref }}
-      - name: Refuse anything but approved refs
-        run: |
-          case "${{ inputs.ref }}" in
-            staging/*|release/*|v[0-9]*) ;;
-            *) echo "ref must be staging/*, release/* or a v* tag"; exit 1 ;;
-          esac
       - uses: actions/setup-node@v4
         with:
           node-version: "20"

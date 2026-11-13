@@ -234,3 +234,33 @@ async def test_empty_upload_with_a_key_leaves_no_file(
     h = auth_headers(await make_user("empty"))
     r = await up(client, h, data=b"")
     assert r.status_code == 400 and list((_dirs / "evidence").iterdir()) == []
+
+
+# ------------------------------------------------- FILE_ENCRYPTION_REQUIRED (compatibility and fail-safe)
+async def test_required_without_key_rejects_upload_and_writes_nothing(
+    client, make_user, auth_headers, _dirs, monkeypatch
+):
+    from app.delivery_settings import delivery_settings
+
+    monkeypatch.setattr(settings, "FILE_ENCRYPTION_KEY", "")
+    monkeypatch.setattr(delivery_settings, "FILE_ENCRYPTION_REQUIRED", True)
+    h = auth_headers(await make_user("req"))
+    r = await up(client, h)
+    assert r.status_code == 503 and "key" not in r.text.lower()
+    assert list((_dirs / "evidence").iterdir()) == []
+
+
+async def test_plaintext_files_stay_downloadable_when_encryption_becomes_required(
+    client, make_user, auth_headers, monkeypatch
+):
+    from app.delivery_settings import delivery_settings
+
+    monkeypatch.setattr(settings, "FILE_ENCRYPTION_KEY", "")
+    h = auth_headers(await make_user("legacy2"))
+    old = await up(client, h)
+    monkeypatch.setattr(settings, "FILE_ENCRYPTION_KEY", KEY)
+    monkeypatch.setattr(delivery_settings, "FILE_ENCRYPTION_REQUIRED", True)
+    assert (await client.get(old.json()["download_url"], headers=h)).content == SECRET
+    new = await up(client, h)  # new uploads are AES-256-GCM
+    assert new.json()["is_encrypted"] is True
+    assert (await client.get(new.json()["download_url"], headers=h)).content == SECRET

@@ -44,6 +44,10 @@ class FileCryptoError(Exception):
     """The file is corrupt, truncated, tampered with, or the key is wrong."""
 
 
+class EncryptionRequiredError(FileCryptoError):
+    """FILE_ENCRYPTION_REQUIRED is set but no encryption key is configured: nothing may be stored in plaintext."""
+
+
 def _decode_key(raw: str, name: str) -> bytes:
     try:
         key = base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4))
@@ -93,6 +97,18 @@ def active_key() -> tuple[int, bytes] | None:
     raise FileCryptoError(
         "several keys are configured: set FILE_ENCRYPTION_ACTIVE_KEY_ID"
     )
+
+
+def active_key_for_write() -> tuple[int, bytes] | None:
+    """Key for NEW files. With FILE_ENCRYPTION_REQUIRED a missing key is an error instead of silent plaintext storage."""
+    from app.delivery_settings import delivery_settings
+
+    active = active_key()
+    if active is None and delivery_settings.FILE_ENCRYPTION_REQUIRED:
+        raise EncryptionRequiredError(
+            "file encryption is required but no key is configured"
+        )
+    return active
 
 
 def _key() -> bytes | None:

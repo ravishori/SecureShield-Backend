@@ -91,6 +91,10 @@ async def _send_email_resend(to: str, subject: str, body: str) -> bool:
 
 
 def _send_email_smtp_sync(to: str, subject: str, body: str) -> bool:
+    from app.delivery_settings import delivery_settings
+
+    if not delivery_settings.SMTP_FALLBACK_ENABLED:
+        return False  # SMTP is switched off (SMTP_FALLBACK_ENABLED=false): Resend is the only e-mail provider
     s = load_settings()
     if not (s.SMTP_HOST or "").strip():
         return False

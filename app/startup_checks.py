@@ -127,7 +127,26 @@ def check_trusted_proxies(settings: Settings) -> None:
         )
 
 
+def check_file_encryption(settings: Settings) -> None:
+    """A configured encryption key must be valid (base64 of exactly 32 bytes; keyring ids consistent) in EVERY environment, and with
+    FILE_ENCRYPTION_REQUIRED the application refuses to start without one. The message never contains key material."""
+    from app.delivery_settings import delivery_settings
+    from app.services import file_crypto
+
+    try:
+        active = file_crypto.active_key()
+    except file_crypto.FileCryptoError as exc:
+        raise StartupCheckError(
+            f"File encryption key configuration is invalid: {exc}"
+        ) from None
+    if active is None and delivery_settings.FILE_ENCRYPTION_REQUIRED:
+        raise StartupCheckError(
+            "FILE_ENCRYPTION_REQUIRED=true but FILE_ENCRYPTION_KEY is not set. Provide a urlsafe-base64 key of 32 random bytes."
+        )
+
+
 _CHECKS = (
+    check_file_encryption,
     check_tls_configuration,
     check_jwt_secret,
     check_admin_token,

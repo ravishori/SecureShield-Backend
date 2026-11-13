@@ -152,6 +152,17 @@ def guess_media_type(filename: str) -> str:
     return entry[0] if entry else "application/octet-stream"
 
 
+def _write_key():
+    """Encryption key for a new file; 503 (generic) when encryption is required but not configured."""
+    try:
+        return file_crypto.active_key_for_write()
+    except file_crypto.FileCryptoError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="File storage is temporarily unavailable.",
+        )
+
+
 async def save_upload(
     file: UploadFile,
     directory: str,
@@ -170,7 +181,7 @@ async def save_upload(
         directory, f"{uuid.uuid4()}_{safe_filename(file.filename, default_name)}"
     )
     size = 0
-    active = file_crypto.active_key()
+    active = _write_key()
     key = active[1] if active else None
     try:
         with open(path, "wb") as raw:
@@ -213,7 +224,7 @@ def save_text(directory: str, text: str, *, name: str) -> tuple[str, int]:
         directory, f"{uuid.uuid4()}_{safe_filename(name, 'document.txt')}"
     )
     data = text.encode("utf-8")
-    active = file_crypto.active_key()
+    active = _write_key()
     with open(path, "wb") as f:
         if active:
             writer = file_crypto.EncryptingWriter(f, active[1], active[0])

@@ -28,6 +28,7 @@ from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
+from app.delivery_settings import delivery_settings
 from app.services.log_scrubber import MAX_MESSAGE, MAX_TRACEBACK, scrub_obj, scrub_text
 
 # ---------------------------------------------------------------------------
@@ -200,7 +201,12 @@ async def log_error(
 
     # ── 3. Email alert (ERROR / CRITICAL only) ─────────────────────────────
     notify_email = getattr(settings, "ERROR_NOTIFY_EMAIL", "")
-    if send_email and level in ("ERROR", "CRITICAL") and notify_email:
+    if (
+        send_email
+        and delivery_settings.SMTP_FALLBACK_ENABLED  # alert e-mails are SMTP-only
+        and level in ("ERROR", "CRITICAL")
+        and notify_email
+    ):
         icon = "🔴" if level == "CRITICAL" else "🟠"
         subject = (
             f"{icon} SecureShield [{level}] {exc_type or 'Error'} @ {endpoint or 'N/A'}"
