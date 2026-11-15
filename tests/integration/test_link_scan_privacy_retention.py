@@ -24,7 +24,7 @@ pytestmark = [pytest.mark.integration, pytest.mark.security]
 SCAN = "/api/v1/link-scanner/scan"
 HIST = "/api/v1/link-scanner/history"
 MSG = "/api/v1/message/analyze"
-SECRET = "S3cr3tT0kenV4lue"
+SECRET = "FAKE-SENTINEL-NOT-A-KEY"  # clearly fabricated: only ever asserted ABSENT from stored or returned output
 SENSITIVE = f"http://admin:{SECRET}@192.168.4.4/login/verify?access_token={SECRET}&id=7&next=https://evil.example/x?k={SECRET}#frag={SECRET}"
 NO_USERINFO = f"http://192.168.4.4/login/verify?access_token={SECRET}&id=7&next=https://evil.example/x?k={SECRET}#frag={SECRET}"
 
