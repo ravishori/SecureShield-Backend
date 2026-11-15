@@ -1,4 +1,7 @@
 from app.models.user import User, OTP
+from app.models.pending_registration import PendingRegistration
+from app.models.user_consent import UserConsent
+from app.models.guardian_outbox import GuardianAlertDelivery, GuardianAlertOutbox
 from app.models.device import Device
 from app.models.app_scan import AppScan
 from app.models.link_scan import LinkScan
@@ -31,6 +34,10 @@ from app.models.cyber_warrior import (
 __all__ = [
     "User",
     "OTP",
+    "PendingRegistration",
+    "UserConsent",
+    "GuardianAlertOutbox",
+    "GuardianAlertDelivery",
     "Device",
     "AppScan",
     "LinkScan",

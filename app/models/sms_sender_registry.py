@@ -1,4 +1,4 @@
-from sqlalchemy import String, Integer, Text, Index
+from sqlalchemy import String, Integer, Text, Index, text
 from sqlalchemy.orm import Mapped, mapped_column
 from app.database import Base
 
@@ -35,4 +35,10 @@ class SmsSenderRegistry(Base):
     header: Mapped[str] = mapped_column(String(30), nullable=False, index=True)
     principal_entity_name: Mapped[str] = mapped_column(Text, nullable=False)
 
-    __table_args__ = (Index("ix_sms_sender_header_upper", "header"),)
+    __table_args__ = (
+        # The only lookup (app/services/sms_header_validator.py) is `WHERE upper(header) = :x`. A plain index on `header` cannot
+        # serve that expression, so this is an EXPRESSION index on upper(header). Created by revision y0z1a2b3c4d5, which issues
+        # `upper(header)`. PostgreSQL stores it as `upper((header)::text)`; SQLAlchemy reflects it as `upper(header::text)`, and
+        # Alembic's PostgreSQL comparison treats that as equal to `upper(header)` (verified by `alembic check`, Stage 1.5F).
+        Index("ix_sms_sender_header_upper", text("upper(header)")),
+    )

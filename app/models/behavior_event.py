@@ -1,7 +1,7 @@
 import uuid
 import enum
 from datetime import datetime
-from sqlalchemy import DateTime, ForeignKey, Float, Text, Enum as SAEnum
+from sqlalchemy import DateTime, ForeignKey, Float, Index, Text, Enum as SAEnum, text
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from app.database import Base
@@ -21,12 +21,18 @@ class BehaviorEventType(str, enum.Enum):
 
 class BehaviorEvent(Base):
     __tablename__ = "behavior_events"
+    __table_args__ = (
+        Index("ix_behavior_events_occurred_at", text("occurred_at DESC")),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     event_type: Mapped[BehaviorEventType] = mapped_column(
         SAEnum(BehaviorEventType), nullable=False
@@ -35,5 +41,5 @@ class BehaviorEvent(Base):
     details: Mapped[str | None] = mapped_column(Text, nullable=True)
     extra_data: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
     occurred_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, nullable=False, index=True
+        DateTime, default=datetime.utcnow, nullable=False
     )

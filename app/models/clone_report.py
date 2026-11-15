@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import String, Boolean, DateTime, Integer
+from sqlalchemy import String, Boolean, DateTime, Index, Integer, text
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from app.database import Base
@@ -13,6 +13,7 @@ class CloneReport(Base):
     """
 
     __tablename__ = "clone_reports"
+    __table_args__ = (Index("ix_clone_reports_created_at", text("created_at DESC")),)
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -55,5 +56,5 @@ class CloneReport(Base):
     )  # did user agree it's fake?
 
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, nullable=False, index=True
+        DateTime, default=datetime.utcnow, nullable=False
     )
