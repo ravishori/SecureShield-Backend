@@ -3,7 +3,7 @@
 | | Old | New |
 |---|---|---|
 | Database | Azure Database for PostgreSQL (`secureshield-pg-prod`) | **Railway PostgreSQL** |
-| API | (Azure Container Apps / App Service) | **Railway `secureshield-api`** (Dockerfile) |
+| API | (Azure Container Apps / App Service) | **Railway `secureshield-api`** (Railpack; Docker is not an approved builder) |
 
 ```
 Flutter -> Railway SecureShield API -> Railway PostgreSQL
@@ -16,8 +16,9 @@ database initialised with `alembic upgrade head` (head `l7m8n9o0p1q2`,
 
 ## Staging project (`secureshield-staging`)
 - Services: `Postgres`, `secureshield-api` (+ volume `/app/uploads`).
-- `railway.toml`: Dockerfile builder, pre-deploy `alembic upgrade head`,
-  healthcheck `/health`, 1 replica. Railway supplies `PORT`.
+- **Superseded:** this section described the earlier `railway.toml` Dockerfile builder. The approved path is Railpack, declared in `.railway/railway.ts`
+  (pre-deploy `alembic upgrade head`, healthcheck `/health`, 1 replica; Railway supplies `PORT`). A staging service still reporting the
+  Dockerfile builder is configuration drift to investigate, not an architecture decision (see `docs/development/BH1_IMPLEMENTATION_PLAN.md`).
 - `/ready` runs `SELECT current_database(), current_user` as the app role.
 
 ## Database
