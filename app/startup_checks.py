@@ -21,6 +21,7 @@ import logging
 from typing import Iterable
 
 from app.config import Settings
+from app.db_identity import DatabaseIdentityError, validate_identity
 
 logger = logging.getLogger(__name__)
 
@@ -147,8 +148,61 @@ def check_file_encryption(settings: Settings) -> None:
         )
 
 
+def check_rate_limit_configuration(settings: Settings) -> None:
+    """BH-1: the per-user limiter configuration must be valid in EVERY environment; production additionally needs the
+    single-process attestation. The same validator is used by the preflight CLI (``python -m app.cli.check_rate_limit_config``).
+    Messages name variables and rules only, never values."""
+    from app.services import user_rate_limits as url
+
+    validation = url.current_validation()
+    for issue in validation.warnings:
+        logger.warning("Rate-limit configuration: %s", issue)
+    if not validation.ok:
+        raise StartupCheckError(
+            "Per-user rate-limit configuration refused: "
+            + "; ".join(str(i) for i in validation.fatal)
+        )
+    logger.info(url.startup_report(validation))
+
+
+def check_database_identity(settings: Settings) -> None:
+    """The database target must match the declared environment (production registry rules). Runs first, in EVERY
+    environment. Messages never contain a URL, host or credential."""
+    try:
+        line = validate_identity(settings)
+    except DatabaseIdentityError as exc:
+        raise StartupCheckError(f"Database identity refused: {exc}") from None
+    logger.info(line)
+
+
+def check_retention_configuration(settings: Settings) -> None:
+    """RETENTION_CLEANUP_ENABLED decides whether retention may DELETE rows (only the exact value ``true`` enables it).
+    Production must set it explicitly (``true`` or ``false``) so the privacy control cannot switch off silently."""
+    raw = settings.RETENTION_CLEANUP_ENABLED
+    value = (raw or "").strip().lower()
+    if settings.is_production():
+        if value not in ("true", "false"):
+            raise StartupCheckError(
+                "RETENTION_CLEANUP_ENABLED must be set explicitly to true or false in production"
+            )
+        if value == "false":
+            logger.warning(
+                "RETENTION_CLEANUP_ENABLED=false: link-scan, error-log and guardian-outbox retention will NOT delete "
+                "anything; stored data grows beyond its retention period until this is enabled"
+            )
+        return
+    if value and value not in ("true", "false"):
+        logger.warning(
+            "RETENTION_CLEANUP_ENABLED is not 'true' or 'false'; retention stays OFF"
+        )
+    logger.info("Retention cleanup is %s", "ENABLED" if value == "true" else "OFF")
+
+
 _CHECKS = (
+    check_database_identity,
+    check_retention_configuration,
     check_file_encryption,
+    check_rate_limit_configuration,
     check_tls_configuration,
     check_jwt_secret,
     check_admin_token,

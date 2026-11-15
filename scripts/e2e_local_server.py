@@ -23,9 +23,11 @@ def log(kind, **kw):
         f.write(json.dumps({"kind": kind, **kw}) + "\n")
 
 
-# Do not read the developer's real backend/.env (settings give .env priority over process variables and it
-# holds live provider credentials): point the settings loader at a file that does not exist.
-os.environ["SECURESHIELD_ENV_FILE"] = os.path.join(ROOT, ".env.e2e-does-not-exist")
+# Never read an env file: backend/.env is not loaded implicitly any more, and a selected-but-missing file is an error,
+# so make sure none is selected. Database settings come from the process environment (a LOCAL database only).
+os.environ.pop("SECURESHIELD_ENV_FILE", None)
+os.environ["ENVIRONMENT"] = "development"
+os.environ["DATABASE_ENVIRONMENT"] = "local"
 
 # Provider credentials: inert non-empty values (settings use env_ignore_empty=True, so blanks would count
 # as missing and fail validation).

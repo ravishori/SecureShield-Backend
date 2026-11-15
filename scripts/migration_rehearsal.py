@@ -23,6 +23,9 @@ import asyncpg
 from sqlalchemy.engine import make_url
 
 BACKEND = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(BACKEND))
+from app.db_identity import DatabaseIdentityError, assert_script_target  # noqa: E402
+
 BASE = "l7m8n9o0p1q2"
 STEPS = [
     "m8n9o0p1q2r3",
@@ -48,18 +51,46 @@ def pg(url: str) -> str:
     return url.replace("+asyncpg", "")
 
 
-def alembic(url: str, *args: str) -> None:
+def alembic_env(url: str) -> dict:
+    """Environment for the Alembic subprocess: the scratch URL plus the identity declarations the application requires.
+
+    ``ENVIRONMENT=development`` / ``DATABASE_ENVIRONMENT=local`` are set explicitly (not inherited), and any selected env file or
+    retention/registry override from the caller's shell is removed, so the child can only ever see the loopback scratch database.
+    """
     env = dict(os.environ)
+    for inherited in (
+        "SECURESHIELD_ENV_FILE",
+        "RETENTION_CLEANUP_ENABLED",
+        "DEV_DATABASE_ALLOWED_HOSTS",
+    ):
+        env.pop(inherited, None)
     env["DATABASE_URL"] = url
     env["MIGRATOR_DATABASE_URL"] = url
-    subprocess.run(
+    env["ENVIRONMENT"] = "development"
+    env["DATABASE_ENVIRONMENT"] = "local"
+    return env
+
+
+def alembic(url: str, *args: str) -> None:
+    env = alembic_env(url)
+    result = subprocess.run(
         [sys.executable, "-m", "alembic", *args],
         cwd=BACKEND,
         env=env,
-        check=True,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
     )
+    if result.returncode != 0:
+        # Never discard the child's stderr: a refused identity check or a failed migration must be visible. The URL (which holds
+        # the scratch password) is scrubbed from what is printed.
+        tail = (
+            (result.stderr or result.stdout or "")
+            .replace(url, "<redacted>")
+            .strip()[-1500:]
+        )
+        raise SystemExit(
+            f"alembic {' '.join(args)} failed (exit {result.returncode}):\n{tail}"
+        )
 
 
 async def counts(url: str) -> dict[str, int | None]:
@@ -152,6 +183,12 @@ def main() -> None:
     admin_url = os.environ.get("RESTORE_ADMIN_URL")
     if not admin_url:
         sys.exit("Set RESTORE_ADMIN_URL (local PostgreSQL).")
+    try:
+        assert_script_target(
+            admin_url, "scratch"
+        )  # loopback only, never a production-registry endpoint
+    except DatabaseIdentityError as exc:
+        sys.exit(f"Refusing: {exc}")
     a = make_url(pg(admin_url))
     if (a.host or "").lower() not in {"localhost", "127.0.0.1", "::1"}:
         sys.exit("Refusing: RESTORE_ADMIN_URL must be loopback.")

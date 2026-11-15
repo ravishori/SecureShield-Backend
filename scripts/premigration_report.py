@@ -17,6 +17,9 @@ import sys
 
 import asyncpg
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from app.db_identity import DatabaseIdentityError, assert_script_target  # noqa: E402
+
 CHECKS: list[tuple[str, str]] = [
     ("users (total)", "select count(*) from users"),
     (
@@ -69,6 +72,12 @@ async def main() -> int:
         print(
             "Set PREMIGRATION_DATABASE_URL (a read-only role is best).", file=sys.stderr
         )
+        return 1
+    try:
+        # Read-only report: a production-registry endpoint needs SECURESHIELD_CONFIRM_PRODUCTION_READ=<endpoint id>.
+        assert_script_target(url, "read_only")
+    except DatabaseIdentityError as exc:
+        print(f"Refusing: {exc}", file=sys.stderr)
         return 1
     conn = await asyncpg.connect(
         url.replace("+asyncpg", ""),

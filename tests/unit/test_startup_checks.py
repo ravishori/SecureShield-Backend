@@ -18,6 +18,10 @@ from app.startup_checks import (
 )
 
 
+# A production-registry endpoint (identifier only; no credentials). Needed because the identity check runs in every environment.
+_PROD_DB = "postgresql+asyncpg://t:t@ep-cool-silence-aohbh87f-pooler.c-2.ap-southeast-1.aws.neon.tech/SecureShieldDB"
+
+
 def _settings(**overrides) -> Settings:
     base = {
         "DATABASE_URL": "postgresql+asyncpg://t:t@localhost/t",
@@ -163,7 +167,7 @@ class TestCorsCheck:
 class TestRunStartupChecks:
     @pytest.mark.unit
     def test_dev_passes_all_checks(self):
-        s = _settings(ENVIRONMENT="development")
+        s = _settings(ENVIRONMENT="development", DATABASE_ENVIRONMENT="local")
         run_startup_checks(s)  # no raise
 
     @pytest.mark.unit
@@ -171,6 +175,10 @@ class TestRunStartupChecks:
     def test_prod_with_safe_config_passes(self):
         s = _settings(
             ENVIRONMENT="production",
+            DATABASE_ENVIRONMENT="production",
+            DATABASE_URL=_PROD_DB,
+            MIGRATOR_DATABASE_URL=_PROD_DB,
+            RETENTION_CLEANUP_ENABLED="true",
             TRUST_PROXY_TLS=True,
             TRUSTED_PROXIES="100.64.0.0/10",  # FG-167: required behind a proxy
             SECRET_KEY="k9-F2Jx7mZ.LpQw3-RVnTbU6Yx8Ag4Bc5De1Hi2JkMo7PqRsTvWxYz0A",
@@ -184,7 +192,37 @@ class TestRunStartupChecks:
     def test_prod_fails_fast_on_first_problem(self):
         # Missing TLS — should raise before even looking at the secret
         s = _settings(
-            ENVIRONMENT="production", FORCE_HTTPS=False, TRUST_PROXY_TLS=False
+            ENVIRONMENT="production",
+            DATABASE_ENVIRONMENT="production",
+            DATABASE_URL=_PROD_DB,
+            MIGRATOR_DATABASE_URL=_PROD_DB,
+            RETENTION_CLEANUP_ENABLED="true",
+            FORCE_HTTPS=False,
+            TRUST_PROXY_TLS=False,
         )
         with pytest.raises(StartupCheckError, match="TLS"):
             run_startup_checks(s)
+
+
+class TestDatabaseIdentityStartupCheck:
+    @pytest.mark.unit
+    @pytest.mark.security
+    def test_identity_check_runs_first_and_names_no_url(self):
+        s = _settings(
+            ENVIRONMENT="development",
+            DATABASE_ENVIRONMENT="local",
+            DATABASE_URL=_PROD_DB,
+            MIGRATOR_DATABASE_URL=_PROD_DB,
+        )
+        with pytest.raises(
+            StartupCheckError, match="Database identity refused"
+        ) as info:
+            run_startup_checks(s)
+        assert "neon" not in str(info.value) and "://" not in str(info.value)
+
+    @pytest.mark.unit
+    @pytest.mark.security
+    def test_missing_database_environment_refuses_boot_in_every_environment(self):
+        for env in ("development", "test", "staging", "production"):
+            with pytest.raises(StartupCheckError, match="DATABASE_ENVIRONMENT"):
+                run_startup_checks(_settings(ENVIRONMENT=env, DATABASE_ENVIRONMENT=""))

@@ -1,0 +1,19 @@
+# Production-class database endpoints. IDENTIFIERS ONLY: never put a URL, user, password, token or wildcard here.
+#
+# One entry per line: a Neon endpoint id (ep-...) or a bare hostname, case-insensitive. The pooled ("-pooler") and direct
+# forms of the same endpoint are the same endpoint. Lines starting with # and text after # are comments.
+#
+# A development, test or staging environment can never use an endpoint listed here (not even through
+# DEV_DATABASE_ALLOWED_HOSTS); a production environment must use one. See app/db_identity.py.
+# Registering the endpoint is part of creating any production-class database.
+
+# Active production database (Neon).
+ep-cool-silence-aohbh87f
+
+# Protected recovery branch: holds production data and must never be used for development or testing.
+ep-small-tooth-aolra8tc
+
+# Production database NAME. Refused outside production on ANY host: localhost, an SSH tunnel and a port forward all look like
+# "localhost", so the name is the only way to recognise them. (The legacy local database used as the migration SOURCE has this
+# name too; the migration scripts read it only with an explicit confirmation, see docs/neon-migration/scripts/connection_guard.py.)
+database:SecureShieldDB

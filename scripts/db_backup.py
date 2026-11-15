@@ -24,6 +24,9 @@ from pathlib import Path
 
 from sqlalchemy.engine import make_url
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from app.db_identity import DatabaseIdentityError, assert_script_target  # noqa: E402
+
 
 def pg_env(url: str) -> dict[str, str]:
     u = make_url(url.replace("+asyncpg", "").replace("postgres://", "postgresql://"))
@@ -94,6 +97,11 @@ def main() -> None:
     url = os.environ.get("BACKUP_DATABASE_URL") or os.environ.get("DATABASE_URL")
     if not url:
         sys.exit("Set BACKUP_DATABASE_URL (preferred, read-only role) or DATABASE_URL.")
+    try:
+        # Read-only dump: a production-registry endpoint needs SECURESHIELD_CONFIRM_PRODUCTION_READ=<endpoint id>.
+        assert_script_target(url, "read_only")
+    except DatabaseIdentityError as exc:
+        sys.exit(f"Refusing: {exc}")
     path = backup(url, args.out, args.keep)
     print(f"backup written: {path} ({path.stat().st_size} bytes)")
 

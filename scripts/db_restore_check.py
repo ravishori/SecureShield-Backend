@@ -30,6 +30,10 @@ from sqlalchemy.engine import make_url
 sys.path.insert(0, str(Path(__file__).parent))
 from db_backup import find_tool, pg_env, sha256_of  # noqa: E402
 
+# Refuse a wrong or production-class target before any connection is opened (app.db_identity is free of Settings imports).
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from app.db_identity import DatabaseIdentityError, assert_script_target  # noqa: E402
+
 LOOPBACK = {"localhost", "127.0.0.1", "::1"}
 
 
@@ -73,6 +77,15 @@ def main() -> None:
     admin_url = os.environ.get("RESTORE_ADMIN_URL")
     if not admin_url:
         sys.exit("Set RESTORE_ADMIN_URL to a local PostgreSQL server URL.")
+    try:
+        assert_script_target(
+            admin_url, "scratch"
+        )  # loopback only, never a production-registry endpoint
+        _source = os.environ.get("BACKUP_DATABASE_URL")
+        if _source:
+            assert_script_target(_source, "read_only")
+    except DatabaseIdentityError as exc:
+        sys.exit(f"Refusing: {exc}")
     admin = make_url(sync_url(admin_url))
     if (admin.host or "").lower() not in LOOPBACK:
         sys.exit("Refusing: RESTORE_ADMIN_URL must point at a loopback server.")

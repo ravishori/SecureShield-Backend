@@ -17,6 +17,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.database import Base
+from app.migration_guard import include_object  # protects otp_vault_entries and uq_warrior_app_user_pending from autogenerate
 
 # Import every model so Alembic's autogenerate can see them. Models without
 # a corresponding file are guarded by try/except so a missing module never
@@ -61,11 +62,14 @@ target_metadata = Base.metadata
 def run_migrations_offline() -> None:
     # Prefer migrator URL from Settings; never rely on credentials in alembic.ini.
     from app.config import settings
+    from app.db_identity import validate_identity
 
+    validate_identity(settings)  # guard in the runner (not a revision): refuse a mismatched target before any migration
     url = settings.MIGRATOR_DATABASE_URL
     context.configure(
         url=url,
         target_metadata=target_metadata,
+        include_object=include_object,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
     )
@@ -74,7 +78,11 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection: Connection) -> None:
-    context.configure(connection=connection, target_metadata=target_metadata)
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        include_object=include_object,
+    )
     with context.begin_transaction():
         context.run_migrations()
 
@@ -82,6 +90,9 @@ def do_run_migrations(connection: Connection) -> None:
 async def run_async_migrations() -> None:
     # Alembic must use secureshield_migrator (MIGRATOR_DATABASE_URL), never the app role.
     from app.config import settings
+    from app.db_identity import validate_identity
+
+    validate_identity(settings)  # before the migrator engine is created
     configuration = config.get_section(config.config_ini_section) or {}
     configuration["sqlalchemy.url"] = settings.MIGRATOR_DATABASE_URL
 
@@ -92,6 +103,13 @@ async def run_async_migrations() -> None:
     )
 
     async with connectable.connect() as connection:
+        # Read-only check that the server we reached is the configured database, before any migration statement.
+        from sqlalchemy import text
+        from app.db_identity import check_connected_database_name
+
+        actual = (await connection.execute(text("SELECT current_database()"))).scalar_one()
+        check_connected_database_name(actual, settings)
+        await connection.rollback()
         await connection.run_sync(do_run_migrations)
 
     await connectable.dispose()

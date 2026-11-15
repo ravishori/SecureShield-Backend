@@ -1,6 +1,7 @@
+import logging
 import os
 from pathlib import Path
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from typing import Optional
 
 from pydantic import field_validator
 from pydantic_settings import (
@@ -13,51 +14,54 @@ _BACKEND_DIR = Path(__file__).resolve().parent.parent
 _PROJECT_ROOT = _BACKEND_DIR.parent
 
 
-def normalize_async_db_url(url: str) -> str:
-    """Return a SQLAlchemy ``postgresql+asyncpg://`` URL.
+# URL helpers live in app.db_url (settings-free); re-exported here so existing imports keep working.
+from app.db_url import (  # noqa: E402,F401
+    _LIBPQ_ONLY_PARAMS,
+    ASYNCPG_INT_OPTIONS,
+    normalize_async_db_url,
+    split_asyncpg_options,
+)
 
-    Railway (and most hosts) hand out ``postgresql://`` or ``postgres://``
-    URLs. ``postgres://`` is not a valid SQLAlchemy dialect and bare
-    ``postgresql://`` selects psycopg2, which is not installed. An already
-    correct ``postgresql+asyncpg://`` URL is returned unchanged.
 
-    asyncpg rejects the libpq ``sslmode`` parameter, so ``?sslmode=X`` is
-    rewritten to ``?ssl=X`` (an explicit ``ssl`` wins). No other part of the
-    URL is touched, and the URL is never logged here.
-    """
-    url = url.strip()
-    for prefix in ("postgres://", "postgresql://"):
-        if url.startswith(prefix):
-            url = "postgresql+asyncpg://" + url[len(prefix) :]
-            break
-    if not url.startswith("postgresql+asyncpg://"):
-        return url
-    parts = urlsplit(url)
-    if "sslmode" not in parts.query:
-        return url
-    pairs = parse_qsl(parts.query, keep_blank_values=True)
-    has_ssl = any(k == "ssl" for k, _ in pairs)
-    out = []
-    for k, v in pairs:
-        if k == "sslmode":
-            if has_ssl:
-                continue
-            k = "ssl"
-        out.append((k, v))
-    return urlunsplit(parts._replace(query=urlencode(out)))
+ENV_FILE_VARIABLE = "SECURESHIELD_ENV_FILE"
+
+
+class ConfigError(RuntimeError):
+    """The configuration source selection is unusable. Messages never contain file contents or values."""
 
 
 def _resolve_env_files() -> tuple[str, ...]:
-    """Load backend/.env — the single secrets file for the API.
+    """Return the ONE environment file the operator selected, or ``()``.
 
-    ``SECURESHIELD_ENV_FILE`` overrides the path. The test suite points it
-    at a non-existent file so pytest can never pick up real credentials
-    from backend/.env (dotenv values otherwise win over process env).
+    ``backend/.env`` is never loaded implicitly: a file is read only when ``SECURESHIELD_ENV_FILE`` names it. A selected
+    file that does not exist is a configuration error (fail closed), not a silent fall-through to defaults.
     """
-    override = os.environ.get("SECURESHIELD_ENV_FILE")
-    if override:
-        return (override,)
-    return (str(_BACKEND_DIR / ".env"),)
+    selected = os.environ.get(ENV_FILE_VARIABLE, "").strip()
+    if not selected:
+        return ()
+    if not Path(selected).is_file():
+        raise ConfigError(
+            f"{ENV_FILE_VARIABLE} is set but names a file that does not exist; "
+            "fix the variable or unset it. No fallback file is read."
+        )
+    return (selected,)
+
+
+def warn_if_unselected_env_file() -> bool:
+    """Log (once, no values) that an existing ``backend/.env`` is not being read. Returns True when it warned."""
+    if os.environ.get(ENV_FILE_VARIABLE, "").strip():
+        return False
+    if not (_BACKEND_DIR / ".env").exists():
+        return False
+    logging.getLogger(__name__).warning(
+        "backend/.env exists but is NOT read (no implicit .env loading). "
+        "Set %s to select an environment file explicitly.",
+        ENV_FILE_VARIABLE,
+    )
+    return True
+
+
+warn_if_unselected_env_file()
 
 
 class Settings(BaseSettings):
@@ -113,26 +117,31 @@ class Settings(BaseSettings):
     # ============================================================
     # EMAIL (SMTP)
     # ============================================================
-    SMTP_HOST: str
+    # SMTP is OPTIONAL: with no provider configured the application still runs and every e-mail path reports "not configured"
+    # (see app/services/smtp_config.py). Delivery needs ALL of host, user, password and sender. SMTP_PORT keeps its original
+    # required, validated integer form.
+    SMTP_HOST: str = ""
     SMTP_PORT: int
-    SMTP_USER: str
-    SMTP_PASSWORD: str
-    SMTP_FROM_EMAIL: str
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM_EMAIL: str = ""
     # HTTPS email provider (preferred where outbound SMTP is blocked, e.g. Railway)
     RESEND_API_KEY: str = ""
     RESEND_FROM_EMAIL: str = ""
 
     # Google Sign-In: comma-separated OAuth client IDs whose ID tokens are accepted (web + Android)
     GOOGLE_CLIENT_IDS: str = ""
-    ERROR_NOTIFY_EMAIL: str
+    # Recipient of error-alert e-mails; empty = no alert e-mails.
+    ERROR_NOTIFY_EMAIL: str = ""
 
     # ============================================================
     # TWILIO (SMS + WhatsApp)
     # ============================================================
-    TWILIO_ACCOUNT_SID: str
-    TWILIO_AUTH_TOKEN: str
-    TWILIO_SMS_NUMBER: str
-    TWILIO_WHATSAPP_NUMBER: str
+    # Twilio is OPTIONAL: empty values mean "SMS/WhatsApp not configured" (the senders already check and report that).
+    TWILIO_ACCOUNT_SID: str = ""
+    TWILIO_AUTH_TOKEN: str = ""
+    TWILIO_SMS_NUMBER: str = ""
+    TWILIO_WHATSAPP_NUMBER: str = ""
 
     # ============================================================
     # RATE LIMITING
@@ -188,6 +197,27 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
 
     # ============================================================
+    # DATABASE IDENTITY / RETENTION SAFETY (app/db_identity.py)
+    # ============================================================
+    # "local" | "test" | "staging" | "production". Must agree with ENVIRONMENT; checked at startup, not here.
+    DATABASE_ENVIRONMENT: str = ""
+    # Extra non-production hosts a development/test environment may use (comma-separated hostnames). Production-registry
+    # endpoints are refused even when listed here.
+    DEV_DATABASE_ALLOWED_HOSTS: str = ""
+    # Additional production endpoint ids/hostnames, added to config/production_endpoints.txt (never removes entries).
+    PRODUCTION_DATABASE_ENDPOINTS: str = ""
+    # Additional production database NAMES (comma-separated), added to the "database:" lines of config/production_endpoints.txt.
+    # Such a name is refused outside production on any host (localhost, an SSH tunnel and a port forward included).
+    PRODUCTION_DATABASE_NAMES: str = ""
+    # Only the exact value "true" (case-insensitive, trimmed) lets retention DELETE rows. Unset = off.
+    RETENTION_CLEANUP_ENABLED: Optional[str] = None
+    # Guardian-alert outbox worker (independent of Twilio). It can SEND real SMS/e-mail, so it is OFF unless explicitly enabled
+    # outside production: None (unset) = on in production only; "true"/"false" overrides in any environment.
+    GUARDIAN_WORKER_ENABLED: Optional[bool] = None
+    # Worker poll interval in seconds (raw string so a malformed value is detected). Unset = 30; 0, negative or unparsable = off.
+    GUARDIAN_OUTBOX_POLL_SECONDS: Optional[str] = None
+
+    # ============================================================
     # TLS / HTTPS
     # ============================================================
     # When ENVIRONMENT=production, startup refuses to boot unless the
@@ -211,7 +241,7 @@ class Settings(BaseSettings):
     TRUSTED_PROXIES: str = ""
 
     model_config = SettingsConfigDict(
-        env_file=_resolve_env_files() or (str(_PROJECT_ROOT / ".env"),),
+        env_file=_resolve_env_files() or None,
         env_file_encoding="utf-8",
         extra="ignore",
         env_ignore_empty=True,
@@ -226,9 +256,9 @@ class Settings(BaseSettings):
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
-        # .env must win over leftover shell/process variables so credential
-        # updates apply without restarting the terminal session.
-        return (init_settings, dotenv_settings, env_settings, file_secret_settings)
+        # Precedence: explicit init values > process environment > the explicitly selected env file > defaults.
+        # The process environment must win so a deliberate shell/CI override can never be silently undone by a file.
+        return (init_settings, env_settings, dotenv_settings, file_secret_settings)
 
     def cors_allow_origins(self) -> list[str]:
         """Resolve the CORS allowlist with fail-closed semantics in prod.
@@ -256,6 +286,12 @@ class Settings(BaseSettings):
 
     def is_production(self) -> bool:
         return self.ENVIRONMENT.lower() == "production"
+
+    def guardian_worker_enabled(self) -> bool:
+        """Explicit setting wins; otherwise the worker runs in production only (it can send real notifications)."""
+        if self.GUARDIAN_WORKER_ENABLED is not None:
+            return self.GUARDIAN_WORKER_ENABLED
+        return self.is_production()
 
 
 settings = Settings()

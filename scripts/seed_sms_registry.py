@@ -24,6 +24,10 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.config import settings
+from app.db_identity import validate_identity
+
+# TRUNCATE with the migrator role: refuse a target that does not match the declared environment (no connection is made).
+validate_identity(settings)
 
 
 # ── Connection ─────────────────────────────────────────────────────────────────
@@ -36,6 +40,40 @@ def _libpq_dsn(url: str) -> str:
 
 
 DSN = _libpq_dsn(settings.MIGRATOR_DATABASE_URL)
+
+# This seed is for the local development database only (Stage 1.6B-3).
+EXPECTED_DATABASE = "secureshield_dev"
+EXPECTED_PORT = 5432
+_LOOPBACK = {"localhost", "127.0.0.1", "::1"}
+
+
+def assert_seed_target(actual_database: str, cfg=None) -> None:
+    """Refuse unless the connected database is the local development one. ``actual_database`` is ``SELECT current_database()``.
+
+    Raises ``SystemExit`` with a credential-free message. No connection is made here; call it before the first write.
+    """
+    from app.db_identity import (
+        DatabaseIdentityError,
+        check_connected_database_name,
+        parse_endpoint,
+    )
+
+    cfg = cfg or settings
+    try:
+        ep = parse_endpoint(cfg.MIGRATOR_DATABASE_URL)
+        check_connected_database_name(actual_database, cfg)
+    except DatabaseIdentityError as exc:
+        sys.exit(f"Refusing to seed: {exc}")
+    env = (getattr(cfg, "ENVIRONMENT", "") or "").strip().lower()
+    if env != "development":
+        sys.exit(f"Refusing to seed: ENVIRONMENT is {env!r}, expected 'development'.")
+    if ep.host not in _LOOPBACK or (ep.port or 5432) != EXPECTED_PORT:
+        sys.exit("Refusing to seed: the target is not localhost:5432.")
+    if actual_database != EXPECTED_DATABASE:
+        sys.exit(
+            f"Refusing to seed: connected to {actual_database!r}, expected {EXPECTED_DATABASE!r}."
+        )
+
 
 # ── TSP Codes (from TRAI PDF) ─────────────────────────────────────────────────
 TSP_CODES = [
@@ -138,6 +176,14 @@ def seed(dry_run: bool = False, replace: bool = False, xlsx: str | None = None):
     conn = psycopg2.connect(DSN)
     cur = conn.cursor()
 
+    # Identity before ANY other statement, and in particular before any write.
+    cur.execute("SELECT current_database()")
+    try:
+        assert_seed_target(cur.fetchone()[0])
+    except SystemExit:
+        conn.close()
+        raise
+
     cur.execute(
         "SELECT (SELECT count(*) FROM tsp_codes), (SELECT count(*) FROM lsa_codes), "
         "(SELECT count(*) FROM sms_sender_registry)"
@@ -194,7 +240,7 @@ def seed(dry_run: bool = False, replace: bool = False, xlsx: str | None = None):
     cur.close()
     conn.close()
 
-    print(f"\n✅ Done! {total:,} SMS headers seeded.")
+    print(f"\nDone! {total:,} SMS headers seeded.")
     print("   TSP codes:", len(TSP_CODES))
     print("   LSA codes:", len(LSA_CODES))
     print("   SMS headers:", total)
