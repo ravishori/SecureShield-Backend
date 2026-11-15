@@ -48,6 +48,10 @@ jobs:
       TWILIO_AUTH_TOKEN: ci-placeholder
       TWILIO_SMS_NUMBER: "+15555555555"
       TWILIO_WHATSAPP_NUMBER: "+15555555555"
+      # The database identity guard (app/db_identity.py) runs on import, including for `alembic upgrade head`, and requires
+      # the declared environment. This job only ever talks to the localhost service container above.
+      ENVIRONMENT: test
+      DATABASE_ENVIRONMENT: test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
