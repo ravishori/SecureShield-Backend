@@ -1,9 +1,10 @@
 """
 Auth Router — Register / OTP send / verify / refresh / profile
 ==============================================================
-Dual-channel OTP:
-  Registration  → OTP sent to email (required) + phone (if provided)
-  Login         → OTP sent to both email AND phone when user has both
+Identity binding (see app.services.identity): every code is bound to ONE identifier, ONE channel and ONE purpose.
+  Registration  → pending registration + code to the E-MAIL only; the account is created when that code is verified.
+                  The phone is attached later, after its own separate code (routers/identity.py).
+  Login         → code to the identifier used, only if that identifier is VERIFIED on an account.
 
 All exceptions are caught, logged (file + DB + email alert), and
 re-raised as clean HTTP errors.
@@ -16,7 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 import jwt
 from jwt import PyJWTError as JWTError
-from sqlalchemy import delete, or_, select, update
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -28,8 +29,9 @@ from app.middleware.rate_limiter import (
 )
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
+from app.models.pending_registration import PendingRegistration
 from app.models.refresh_token import RefreshTokenUse, RevokedTokenFamily
-from app.models.user import OTP, User
+from app.models.user import User
 from app.schemas.auth import (
     GoogleLoginRequest,
     DeleteAccountRequest,
@@ -45,6 +47,8 @@ from app.schemas.auth import (
     VerifyOtpRequest,
 )
 from app.services.account_erasure import RETAINED, erase_user_data, remove_files
+from app.services import consent as cns
+from app.services import identity as idn
 from app.services.client_ip import client_ip_for
 from app.services.device_service import register_and_check_device, send_new_device_alert
 from app.services.logger_service import get_logger, log_error
@@ -52,13 +56,6 @@ from app.services.google_auth import (
     GoogleAuthError,
     GoogleNotConfigured,
     verify_google_id_token,
-)
-from app.services.otp_codes import (
-    OTP_MAX_ATTEMPTS,
-    OTP_TTL_MINUTES,
-    codes_match,
-    generate_code,
-    hash_code,
 )
 from app.services.log_scrubber import mask_email_for_log, mask_phone_for_log
 from app.services.otp_service import deliver_otp, _normalize_phone
@@ -118,22 +115,6 @@ def _check_otp_send_ip(client_ip: str | None) -> None:
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Too many verification codes requested from this network. Please try again later.",
             headers={"Retry-After": "3600"},
-        )
-
-
-async def _invalidate_open_otps(
-    db: AsyncSession, *, email: str | None = None, phone: str | None = None
-) -> None:
-    """A new code replaces every still-open one for the same target, so at most one code is ever valid
-    (several valid codes would multiply an attacker's odds of a lucky guess)."""
-    conds = []
-    if email:
-        conds.append(OTP.email == email)
-    if phone:
-        conds.append(OTP.phone == phone)
-    if conds:
-        await db.execute(
-            update(OTP).where(OTP.is_used.is_(False), or_(*conds)).values(is_used=True)
         )
 
 
@@ -218,22 +199,65 @@ async def get_current_user(
 # ---------------------------------------------------------------------------
 
 
+def _token_response(user: User, proven: str, *, next_step: str | None = None) -> dict:
+    """Tokens whose claims carry a VERIFIED identifier only, plus the backend-authoritative verification state."""
+    tokens = create_tokens(str(user.id), idn.verified_login_identifier(user, proven))
+    tokens.update(
+        email_verified=user.email_verified,
+        phone_verified=user.phone_verified,
+        next_step=next_step,
+    )
+    return tokens
+
+
+async def _register_device(db, user: User, request, client_ip: str | None) -> None:
+    if not getattr(request, "device_token", None):
+        return
+    try:
+        _device, is_new_device = await register_and_check_device(
+            db=db,
+            user=user,
+            device_token=request.device_token,
+            device_name=request.device_name,
+            platform=request.platform,
+            os_version=request.os_version,
+            app_version=request.app_version,
+            client_ip=client_ip,
+        )
+        if is_new_device:
+            await send_new_device_alert(
+                user=user,
+                device_name=request.device_name,
+                platform=request.platform,
+                client_ip=client_ip,
+            )
+    except Exception as dev_exc:
+        logger.error(f"Device registration failed for user {user.id}: {dev_exc}")
+
+
+def _unverified_on_existing_account() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=(
+            "This identifier is on an existing account but has not been verified. Sign in with that account's verified "
+            "identifier, or release it to use it for a new account."
+        ),
+        headers={"X-Identity-Error": "identifier_unverified_on_existing_account"},
+    )
+
+
 @router.get("/check-user")
 async def check_user(
     identifier: str,
     http_request: Request,
-    db: AsyncSession = Depends(get_db),
 ):
-    """
-    Check if a phone number or email is already registered.
-    Returns {exists, has_profile} — used by the Flutter app for smart auth routing.
+    """DEPRECATED, kept only so already-installed app versions keep working.
 
-    Rate-limited per source IP + per identifier to block enumeration attacks
-    that would otherwise fingerprint which emails/phones have accounts.
+    It used to say whether an e-mail address or phone number had an account, which let anyone enumerate users. It now answers
+    the SAME thing for every identifier (and does no database lookup, so there is no timing difference either). Sign-in does not
+    need it: ``POST /auth/send-otp`` already answers identically whether or not an account exists, and a code is only ever sent
+    to an identifier that belongs to an account. Remains rate-limited per source IP.
     """
-    identifier = identifier.strip()
-    # IP-based limit: 30 lookups per minute per IP catches scripted enumeration
-    # without affecting a single human user who types two addresses.
     client_ip = client_ip_for(http_request)
     if not rate_limiter.is_allowed(
         f"check_user_ip:{client_ip}", max_hits=30, window_seconds=60
@@ -243,22 +267,7 @@ async def check_user(
             detail="Too many account-lookup requests. Please wait a minute.",
             headers={"Retry-After": "60"},
         )
-
-    if "@" in identifier:
-        result = await db.execute(select(User).where(User.email == identifier.lower()))
-    else:
-        try:
-            normalised = _normalize_phone(identifier)
-        except Exception:
-            normalised = identifier
-        result = await db.execute(select(User).where(User.phone == normalised))
-
-    user = result.scalar_one_or_none()
-    if not user:
-        return {"exists": False, "has_profile": False}
-
-    has_profile = bool(user.full_name and user.full_name.strip())
-    return {"exists": True, "has_profile": has_profile}
+    return {"exists": True, "has_profile": True}
 
 
 @router.post("/register", response_model=RegisterResponse)
@@ -268,19 +277,16 @@ async def register_user(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    One-step registration:
-      1. Validate uniqueness of email (and phone if provided)
-      2. Create user with full profile data
-      3. Generate OTP
-      4. Send OTP to email (required) + phone (if provided)
-      5. Return masked identifiers so Flutter can display them on OTP screen
+    Start a registration. NO account is created and NO identifier is bound yet:
+      1. validate the identifiers are not already taken
+      2. park the profile in ``pending_registrations`` (expires after 24 h)
+      3. send a one-time code to the E-MAIL address only
+    The account is created by ``POST /auth/register/verify``; the phone is verified later, separately
+    (``/auth/phone/add/*``), and only then can it be used to sign in.
     """
     client_ip = client_ip_for(http_request, None)
 
-    # ── Rate limiting ──────────────────────────────────────────────────────
-    # Registration is OTP-sending — both per-IP (abuse) and per-identifier
-    # (quota burn) must be guarded. Email is the mandatory channel so we
-    # anchor the identifier-limit there.
+    # Both per-IP (abuse) and per-identifier (quota burn) limits.
     ip_key = client_ip or "unknown"
     if not rate_limiter.is_allowed(
         f"register_ip:{ip_key}", max_hits=10, window_seconds=3600
@@ -291,15 +297,19 @@ async def register_user(
             headers={"Retry-After": "3600"},
         )
     check_otp_send_rate(body.email.lower())
-    if body.phone:
-        # Soft phone-side limit too — can't let one phone receive 100 OTPs/day
-        check_otp_send_rate(body.phone)
+
+    # Mandatory, separate acknowledgements (terms + privacy notice) at the stated versions; optional choices never gate sign-up.
+    if body.consent is None:
+        raise cns.consent_required_error()
+    cns.check_required_versions(
+        body.consent.terms_version, body.consent.privacy_version
+    )
 
     try:
-        # ── Uniqueness checks ──────────────────────────────────────────────
         email_lower = body.email.lower()
-        existing_email = await db.execute(select(User).where(User.email == email_lower))
-        if existing_email.scalar_one_or_none():
+        await idn.purge_expired_pending(db)
+
+        if await idn.owner_of(db, idn.EMAIL, email_lower):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="An account with this email already exists. Please login instead.",
@@ -311,24 +321,18 @@ async def register_user(
                 normalized_phone = _normalize_phone(body.phone)
             except Exception:
                 normalized_phone = body.phone
-
-            existing_phone = await db.execute(
-                select(User).where(User.phone == normalized_phone)
-            )
-            if existing_phone.scalar_one_or_none():
+            if await idn.owner_of(db, idn.PHONE, normalized_phone):
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
                     detail="An account with this phone number already exists. Please login instead.",
                 )
 
-        # ── Create user ────────────────────────────────────────────────────
-        full_name = f"{body.first_name} {body.last_name or ''}".strip()
-        user = User(
-            email=email_lower,
+        now = datetime.utcnow()
+        fields = dict(
             phone=normalized_phone,
             first_name=body.first_name.strip(),
             last_name=body.last_name.strip() if body.last_name else None,
-            full_name=full_name,
+            full_name=f"{body.first_name} {body.last_name or ''}".strip(),
             flat_no=body.flat_no,
             building=body.building,
             street=body.street,
@@ -336,56 +340,59 @@ async def register_user(
             state=body.state,
             country=body.country or "India",
             pin_code=body.pin_code,
+            terms_version=body.consent.terms_version,
+            privacy_version=body.consent.privacy_version,
+            consented_at=now,
+            ai_processing_consent=body.consent.ai_processing,
         )
-        db.add(user)
-        await db.flush()  # get user.id without committing yet
-
-        # ── Generate OTP (single code, dual delivery) ──────────────────────
-        code = generate_code()
-        expires_at = datetime.utcnow() + timedelta(minutes=OTP_TTL_MINUTES)
-        await _invalidate_open_otps(db, email=email_lower, phone=normalized_phone)
-
-        # One OTP record with both channels populated (whichever apply)
-        otp = OTP(
-            email=email_lower,
-            phone=normalized_phone,
-            code=hash_code(code),
-            expires_at=expires_at,
+        # Upsert on the unique e-mail: a repeated registration refreshes the same pending row (and issues a new code).
+        stmt = (
+            pg_insert(PendingRegistration)
+            .values(
+                id=uuid.uuid4(),
+                email=email_lower,
+                created_at=now,
+                expires_at=now + idn.PENDING_TTL,
+                **fields,
+            )
+            .on_conflict_do_update(
+                index_elements=[PendingRegistration.email],
+                set_={**fields, "expires_at": now + idn.PENDING_TTL},
+            )
+            .returning(PendingRegistration.id)
         )
-        db.add(otp)
+        pending_id = (await db.execute(stmt)).scalar_one()
+        code = await idn.issue_challenge(
+            db,
+            kind=idn.EMAIL,
+            identifier=email_lower,
+            purpose=idn.REGISTER,
+            pending_id=pending_id,
+        )
         await db.commit()
-        await db.refresh(user)
 
-        # ── Deliver OTP ────────────────────────────────────────────────────
         email_result = await deliver_otp(email_lower, code)
         if not email_result.success:
             logger.warning(
-                f"OTP email delivery failed for {mask_email_for_log(email_lower)}: {email_result.error}"
+                f"Registration code delivery failed for {mask_email_for_log(email_lower)}: {email_result.error}"
             )
 
-        if normalized_phone:
-            phone_result = await deliver_otp(normalized_phone, code)
-            if not phone_result.success:
-                logger.warning(
-                    f"OTP SMS delivery failed for {mask_phone_for_log(normalized_phone)}: {phone_result.error}"
-                )
-
         masked_email = _mask_email(email_lower)
-        masked_phone = _mask_phone(normalized_phone) if normalized_phone else None
-        channel_msg = "email" + (" and phone" if normalized_phone else "")
-
-        logger.info(f"New user registered: {user.id}, email: {masked_email}")
-
+        logger.info(
+            f"Registration started, e-mail verification pending: {masked_email}"
+        )
         return RegisterResponse(
-            message=f"Account created! OTP sent to your {channel_msg}.",
+            message="We sent a verification code to your email.",
             identifier=masked_email,
             masked_email=masked_email,
-            masked_phone=masked_phone,
+            masked_phone=_mask_phone(normalized_phone) if normalized_phone else None,
+            next_step="verify_email",
         )
 
     except HTTPException:
         raise
     except Exception as exc:
+        await db.rollback()
         await log_error(
             message="Registration failed",
             exc=exc,
@@ -399,6 +406,107 @@ async def register_user(
         )
 
 
+@router.post("/register/verify", response_model=TokenResponse)
+async def register_verify(
+    request: VerifyOtpRequest,
+    http_request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Verify the e-mail code of a pending registration: ONLY now is the account created, with the e-mail marked verified."""
+    client_ip = client_ip_for(http_request, None)
+    if not request.is_email:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Registration is verified with the e-mail address.",
+        )
+    check_otp_verify_rate(request.identifier)
+    try:
+        email = idn.normalise(idn.EMAIL, request.identifier)
+        otp = await idn.consume_challenge(
+            db,
+            kind=idn.EMAIL,
+            identifier=email,
+            purpose=idn.REGISTER,
+            code=request.code,
+        )
+        if otp is None or otp.pending_registration_id is None:
+            raise idn.failure()
+        pending = await db.get(PendingRegistration, otp.pending_registration_id)
+        if (
+            pending is None
+            or pending.email != email
+            or pending.expires_at < datetime.utcnow()
+        ):
+            await db.commit()  # the code is spent either way
+            raise idn.failure()
+
+        if (
+            pending.terms_version != cns.VERSIONS[cns.TERMS]
+            or pending.privacy_version != cns.VERSIONS[cns.PRIVACY]
+            or pending.consented_at is None
+        ):
+            # No consent on record for this registration (it predates consent capture, or the notice changed meanwhile):
+            # no account is created. The code is spent; the person registers again and sees the current notice.
+            await db.delete(pending)
+            await db.commit()
+            raise idn.failure()
+
+        now = datetime.utcnow()
+        user = User(
+            id=uuid.uuid4(),
+            email=email,
+            email_verified_at=now,
+            first_name=pending.first_name,
+            last_name=pending.last_name,
+            full_name=pending.full_name,
+            flat_no=pending.flat_no,
+            building=pending.building,
+            street=pending.street,
+            city=pending.city,
+            state=pending.state,
+            country=pending.country,
+            pin_code=pending.pin_code,
+        )
+        had_phone = bool(pending.phone)
+        db.add(user)
+        cns.add_required(db, user.id, cns.REGISTER, pending.consented_at)
+        if pending.ai_processing_consent is not None:
+            cns.add_decision(
+                db,
+                user.id,
+                cns.AI_PROCESSING,
+                pending.ai_processing_consent,
+                cns.REGISTER,
+                pending.consented_at,
+            )
+        await db.delete(pending)
+        await idn.commit_or_conflict(
+            db, "An account with this email already exists. Please login instead."
+        )
+        await db.refresh(user)
+        logger.info(f"Account created after e-mail verification: {user.id}")
+
+        await _register_device(db, user, request, client_ip)
+        return _token_response(
+            user, email, next_step="verify_phone" if had_phone else None
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        await db.rollback()
+        await log_error(
+            message=f"Registration verification failed for {_mask(request.identifier)}",
+            exc=exc,
+            endpoint="/auth/register/verify",
+            method="POST",
+            client_ip=client_ip,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Verification failed. Please try again.",
+        )
+
+
 @router.post("/send-otp", response_model=SendOtpResponse)
 async def send_otp(
     request: SendOtpRequest,
@@ -406,114 +514,79 @@ async def send_otp(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Login OTP: sends to the provided identifier.
-    If the user has BOTH email and phone on file, sends to both channels.
+    Login code: sent to the identifier used, and ONLY to it, when that identifier belongs to an account.
+    The answer is identical whether or not an account exists (nothing is sent, and nothing is created, for an unknown identifier).
     """
     client_ip = client_ip_for(http_request, None)
     _check_otp_send_ip(client_ip)
     check_otp_send_rate(request.identifier)
 
     try:
-        code = generate_code()
-        expires_at = datetime.utcnow() + timedelta(minutes=OTP_TTL_MINUTES)
-
-        identifier = request.identifier
-        if not request.is_email:
-            identifier = _normalize_phone(identifier)
-
-        # ── Look up user to check if they have both channels ───────────────
-        if request.is_email:
-            user_result = await db.execute(
-                select(User).where(User.email == identifier.lower())
-            )
-        else:
-            user_result = await db.execute(select(User).where(User.phone == identifier))
-        user = user_result.scalar_one_or_none()
-
-        # Determine the other channel
-        other_email: str | None = None
-        other_phone: str | None = None
-
-        if user:
-            if request.is_email and user.phone:
-                other_phone = user.phone
-            elif not request.is_email and user.email:
-                other_email = user.email
-
-        # ── Create OTP record with all applicable channels ─────────────────
-        await _invalidate_open_otps(
-            db,
-            email=identifier.lower() if request.is_email else other_email,
-            phone=other_phone if request.is_email else identifier,
-        )
-        if request.is_email:
-            otp = OTP(
-                email=identifier.lower(),
-                phone=other_phone,
-                code=hash_code(code),
-                expires_at=expires_at,
-            )
-        else:
-            otp = OTP(
-                phone=identifier,
-                email=other_email,
-                code=hash_code(code),
-                expires_at=expires_at,
-            )
-
-        db.add(otp)
-        await db.commit()
-
-        # ── Deliver OTP (primary channel + secondary if available) ─────────
-        primary_result = await deliver_otp(identifier, code)
-        if primary_result.success:
-            logger.info(
-                f"OTP delivered via {primary_result.method} to {_mask_for_log(request.identifier)}"
-            )
-        else:
-            logger.warning(
-                f"Primary OTP delivery failed to {_mask_for_log(request.identifier)}: {primary_result.error}"
-            )
-
-        secondary_ok = False
-        if other_phone:
-            secondary = await deliver_otp(other_phone, code)
-            secondary_ok = secondary.success
-            if secondary.success:
-                logger.info(
-                    f"OTP also delivered via SMS to secondary channel {mask_phone_for_log(other_phone)}"
-                )
-            else:
-                logger.warning(
-                    f"Secondary SMS delivery failed for {mask_phone_for_log(other_phone)}: {secondary.error}"
-                )
-        elif other_email:
-            secondary = await deliver_otp(other_email, code)
-            secondary_ok = secondary.success
-            if secondary.success:
-                logger.info(
-                    f"OTP also delivered via email to secondary channel {mask_email_for_log(other_email)}"
-                )
-            else:
-                logger.warning(
-                    f"Secondary email delivery failed for {mask_email_for_log(other_email)}: {secondary.error}"
-                )
-
-        if not primary_result.success and not secondary_ok:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Could not send the verification code. Please try again later.",
-            )
-
-        return SendOtpResponse(
+        kind = idn.EMAIL if request.is_email else idn.PHONE
+        identifier = idn.normalise(kind, request.identifier)
+        response = SendOtpResponse(
             message="OTP sent successfully",
             identifier=_mask(request.identifier),
             method=request.method,
         )
 
+        user, _state = await idn.resolve_for_login(db, kind, identifier)
+        if user is None:
+            # Resend for a registration still waiting on its e-mail code: reissue the REGISTER challenge (e-mail only). The
+            # reply is the same as for an unknown identifier, so this does not reveal that a pending registration exists.
+            pending = None
+            if kind == idn.EMAIL:
+                pending = (
+                    await db.execute(
+                        select(PendingRegistration).where(
+                            PendingRegistration.email == identifier,
+                            PendingRegistration.expires_at > datetime.utcnow(),
+                        )
+                    )
+                ).scalar_one_or_none()
+            if pending is None:
+                logger.info(
+                    f"Login code not sent (no account) for {_mask_for_log(request.identifier)}"
+                )
+                return response
+            code = await idn.issue_challenge(
+                db,
+                kind=idn.EMAIL,
+                identifier=identifier,
+                purpose=idn.REGISTER,
+                pending_id=pending.id,
+            )
+            await db.commit()
+            resent = await deliver_otp(identifier, code)
+            if not resent.success:
+                logger.warning(
+                    f"Registration code resend failed for {_mask_for_log(request.identifier)}: {resent.error}"
+                )
+            return response
+
+        code = await idn.issue_challenge(
+            db, kind=kind, identifier=identifier, purpose=idn.LOGIN, user_id=user.id
+        )
+        await db.commit()
+
+        result = await deliver_otp(identifier, code)
+        if result.success:
+            logger.info(
+                f"OTP delivered via {result.method} to {_mask_for_log(request.identifier)}"
+            )
+            return response
+        logger.warning(
+            f"OTP delivery failed to {_mask_for_log(request.identifier)}: {result.error}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Could not send the verification code. Please try again later.",
+        )
+
     except HTTPException:
         raise
     except Exception as exc:
+        await db.rollback()
         await log_error(
             message=f"Failed to send OTP to {_mask(request.identifier)}",
             exc=exc,
@@ -533,99 +606,56 @@ async def verify_otp(
     http_request: Request,
     db: AsyncSession = Depends(get_db),
 ):
+    """Sign in with a login code. The code verifies exactly the identifier it was sent to, for the ``login`` purpose only."""
     client_ip = client_ip_for(http_request, None)
     check_otp_verify_rate(request.identifier)
 
     try:
-        identifier = request.identifier
-        if not request.is_email:
-            identifier = _normalize_phone(identifier)
+        kind = idn.EMAIL if request.is_email else idn.PHONE
+        identifier = idn.normalise(kind, request.identifier)
 
-        if request.is_email:
-            otp_filter = OTP.email == identifier.lower()
-            user_filter = User.email == identifier.lower()
-        else:
-            otp_filter = OTP.phone == identifier
-            user_filter = User.phone == identifier
+        # Only the newest open code for this identifier+purpose can be used. The row is locked (FOR UPDATE) so two concurrent
+        # requests cannot both consume it, and wrong guesses are counted on the row itself, so the limit survives restarts and
+        # holds across workers. Every failure returns the same response.
+        otp = await idn.consume_challenge(
+            db, kind=kind, identifier=identifier, purpose=idn.LOGIN, code=request.code
+        )
+        if otp is None or otp.user_id is None:
+            raise idn.failure()
 
-        # Only the newest open code for this identifier can be used. The row is locked (FOR UPDATE) so two
-        # concurrent requests cannot both consume it, and wrong guesses are counted on the row itself, so the
-        # limit survives restarts and holds across workers. Every failure returns the same response.
-        otp = (
-            await db.execute(
-                select(OTP)
-                .where(
-                    otp_filter,
-                    OTP.is_used.is_(False),  # noqa: E712
-                    OTP.expires_at > datetime.utcnow(),
-                )
-                .order_by(OTP.created_at.desc())
-                .limit(1)
-                .with_for_update()
-            )
-        ).scalar_one_or_none()
-        if otp is None:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail=OTP_FAILURE_DETAIL
-            )
-        if otp.attempts >= OTP_MAX_ATTEMPTS or not codes_match(otp.code, request.code):
-            otp.attempts += 1
-            if otp.attempts >= OTP_MAX_ATTEMPTS:
-                otp.is_used = True  # burned: a new code must be requested
+        user = await db.get(User, otp.user_id)
+        held = (
+            None if user is None else (user.email if kind == idn.EMAIL else user.phone)
+        )
+        if user is None or held != identifier:
+            await (
+                db.commit()
+            )  # the code is spent; the account no longer holds this identifier
+            raise idn.failure()
+
+        if idn.is_verified(user, kind):
+            pass
+        elif idn.other_verified(user, kind):
+            # Legacy row whose OTHER identifier is verified: proving this one signs nobody in and merges nothing.
             await db.commit()
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail=OTP_FAILURE_DETAIL
-            )
-
-        otp.is_used = True
-
-        user_result = await db.execute(select(User).where(user_filter))
-        user = user_result.scalar_one_or_none()
-        if not user:
-            # Fallback: create minimal user (legacy login flow)
-            if request.is_email:
-                user = User(email=identifier.lower())
+            raise _unverified_on_existing_account()
+        else:
+            # Legacy row with NO verified identifier: this code, sent to this identifier alone, proves it.
+            if kind == idn.EMAIL:
+                user.email_verified_at = datetime.utcnow()
             else:
-                user = User(phone=identifier)
-            db.add(user)
-
+                user.phone_verified_at = datetime.utcnow()
         await db.commit()
         await db.refresh(user)
 
         logger.info(f"User authenticated: {user.id} via {_mask(request.identifier)}")
-
-        # ── Device registration ───────────────────────────────────────────
-        if request.device_token:
-            try:
-                _device, is_new_device = await register_and_check_device(
-                    db=db,
-                    user=user,
-                    device_token=request.device_token,
-                    device_name=request.device_name,
-                    platform=request.platform,
-                    os_version=request.os_version,
-                    app_version=request.app_version,
-                    client_ip=client_ip,
-                )
-                if is_new_device:
-                    await send_new_device_alert(
-                        user=user,
-                        device_name=request.device_name,
-                        platform=request.platform,
-                        client_ip=client_ip,
-                    )
-            except Exception as dev_exc:
-                logger.error(
-                    f"Device registration failed for user {user.id}: {dev_exc}"
-                )
-
-        # Use email as primary identifier for JWT if available (for registered users)
-        login_identifier = user.email or identifier
-        return create_tokens(str(user.id), login_identifier)
+        await _register_device(db, user, request, client_ip)
+        return _token_response(user, identifier)
 
     except HTTPException:
         raise
     except Exception as exc:
+        await db.rollback()
         await log_error(
             message=f"OTP verification failed for {_mask(request.identifier)}",
             exc=exc,
@@ -669,45 +699,89 @@ async def google_login(
             detail="Google sign-in could not be verified.",
         )
 
-    user = (
-        await db.execute(select(User).where(User.email == identity.email))
-    ).scalar_one_or_none()
-    if user is None:
-        user = User(email=identity.email, full_name=identity.name)
-        db.add(user)
-    elif not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="Account is disabled."
-        )
-    elif not user.full_name and identity.name:
-        user.full_name = identity.name
-    await db.commit()
-    await db.refresh(user)
-    logger.info(f"User authenticated: {user.id} via google ({_mask(identity.email)})")
-
-    if request.device_token:
-        try:
-            _device, is_new_device = await register_and_check_device(
-                db=db,
-                user=user,
-                device_token=request.device_token,
-                device_name=request.device_name,
-                platform=request.platform,
-                os_version=request.os_version,
-                app_version=request.app_version,
-                client_ip=client_ip,
-            )
-            if is_new_device:
-                await send_new_device_alert(
-                    user=user,
-                    device_name=request.device_name,
-                    platform=request.platform,
-                    client_ip=client_ip,
+    email = identity.email.strip().lower()
+    now = datetime.utcnow()
+    try:
+        # 1. A stable Google subject already bound to an account always wins (an e-mail change never moves the link).
+        user = (
+            await db.execute(select(User).where(User.google_sub == identity.subject))
+        ).scalar_one_or_none()
+        if user is None:
+            holder = await idn.owner_of(db, idn.EMAIL, email)
+            if holder is None:
+                # 2. Nobody holds this address: new account, e-mail proven by Google. Creating an account needs the same
+                #    consent as e-mail registration; without it nothing is created (the client shows the consent screen
+                #    and retries).
+                if request.consent is None:
+                    raise cns.consent_required_error()
+                cns.check_required_versions(
+                    request.consent.terms_version, request.consent.privacy_version
                 )
-        except Exception as dev_exc:
-            logger.error(f"Device registration failed for user {user.id}: {dev_exc}")
+                user = User(
+                    id=uuid.uuid4(),
+                    email=email,
+                    email_verified_at=now,
+                    full_name=identity.name,
+                    google_sub=identity.subject,
+                    is_active=True,  # the column default only applies on flush; the check below runs before it
+                )
+                db.add(user)
+                cns.add_required(db, user.id, cns.GOOGLE, now)
+                if request.consent.ai_processing is not None:
+                    cns.add_decision(
+                        db,
+                        user.id,
+                        cns.AI_PROCESSING,
+                        request.consent.ai_processing,
+                        cns.GOOGLE,
+                        now,
+                    )
+            else:
+                # 3. Somebody holds it. Link ONLY when this is the same mailbox the account already PROVED (two independent
+                #    proofs), never over an existing different Google binding, never onto an unverified claim.
+                if holder.google_sub and holder.google_sub != identity.subject:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail="This account is already linked to a different Google account.",
+                    )
+                if holder.email_verified:
+                    holder.google_sub = identity.subject
+                elif not idn.other_verified(holder, idn.EMAIL):
+                    # legacy row with nothing verified: Google proves its only identifier
+                    holder.email_verified_at = now
+                    holder.google_sub = identity.subject
+                else:
+                    raise _unverified_on_existing_account()
+                user = holder
+        if not user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail="Account is disabled."
+            )
+        if not user.full_name and identity.name:
+            user.full_name = identity.name
+        await idn.commit_or_conflict(
+            db, "This Google account or email is already linked to another account."
+        )
+        await db.refresh(user)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        await db.rollback()
+        await log_error(
+            message="Google sign-in failed",
+            exc=exc,
+            endpoint="/auth/google",
+            method="POST",
+            client_ip=client_ip,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Sign-in failed. Please try again.",
+        )
+    logger.info(f"User authenticated: {user.id} via google ({_mask(email)})")
 
-    return create_tokens(str(user.id), user.email)
+    await _register_device(db, user, request, client_ip)
+    return _token_response(user, email)
 
 
 @router.post("/refresh", response_model=TokenResponse)
@@ -830,9 +904,16 @@ async def update_profile(
     db: AsyncSession = Depends(get_db),
 ):
     client_ip = client_ip_for(http_request, None)
+    # An e-mail address is an identity: it can only change after the NEW address proves itself (POST /auth/email/change/*).
+    if request.email is not None and request.email.strip().lower() != (
+        current_user.email or ""
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The email address cannot be changed here. Verify the new address with /auth/email/change/start.",
+            headers={"X-Identity-Error": "email_change_requires_verification"},
+        )
     try:
-        if request.email is not None:
-            current_user.email = request.email.lower()
         if request.full_name is not None:
             current_user.full_name = request.full_name
         if request.first_name is not None:
@@ -868,6 +949,9 @@ async def update_profile(
         await db.refresh(current_user)
         return current_user
     except Exception as exc:
+        await (
+            db.rollback()
+        )  # a failed commit must not leave the session unusable for the error log below
         await log_error(
             message=f"Profile update failed for user {current_user.id}",
             exc=exc,
@@ -911,14 +995,38 @@ async def delete_account(
     logs and keeps only an inert tombstone plus the append-only moderation audit trail
     (see app/services/account_erasure.py for the exact policy).
 
-    Requires `{"confirm": "DELETE"}` in the body — any other value is a
-    schema validation error (422), preventing accidental deletion. On
+    Requires `{"confirm": "DELETE", "code": "<code>"}`: the literal confirmation (any other value is a 422) and the
+    re-authentication code from `POST /auth/me/delete/start`. A wrong, expired, replayed or other-account code is the
+    same 400 as any failed code. On
     success, returns `{message, user_id, scrubbed_at}` and the client
     must discard its JWT (the account's is_active=False will block any
     subsequent refresh).
     """
     client_ip = client_ip_for(http_request, None)
     user_id = str(current_user.id)
+
+    # Re-authentication: a code sent a moment ago (POST /auth/me/delete/start) to the VERIFIED e-mail/phone, bound to this
+    # account and to this purpose. A stolen access token alone cannot erase an account. The code is consumed in the same
+    # transaction as the erasure, so a failed erasure can be retried with the same code.
+    channel = idn.reauth_channel(current_user)
+    if channel is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Verify your email address or phone number before deleting your account (sign in again with a code).",
+            headers={"X-Identity-Error": "no_verified_identifier"},
+        )
+    kind, identifier = channel
+    check_otp_verify_rate(f"delete:{user_id}")
+    otp = await idn.consume_challenge(
+        db,
+        kind=kind,
+        identifier=identifier,
+        purpose=idn.DELETE_ACCOUNT,
+        code=request.code,
+    )
+    if otp is None or otp.user_id != current_user.id:
+        raise idn.failure()
+
     try:
         logger.info(f"Account deletion requested by user {user_id}")
         # Identifiers the OTP rows are keyed by — capture BEFORE the scrub.
@@ -936,6 +1044,9 @@ async def delete_account(
         # ── Scrub the user row into an inert tombstone ──────────────────────
         current_user.email = None
         current_user.phone = None
+        current_user.email_verified_at = None
+        current_user.phone_verified_at = None
+        current_user.google_sub = None
         current_user.alt_phone = None
         current_user.first_name = None
         current_user.last_name = None
@@ -981,6 +1092,7 @@ async def delete_account(
             scrubbed_at=current_user.updated_at,
         )
     except Exception as exc:
+        await db.rollback()
         await log_error(
             message=f"Account deletion failed for user {user_id}",
             exc=exc,

@@ -305,7 +305,12 @@ async def test_register_endpoint_failure_logs_are_clean(
     email = "otp.register@example.com"
     r = await client.post(
         "/api/v1/auth/register",
-        json={"first_name": "Reg", "email": email, "phone": "9876543212"},
+        json={
+            "first_name": "Reg",
+            "email": email,
+            "phone": "9876543212",
+            "consent": {"terms_version": "2026-11-14", "privacy_version": "2026-11-14"},
+        },
     )
     assert r.status_code == 200, r.text
     text_ = blob(logs, capsys)
@@ -315,5 +320,6 @@ async def test_register_endpoint_failure_logs_are_clean(
         await db.execute(text("select code from otps where email=:e"), {"e": email})
     ).scalar_one()
     assert code not in text_
-    assert "OTP email delivery failed for o***@example.com" in text_
+    assert "OTP delivery failed for o***@example.com (tried: email)" in text_
+    assert "Registration code delivery failed for o***@example.com" in text_
     assert "SMTPRecipientsRefused" in text_

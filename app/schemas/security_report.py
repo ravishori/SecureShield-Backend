@@ -1,5 +1,8 @@
 from pydantic import BaseModel, computed_field
-from typing import List
+from typing import List, Optional
+
+from app.schemas.scam_verdict import ScamVerdict
+from app.services.scam_verdict_adapters import from_daily_report, safe_verdict
 import uuid
 from datetime import datetime, date
 
@@ -35,6 +38,19 @@ class SecurityReportResponse(BaseModel):
             else "high"
             if r < 75
             else "critical"
+        )
+
+    @computed_field
+    @property
+    def verdict(self) -> Optional[ScamVerdict]:
+        """Additive, API-only aggregate verdict (X-1). Evidence is the day's recorded ALERTS only; scan activity is never
+        risk evidence (it only separates "nothing was checked" from "checks ran, no alert"). Unchanged: every field above."""
+        return safe_verdict(
+            from_daily_report,
+            threats_detected=self.threats_detected,
+            apps_scanned=self.apps_scanned,
+            links_scanned=self.links_scanned,
+            calls_analyzed=self.calls_analyzed,
         )
 
     class Config:

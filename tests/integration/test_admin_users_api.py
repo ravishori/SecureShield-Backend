@@ -1,6 +1,7 @@
 """Admin stats + user control (static X-Admin-Token)."""
 
 import pytest
+from tests.integration.conftest import delete_body
 from sqlalchemy import select
 
 from app.models.user import User
@@ -184,7 +185,10 @@ async def test_audit_rows_survive_account_erasure(client, make_user, auth_header
         f"{BASE}/users/{u.id}/status", headers=ADMIN, json={"is_active": True}
     )
     r = await client.request(
-        "DELETE", "/api/v1/auth/me", headers=auth_headers(u), json={"confirm": "DELETE"}
+        "DELETE",
+        "/api/v1/auth/me",
+        headers=auth_headers(u),
+        json=await delete_body(auth_headers(u)),
     )
     assert r.status_code == 200, r.text
     assert (

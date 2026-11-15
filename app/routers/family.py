@@ -2,7 +2,7 @@ import uuid
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -72,7 +72,9 @@ async def add_member(
         invited = (
             await db.execute(select(User).where(User.phone == phone))
         ).scalar_one_or_none()
-        if invited:
+        # Only a VERIFIED phone identifies a person. A number that merely sits unverified on an old account (a legacy claim)
+        # is not linked: the invitation stays addressed to the number until its real owner proves it.
+        if invited and invited.phone_verified:
             member_user_id = invited.id
         same = FamilyMember.invited_phone == phone
         if member_user_id:
@@ -143,10 +145,29 @@ async def remove_member(
 
 # -- Invitee side: consent ---------------------------------------------------
 def _addressed_to(user: User):
-    cond = [FamilyMember.member_user_id == user.id]
-    if user.phone:
-        cond.append(FamilyMember.invited_phone == user.phone)
-    return or_(*cond)
+    """Which links may this account see and answer?
+
+    * By account: ``member_user_id`` is this user. A still-PENDING link additionally needs a verified phone (a legacy account
+      with an unverified phone cannot act on an invitation that was matched to it by phone); answered links stay reachable so
+      an existing relationship can always be revoked.
+    * By number: only when the user's phone is VERIFIED, and never when the link is already bound to a different account
+      (no silent reassignment).
+    Anything else is simply "not found" - the same answer as for an invitation that does not exist, so nothing leaks."""
+    direct = FamilyMember.member_user_id == user.id
+    if not user.phone_verified:
+        direct = and_(direct, FamilyMember.consent_status != "pending")
+    conds = [direct]
+    if user.phone_verified:
+        conds.append(
+            and_(
+                FamilyMember.invited_phone == user.phone,
+                or_(
+                    FamilyMember.member_user_id.is_(None),
+                    FamilyMember.member_user_id == user.id,
+                ),
+            )
+        )
+    return or_(*conds)
 
 
 @router.get("/invitations", response_model=List[FamilyInvitation])

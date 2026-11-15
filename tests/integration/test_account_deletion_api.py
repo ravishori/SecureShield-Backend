@@ -8,6 +8,7 @@ import enum
 import uuid
 
 import pytest
+from tests.integration.conftest import delete_body
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
@@ -239,7 +240,7 @@ async def _count(session_factory, model, where=None):
 
 async def _delete(client, headers):
     return await client.request(
-        "DELETE", ME, headers=headers, json={"confirm": "DELETE"}
+        "DELETE", ME, headers=headers, json=await delete_body(headers)
     )
 
 
@@ -401,7 +402,11 @@ async def test_same_email_can_register_again_as_a_new_account(
     assert (await _delete(client, auth_headers(user))).status_code == 200
     r = await client.post(
         "/api/v1/auth/register",
-        json={"first_name": "Again", "email": "again.person@example.com"},
+        json={
+            "first_name": "Again",
+            "email": "again.person@example.com",
+            "consent": {"terms_version": "2026-11-14", "privacy_version": "2026-11-14"},
+        },
     )
     assert r.status_code == 200, r.text
 
@@ -409,7 +414,10 @@ async def test_same_email_can_register_again_as_a_new_account(
 async def test_confirmation_is_still_required(client, make_user, auth_headers):
     user = await make_user("noconfirm")
     r = await client.request(
-        "DELETE", ME, headers=auth_headers(user), json={"confirm": "yes"}
+        "DELETE",
+        ME,
+        headers=auth_headers(user),
+        json=await delete_body(auth_headers(user), confirm="yes"),
     )
     assert r.status_code == 422
     assert (await client.get(ME, headers=auth_headers(user))).status_code == 200
@@ -458,7 +466,7 @@ async def test_erasure_is_atomic_if_a_table_delete_fails(
         return await real(db, name, stmt, result)
 
     monkeypatch.setattr(ae, "_del", _boom)
-    r = await client.request("DELETE", ME, headers=h, json={"confirm": "DELETE"})
+    r = await client.request("DELETE", ME, headers=h, json=await delete_body(h))
     assert r.status_code == 500
     monkeypatch.setattr(ae, "_del", real)
     assert await _count(session_factory, Evidence, Evidence.user_id == victim.id) == 1

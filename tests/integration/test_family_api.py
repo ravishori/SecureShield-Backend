@@ -1,6 +1,7 @@
 """Family: consent-gated linking, invitations, dashboard, ownership and bounds."""
 
 import pytest
+from tests.integration.conftest import delete_body
 from sqlalchemy import select
 
 from app.models.alert import Alert, AlertSeverity, AlertType
@@ -229,7 +230,7 @@ async def test_erasing_the_invitee_leaves_no_claimable_or_accepted_link(
         "DELETE",
         "/api/v1/auth/me",
         headers=auth_headers(kid),
-        json={"confirm": "DELETE"},
+        json=await delete_body(auth_headers(kid)),
     )
     assert r.status_code == 200, r.text
     row = (await db.execute(select(FamilyMember))).scalar_one()

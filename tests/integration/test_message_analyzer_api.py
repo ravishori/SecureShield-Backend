@@ -8,6 +8,15 @@ import pytest
 import app.routers.message_analyzer as ma
 
 pytestmark = pytest.mark.integration
+
+
+@pytest.fixture(autouse=True)
+def _external_ai_on_with_a_fake_provider(monkeypatch):
+    """These tests exercise the AI paths against a RECORDING FAKE provider only (no network); containment tests live in
+    test_ai_containment_api.py."""
+    monkeypatch.setenv("AI_PROCESSING_ENABLED", "true")
+
+
 M = "/api/v1/message"
 PNG = b"\x89PNG\r\n\x1a\n" + b"x" * 64
 SCAM = "URGENT: your SBI KYC has expired. Click http://bit.ly/abc123 now and share your OTP or account will be blocked"

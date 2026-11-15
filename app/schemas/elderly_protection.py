@@ -22,6 +22,11 @@ class ElderlyConfigRequest(BaseModel):
     require_approval: bool = False
     simplified_ui: bool = True
     large_text: bool = True
+    # Authorising a guardian: true = "this guardian agreed to be alerted and I saw the disclosure" (needs the current notice
+    # version); false = withdraw. Omitted = unchanged. Changing a guardian contact always withdraws authorisation and
+    # verification for the old contact.
+    guardian_authorised: Optional[bool] = None
+    guardian_notice_version: Optional[str] = Field(None, max_length=20)
 
     @field_validator("guardian_name", "guardian_phone", "guardian_email", mode="before")
     @classmethod
@@ -60,8 +65,19 @@ class ElderlyConfigResponse(BaseModel):
     simplified_ui: bool
     large_text: bool
     updated_at: datetime
+    guardian_authorised: bool = False
+    guardian_email_verified: bool = False
+    guardian_phone_verified: bool = False
 
     model_config = {"from_attributes": True}
+
+
+class GuardianVerifyStart(BaseModel):
+    channel: str = Field("email", pattern=r"^(email|phone)$")
+
+
+class GuardianVerifyConfirm(BaseModel):
+    code: str = Field(..., min_length=4, max_length=12)
 
 
 class GuardianAlertRequest(BaseModel):

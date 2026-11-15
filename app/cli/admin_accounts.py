@@ -51,6 +51,21 @@ def _audit(db, action: str, acct_id, detail: dict | None = None) -> None:
 
 
 async def run(args: argparse.Namespace) -> int:
+    from app.config import settings
+    from app.db_identity import (
+        DatabaseIdentityError,
+        validate_identity,
+        verify_connected_database,
+    )
+
+    # Identity first (this CLI writes admin accounts): declared environment, then the read-only current_database() check in
+    # the same event loop that will use the engine.
+    try:
+        validate_identity(settings)
+        await verify_connected_database(settings)
+    except DatabaseIdentityError as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        return 2
     email = (getattr(args, "email", None) or "").strip().lower()
     async with AsyncSessionLocal() as db:
         if args.command == "list":

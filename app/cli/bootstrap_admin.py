@@ -15,8 +15,11 @@ Usage (Railway; the container already has DATABASE_URL on the private network)::
         --date-of-birth 1990-01-31 --confirm you@example.com
 
 Safety properties
-  * The person must already exist (registered + OTP-verified through the normal
-    flow). No password, token or OTP is created, read or printed.
+  * The person must already exist AND have a VERIFIED e-mail address
+    (``users.email_verified_at``, set by the normal registration / login code
+    flow). Legacy or merely-claimed addresses are refused. No password, token
+    or OTP is created, read or printed. No user is promoted implicitly: the
+    operator names the account and repeats it in --confirm.
   * Refuses to run if ANY admin profile already exists (active or not), so it
     cannot be reused as a backdoor once the first admin is in place. Further
     admins come from the existing, audited approve flow.
@@ -94,9 +97,13 @@ async def bootstrap_first_admin(
     user = (
         await db.execute(select(User).where(User.email == email))
     ).scalar_one_or_none()
-    if user is None:
+    # Fail closed: administrative rights go only to an account whose OWNER proved the e-mail address (``email_verified_at``).
+    # A legacy row with a NULL timestamp, or an address only claimed on a row, is refused. The message is the same whether the
+    # address is unknown or unverified, so the command does not tell an operator (or a log reader) which one it was.
+    if user is None or not user.email_verified:
         raise BootstrapError(
-            "No registered user with that email. Register through the app first."
+            "No eligible account for that email. The account must already exist and its email address must be "
+            "verified (sign in once with an email code to verify it)."
         )
     if not user.is_active:
         raise BootstrapError("That user account is not active.")
@@ -155,8 +162,22 @@ def _parse(argv: list[str] | None) -> argparse.Namespace:
 
 
 async def _run(args: argparse.Namespace) -> int:
+    from app.config import settings
     from app.database import AsyncSessionLocal
+    from app.db_identity import (
+        DatabaseIdentityError,
+        validate_identity,
+        verify_connected_database,
+    )
 
+    # Identity first (also for the dry run: it reads the user table): declared environment, then the read-only
+    # current_database() check in the same event loop that will use the engine.
+    try:
+        validate_identity(settings)
+        await verify_connected_database(settings)
+    except DatabaseIdentityError as exc:
+        print(f"ERROR: refused: {exc}", file=sys.stderr)
+        return 2
     execute = args.confirm is not None
     if execute and args.confirm.strip().lower() != args.email.strip().lower():
         print("ERROR: --confirm does not match --email; nothing done.", file=sys.stderr)

@@ -1,8 +1,11 @@
 """Senior Citizen / guardian protection: config persistence, validation, guardian alert delivery."""
 
+import re
+
 import pytest
 
 import app.routers.elderly_protection as elderly
+from tests.integration.conftest import ready_guardian
 
 pytestmark = pytest.mark.integration
 E = "/api/v1/elderly"
@@ -12,7 +15,7 @@ CFG = {
     "guardian_name": "Asha",
     "guardian_phone": "+919800000000",
     "guardian_email": "Asha@Example.com",
-    "alert_threshold": 40,
+    "alert_threshold": 30,
 }
 ALERT = {
     "package_name": "com.bad.app",
@@ -107,7 +110,7 @@ async def test_alert_is_delivered_by_sms_and_email_with_sanitised_content(
 ):
     u = await make_user("grandpa", full_name="Grand\npa")
     h = auth_headers(u)
-    await client.put(f"{E}/config", headers=h, json=CFG)
+    await ready_guardian(client, h, **CFG)
     r = await client.post(
         f"{E}/guardian-alert", headers=h, json={**ALERT, "app_name": "Bad\r\nApp"}
     )
@@ -121,10 +124,12 @@ async def test_alert_is_delivered_by_sms_and_email_with_sanitised_content(
     assert (
         "Dear Asha," in body
         and "'Bad App'" in body
-        and "80/100" in body
-        and "HIGH" in body
+        and re.search(
+            r"Risk score: \d+/100", body
+        )  # server-calculated, not the 80 the client reported
+        and "SAFE" in body
     )
-    assert "Likely Clone" in body and "Grand pa" in body and "\r" not in body
+    assert "Grand pa" in body and "\r" not in body and "80/100" not in body
     assert body == ebody
 
 
@@ -144,7 +149,7 @@ async def test_channels_are_independent_and_failures_do_not_break_the_request(
     monkeypatch.setattr(elderly.notifications, "send_sms", sms)
     monkeypatch.setattr(elderly.notifications, "send_email", email)
     h = auth_headers(await make_user("f"))
-    await client.put(f"{E}/config", headers=h, json=CFG)
+    await ready_guardian(client, h, **CFG)
     assert (
         await client.post(f"{E}/guardian-alert", headers=h, json=ALERT)
     ).status_code == 202
@@ -164,7 +169,7 @@ async def test_alert_is_skipped_when_policy_says_so(
     client, make_user, auth_headers, sent, setup, expect
 ):
     h = auth_headers(await make_user("p"))
-    await client.put(f"{E}/config", headers=h, json={**CFG, **setup})
+    await ready_guardian(client, h, **{**CFG, **setup})
     r = await client.post(f"{E}/guardian-alert", headers=h, json=ALERT)
     assert (
         r.status_code == 202
@@ -176,7 +181,7 @@ async def test_alert_is_skipped_when_policy_says_so(
 
 async def test_alert_input_bounds(client, make_user, auth_headers, sent):
     h = auth_headers(await make_user("b"))
-    await client.put(f"{E}/config", headers=h, json=CFG)
+    await ready_guardian(client, h, **CFG)
     for bad in (
         {"risk_score": 101},
         {"risk_score": -1},
@@ -197,15 +202,21 @@ async def test_guardian_alerts_are_rate_limited_per_user(
     client, make_user, auth_headers, sent
 ):
     h = auth_headers(await make_user("spam"))
-    await client.put(f"{E}/config", headers=h, json=CFG)
+    await ready_guardian(client, h, **CFG)
     codes = [
-        (await client.post(f"{E}/guardian-alert", headers=h, json=ALERT)).status_code
-        for _ in range(12)
+        (
+            await client.post(
+                f"{E}/guardian-alert",
+                headers=h,
+                json={**ALERT, "package_name": f"com.bad.app{i}"},
+            )
+        ).status_code
+        for i in range(12)
     ]
     assert codes[:10] == [202] * 10 and codes[10:] == [429, 429]
     assert len(sent["sms"]) == 10
     other = auth_headers(await make_user("other"))
-    await client.put(f"{E}/config", headers=other, json=CFG)
+    await ready_guardian(client, other, **CFG)
     assert (
         await client.post(f"{E}/guardian-alert", headers=other, json=ALERT)
     ).status_code == 202
@@ -237,7 +248,7 @@ async def test_delivery_logs_never_contain_guardian_contact_or_message(
     monkeypatch.setattr(n, "_send_email_resend", no_email)
     monkeypatch.setattr(n, "_send_email_smtp_sync", lambda *a: False)
     h = auth_headers(await make_user("l"))
-    await client.put(f"{E}/config", headers=h, json=CFG)
+    await ready_guardian(client, h, **CFG)
     await client.post(f"{E}/guardian-alert", headers=h, json=ALERT)
     out = capsys.readouterr()
     blob = "\n".join(lines) + out.out + out.err

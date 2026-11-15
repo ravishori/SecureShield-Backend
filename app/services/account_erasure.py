@@ -8,7 +8,7 @@ DELETED (rows, and files on disk where applicable)
   Wi-Fi scans), AI conversations, app-install events, behaviour events, clone reports,
   community scam reports, emergency contacts, elderly/guardian config (third-party PII),
   family members (and other users' links pointing at this user are cleared), link scans,
-  scam calls, security reports, legacy OTP-vault entries, Cyber Warrior profile + application.
+  scam calls, security reports, legacy OTP-vault entries, Cyber Warrior profile + application, consent records.
 
 ANONYMISED
   error_logs.user_id -> NULL (diagnostics stay, the link to the person goes).
@@ -51,6 +51,9 @@ from app.models.scam_call import ScamCall
 from app.models.refresh_token import RefreshTokenUse, RevokedTokenFamily
 from app.models.security_report import SecurityReport
 from app.models.user import OTP, User
+from app.models.pending_registration import PendingRegistration
+from app.models.user_consent import UserConsent
+from app.models.guardian_outbox import GuardianAlertOutbox
 from app.models.wifi_scan import WifiScan
 
 RETAINED = [
@@ -175,7 +178,31 @@ async def erase_user_data(
         result,
     )
 
+    # guardian alert outbox (its delivery-audit rows go with it by cascade). It runs AFTER the app_install_events delete
+    # above, which already cleared event_id (ON DELETE SET NULL), so the order is safe either way.
+    await _del(
+        db,
+        "guardian_alert_outbox",
+        delete(GuardianAlertOutbox).where(GuardianAlertOutbox.user_id == uid),
+        result,
+    )
+    await _del(
+        db,
+        "user_consents",
+        delete(UserConsent).where(UserConsent.user_id == uid),
+        result,
+    )
+
     keys = [k.lower() for k in (email,) if k] + [p for p in (phone, alt_phone) if p]
+    if email:
+        await _del(
+            db,
+            "pending_registrations",
+            delete(PendingRegistration).where(
+                PendingRegistration.email == email.lower()
+            ),
+            result,
+        )
     if keys:
         await _del(
             db,

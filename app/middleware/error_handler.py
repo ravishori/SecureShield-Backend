@@ -17,6 +17,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.services.client_ip import client_ip_for
 from app.services.logger_service import get_logger, log_error
+from app.services.user_rate_limits import RateLimitExceeded, RateLimitUnavailable
 
 logger = get_logger(__name__)
 
@@ -181,6 +182,43 @@ def register_exception_handlers(app: FastAPI) -> None:
                 "error": "Validation failed. Please check your input.",
                 "details": errors,
                 "code": 422,
+            },
+        )
+
+    @app.exception_handler(RateLimitExceeded)
+    async def user_rate_limit_handler(request: Request, exc: RateLimitExceeded):
+        """BH-1: per-user limit reached. Deliberately NO log_error call: a rejected request must not become a database write."""
+        seconds = exc.retry_after_seconds
+        return JSONResponse(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            headers={"Retry-After": str(seconds)},
+            content={
+                "error": "Too many requests. Please slow down.",
+                "detail": f"You are sending requests too quickly. Try again in {seconds} seconds.",
+                "code": 429,
+                "error_code": "rate_limit_exceeded",
+                "scope": "user",
+                "window": exc.window,
+                "retry_after_seconds": seconds,
+            },
+        )
+
+    @app.exception_handler(RateLimitUnavailable)
+    async def user_rate_limit_unavailable_handler(
+        request: Request, exc: RateLimitUnavailable
+    ):
+        """BH-1: the limiter cannot be trusted, so the request is refused (fail closed). No database write, no detail."""
+        seconds = exc.retry_after_seconds
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            headers={"Retry-After": str(seconds)},
+            content={
+                "error": "Service temporarily unavailable. Please try again shortly.",
+                "detail": "Request limiting is temporarily unavailable.",
+                "code": 503,
+                "error_code": "rate_limit_unavailable",
+                "scope": "user",
+                "retry_after_seconds": seconds,
             },
         )
 

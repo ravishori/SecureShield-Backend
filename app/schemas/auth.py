@@ -62,6 +62,8 @@ class VerifyOtpRequest(BaseModel):
 
 class GoogleLoginRequest(BaseModel):
     id_token: str = Field(..., min_length=20, max_length=4096)
+    # Required only when this sign-in would CREATE an account (422 consent_required otherwise).
+    consent: Optional["ConsentSubmission"] = None
 
     # Optional device registration fields (same as verify-otp)
     device_token: Optional[str] = None
@@ -75,6 +77,12 @@ class TokenResponse(BaseModel):
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
+    # Backend-authoritative verification state (additive; clients must not assume an identifier is verified otherwise).
+    email_verified: Optional[bool] = None
+    phone_verified: Optional[bool] = None
+    next_step: Optional[str] = (
+        None  # e.g. "verify_phone" right after e-mail verification
+    )
 
 
 class RefreshTokenRequest(BaseModel):
@@ -100,6 +108,8 @@ class UserResponse(BaseModel):
     state: Optional[str] = None
     country: Optional[str] = None
     pin_code: Optional[str] = None
+    email_verified: bool = False
+    phone_verified: bool = False
     created_at: datetime
 
     class Config:
@@ -126,9 +136,21 @@ class UpdateProfileRequest(BaseModel):
 # ── Registration ─────────────────────────────────────────────────────────────
 
 
+class ConsentSubmission(BaseModel):
+    """What the person accepted on the consent screen. The two acknowledgements are mandatory and separate from the optional
+    choices; versions must match the notice the server currently publishes."""
+
+    terms_version: str = Field(..., max_length=20)
+    privacy_version: str = Field(..., max_length=20)
+    ai_processing: Optional[bool] = None  # optional, default off; None = not asked
+
+
 class RegisterRequest(BaseModel):
     """Full profile registration — creates user + sends OTP in one step."""
 
+    consent: Optional[ConsentSubmission] = (
+        None  # required by the endpoint (422 without it)
+    )
     first_name: str
     last_name: Optional[str] = None
     email: str
@@ -191,7 +213,10 @@ class RegisterResponse(BaseModel):
     message: str
     identifier: str  # masked primary identifier (email)
     masked_email: str  # r****@gmail.com
-    masked_phone: Optional[str] = None  # +91*****1916 or None
+    masked_phone: Optional[str] = (
+        None  # +91*****1916 or None (pending: verified in a second step)
+    )
+    next_step: str = "verify_email"
 
 
 # ---------------------------------------------------------------------------
@@ -206,6 +231,8 @@ class DeleteAccountRequest(BaseModel):
     """
 
     confirm: str  # must be exactly "DELETE"
+    # Re-authentication: the code sent by POST /auth/me/delete/start to the account's verified e-mail (or phone).
+    code: str = Field(..., min_length=4, max_length=12)
 
     @field_validator("confirm")
     @classmethod
@@ -215,8 +242,117 @@ class DeleteAccountRequest(BaseModel):
         return v
 
 
+class ConsentItem(BaseModel):
+    purpose: str
+    required: bool
+    version: str  # the version currently published
+    granted: Optional[bool] = None  # newest decision, None = never decided
+    accepted_version: Optional[str] = None
+    decided_at: Optional[datetime] = None
+    up_to_date: bool = False
+
+
+class ConsentState(BaseModel):
+    items: list[ConsentItem]
+    required_up_to_date: bool
+
+
+class ConsentUpdateRequest(BaseModel):
+    purpose: str = Field(..., max_length=40)
+    granted: bool
+    version: str = Field(..., max_length=20)
+
+
+class DeleteStartResponse(BaseModel):
+    message: str
+    identifier: Optional[str] = None  # masked
+
+
 class DeleteAccountResponse(BaseModel):
     message: str
     user_id: str
     scrubbed_at: datetime
     retained: list[str] = []  # what is deliberately kept (see account_erasure.py)
+
+
+# ---------------------------------------------------------------------------
+# Identity binding (phone verification, e-mail change, release of an unverified claim)
+# ---------------------------------------------------------------------------
+def _clean_phone(v: str) -> str:
+    v = v.strip()
+    digits = v.lstrip("+").replace(" ", "").replace("-", "")
+    if not digits.isdigit() or len(digits) < 7:
+        raise ValueError("Invalid phone number format.")
+    return v
+
+
+def _clean_email(v: str) -> str:
+    v = v.strip().lower()
+    parts = v.split("@")
+    if len(parts) != 2 or not parts[0] or "." not in parts[1]:
+        raise ValueError("Invalid email address format.")
+    return v
+
+
+class PhoneStartRequest(BaseModel):
+    phone: str
+
+    @field_validator("phone")
+    @classmethod
+    def _v(cls, v: str) -> str:
+        return _clean_phone(v)
+
+
+class PhoneConfirmRequest(BaseModel):
+    phone: str
+    code: str = Field(..., min_length=4, max_length=12)
+
+    @field_validator("phone")
+    @classmethod
+    def _v(cls, v: str) -> str:
+        return _clean_phone(v)
+
+
+class EmailChangeStartRequest(BaseModel):
+    new_email: str
+
+    @field_validator("new_email")
+    @classmethod
+    def _v(cls, v: str) -> str:
+        return _clean_email(v)
+
+
+class EmailChangeConfirmRequest(BaseModel):
+    new_email: str
+    code: str = Field(..., min_length=4, max_length=12)
+
+    @field_validator("new_email")
+    @classmethod
+    def _v(cls, v: str) -> str:
+        return _clean_email(v)
+
+
+class ReleaseStartRequest(BaseModel):
+    identifier: str
+
+    @field_validator("identifier")
+    @classmethod
+    def _v(cls, v: str) -> str:
+        return _clean_email(v) if "@" in v else _clean_phone(v)
+
+
+class ReleaseConfirmRequest(BaseModel):
+    identifier: str
+    code: str = Field(..., min_length=4, max_length=12)
+
+    @field_validator("identifier")
+    @classmethod
+    def _v(cls, v: str) -> str:
+        return _clean_email(v) if "@" in v else _clean_phone(v)
+
+
+class IdentityStepResponse(BaseModel):
+    message: str
+    identifier: Optional[str] = None  # masked
+    email_verified: Optional[bool] = None
+    phone_verified: Optional[bool] = None

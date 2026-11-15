@@ -15,6 +15,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from app.services.url_privacy import redact_urls_in_text
+
 MAX_MESSAGE = 4_000
 MAX_TRACEBACK = 20_000
 MAX_EXTRA_STRING = 2_000
@@ -102,6 +104,9 @@ def scrub_text(value: str | None, limit: int = MAX_MESSAGE) -> str | None:
         if pre_cut > 0:  # bound regex work: never scan megabytes of text
             s = s[: limit * 4]
         s = _URL_USERINFO.sub(lambda m: f"{m['scheme']}{m['user']}:[REDACTED]@", s)
+        s = (
+            redact_urls_in_text(s, mode="path") or s
+        )  # BH-2: URL query values, fragments and token-like path segments
         s = _JWT.sub("[JWT]", s)
         s = _AUTH_SCHEME.sub(lambda m: f"{m.group(1)} [REDACTED]", s)
         s = _KNOWN_KEYS.sub("[API_KEY]", s)

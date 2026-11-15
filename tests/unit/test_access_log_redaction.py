@@ -95,8 +95,11 @@ def test_filter_rewrites_uvicorn_record_args_and_is_installed_once():
 
 @pytest.mark.unit
 @pytest.mark.security
-def test_real_uvicorn_access_log_is_redacted():
-    """Run a REAL uvicorn server serving the real app and read what it actually logs."""
+def test_real_uvicorn_access_log_is_redacted(no_database):
+    """Run a REAL uvicorn server serving the real app and read what it actually logs.
+
+    The share-link route queries the database; ``no_database`` (tests/unit/conftest.py) answers every query from an in-memory fake, so
+    the test never opens a database connection. Every assertion below is unchanged."""
     import uvicorn
 
     from app.main import app

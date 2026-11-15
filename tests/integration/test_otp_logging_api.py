@@ -50,7 +50,12 @@ async def test_register_with_failing_delivery_never_logs_the_otp(
 ):
     email = "otp-leak-check@example.com"
     r = await client.post(
-        "/api/v1/auth/register", json={"first_name": "Leak", "email": email}
+        "/api/v1/auth/register",
+        json={
+            "first_name": "Leak",
+            "email": email,
+            "consent": {"terms_version": "2026-11-14", "privacy_version": "2026-11-14"},
+        },
     )
     assert r.status_code == 200
 
@@ -72,7 +77,14 @@ async def test_wrong_code_and_malformed_verify_do_not_log_submitted_code(
     client, db, captured, capsys
 ):
     email = "otp-verify-check@example.com"
-    await client.post("/api/v1/auth/register", json={"first_name": "V", "email": email})
+    await client.post(
+        "/api/v1/auth/register",
+        json={
+            "first_name": "V",
+            "email": email,
+            "consent": {"terms_version": "2026-11-14", "privacy_version": "2026-11-14"},
+        },
+    )
 
     bad = await client.post(
         "/api/v1/auth/verify-otp", json={"identifier": email, "code": CODE_WRONG}

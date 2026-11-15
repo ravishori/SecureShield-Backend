@@ -16,8 +16,17 @@ class TestDeleteAccountRequest:
     @pytest.mark.unit
     @pytest.mark.security
     def test_literal_delete_is_accepted(self):
-        req = DeleteAccountRequest(confirm="DELETE")
+        req = DeleteAccountRequest(confirm="DELETE", code="123456")
         assert req.confirm == "DELETE"
+
+    @pytest.mark.unit
+    @pytest.mark.security
+    def test_the_reauthentication_code_is_required(self):
+        # Phase G: a stolen access token alone must not be enough to erase an account
+        with pytest.raises(ValidationError):
+            DeleteAccountRequest(confirm="DELETE")
+        with pytest.raises(ValidationError):
+            DeleteAccountRequest(confirm="DELETE", code="12")
 
     @pytest.mark.unit
     @pytest.mark.security

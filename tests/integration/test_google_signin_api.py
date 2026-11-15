@@ -91,7 +91,8 @@ def google(monkeypatch, signer):
 
 
 async def login(client, token, **extra):
-    return await client.post(URL, json={"id_token": token, **extra})
+    consent = {"terms_version": "2026-11-14", "privacy_version": "2026-11-14"}
+    return await client.post(URL, json={"id_token": token, "consent": consent, **extra})
 
 
 async def test_new_user_is_created_and_gets_working_tokens(client, signer, db):
@@ -244,3 +245,86 @@ async def test_input_bounds_and_rate_limit(client, signer):
         for _ in range(25)
     ]
     assert 429 in codes
+
+
+# --------------------------------------------------------------------------- account-linking safeguards (F-01)
+async def _reload(db, user):
+    return (
+        await db.execute(
+            select(User)
+            .where(User.id == user.id)
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one()
+
+
+async def test_google_links_to_an_account_whose_email_is_verified(
+    client, signer, make_user, db
+):
+    u = await make_user("v", email="g.user@example.com")
+    r = await login(client, signer.token(sub="g-link-1"))
+    assert r.status_code == 200 and r.json()["email_verified"] is True
+    assert (await _reload(db, u)).google_sub == "g-link-1"
+
+
+async def test_google_never_links_to_a_legacy_account_that_has_another_verified_identifier(
+    client, signer, make_user, db
+):
+    # e-mail claim is unverified but the phone is verified: Google must not take over this row
+    u = await make_user("lg", email="g.user@example.com", email_verified_at=None)
+    r = await login(client, signer.token(sub="g-link-2"))
+    assert r.status_code == 409 and "access_token" not in r.text
+    fresh = await _reload(db, u)
+    assert fresh.google_sub is None and fresh.email_verified_at is None
+
+
+async def test_google_proves_the_only_identifier_of_a_legacy_account(
+    client, signer, make_user, db
+):
+    u = await make_user(
+        "ls",
+        email="g.user@example.com",
+        phone=None,
+        email_verified_at=None,
+        phone_verified_at=None,
+    )
+    r = await login(client, signer.token(sub="g-link-3"))
+    assert r.status_code == 200
+    fresh = await _reload(db, u)
+    assert fresh.google_sub == "g-link-3" and fresh.email_verified_at is not None
+
+
+async def test_google_will_not_rebind_an_account_to_a_different_google_subject(
+    client, signer, make_user, db
+):
+    u = await make_user("bound", email="g.user@example.com", google_sub="g-original")
+    r = await login(client, signer.token(sub="g-attacker"))
+    assert r.status_code == 409
+    assert (await _reload(db, u)).google_sub == "g-original"
+
+
+async def test_known_google_subject_wins_over_a_changed_email(
+    client, signer, make_user, db
+):
+    u = await make_user("moved", email="moved-to@example.com", google_sub="g-stable")
+    r = await login(
+        client, signer.token(sub="g-stable", email="old-address@example.com")
+    )
+    assert r.status_code == 200
+    rows = (
+        (await db.execute(select(User).where(User.google_sub == "g-stable")))
+        .scalars()
+        .all()
+    )
+    assert [x.id for x in rows] == [u.id]
+    assert (
+        await db.execute(select(User).where(User.email == "old-address@example.com"))
+    ).first() is None
+
+
+async def test_google_subject_is_unique_per_account(client, signer, make_user, db):
+    from sqlalchemy.exc import IntegrityError
+
+    await make_user("one", google_sub="g-dup")
+    with pytest.raises(IntegrityError):
+        await make_user("two", google_sub="g-dup")

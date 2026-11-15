@@ -17,6 +17,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 
+from app.services.url_privacy import cache_key
+
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -33,12 +35,12 @@ _cache_lock = asyncio.Lock()
 
 async def _cache_get(url: str) -> Optional[Dict[str, Any]]:
     async with _cache_lock:
-        entry = _cache.get(url)
+        entry = _cache.get(cache_key(url))
         if entry is None:
             return None
         verdict, expires_at = entry
         if time.time() > expires_at:
-            _cache.pop(url, None)
+            _cache.pop(cache_key(url), None)
             return None
         return verdict
 
@@ -48,7 +50,7 @@ async def _cache_put(url: str, verdict: Dict[str, Any]) -> None:
         if len(_cache) >= URLHAUS_CACHE_MAX_SIZE:
             for k in list(_cache.keys())[: URLHAUS_CACHE_MAX_SIZE // 10]:
                 _cache.pop(k, None)
-        _cache[url] = (verdict, time.time() + URLHAUS_CACHE_TTL)
+        _cache[cache_key(url)] = (verdict, time.time() + URLHAUS_CACHE_TTL)
 
 
 async def check_url_urlhaus(url: str) -> Dict[str, Any]:

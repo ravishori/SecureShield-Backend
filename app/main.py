@@ -1,3 +1,4 @@
+import asyncio
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -25,6 +26,8 @@ from app.routers import admin_errors
 from app.routers import admin_auth
 from app.routers import admin_users
 from app.routers import admin_console
+from app.routers import identity as identity_router
+from app.routers import privacy as privacy_router
 from app.routers import cyber_warrior
 from app.middleware.access_log import install_access_log_redaction
 from app.middleware.error_handler import (
@@ -80,6 +83,8 @@ register_exception_handlers(app)
 PREFIX = "/api/v1"
 
 app.include_router(auth.router, prefix=PREFIX)
+app.include_router(identity_router.router, prefix=PREFIX)
+app.include_router(privacy_router.router, prefix=PREFIX)
 app.include_router(devices.router, prefix=PREFIX)
 app.include_router(app_scanner.router, prefix=PREFIX)
 app.include_router(link_scanner.router, prefix=PREFIX)
@@ -121,13 +126,25 @@ async def on_startup():
     # the declared environment (missing TLS, dev-default secrets, etc.).
     # In dev these are no-ops. See app/startup_checks.py.
     run_startup_checks(settings)
+    await _verify_database_identity()
     _warn_if_legacy_admin_token()
 
-    # ── Cleanup old error logs ────────────────────────────────────────────
-    await _cleanup_old_error_logs()
+    # ── Retention ─────────────────────────────────────────────────────────
+    # Startup NEVER deletes data. Retention runs only through the explicit maintenance CLIs
+    # (python -m app.cli.purge_error_logs / purge_link_scans) and the gated guardian/link-scan jobs, and only when
+    # RETENTION_CLEANUP_ENABLED=true (see app/db_identity.py).
+    from app.db_identity import retention_gate
 
-    # ── Verify Twilio (SMS OTP) ───────────────────────────────────────────
-    _verify_twilio()
+    decision = retention_gate(settings)
+    logger.info(
+        "Retention deletion: %s (%s)",
+        "ENABLED" if decision.allowed else "OFF",
+        decision.reason,
+    )
+
+    # ── Twilio configuration (local check only; no network call) ──────────
+    _log_twilio_configuration()
+    _start_guardian_worker()
 
     # ── Email alerting status ─────────────────────────────────────────────
     notify_email = getattr(settings, "ERROR_NOTIFY_EMAIL", "")
@@ -149,77 +166,63 @@ def _warn_if_legacy_admin_token() -> None:
         )
 
 
-async def _cleanup_old_error_logs() -> None:
-    """Delete error_log rows older than LOG_RETENTION_DAYS. Runs at startup."""
-    from app.database import AsyncSessionLocal
+async def _verify_database_identity() -> None:
+    """Read-only ``SELECT current_database()`` check before the database is used for anything else. Fails closed."""
+    from app.db_identity import DatabaseIdentityError, verify_connected_database
+    from app.startup_checks import StartupCheckError
 
-    retention_days = settings.LOG_RETENTION_DAYS
-    if retention_days < 1:
-        # 0 or a negative value would make the cutoff "now" or the future and delete EVERY row.
-        logger.warning(
-            f"Startup cleanup skipped: LOG_RETENTION_DAYS={retention_days} is not a positive number of days."
-        )
-        return
     try:
-        async with AsyncSessionLocal() as session:
-            result = await session.execute(
-                text(
-                    "DELETE FROM error_logs "
-                    "WHERE created_at < NOW() - make_interval(days => :days) "
-                    "RETURNING id"
-                ),
-                {"days": retention_days},
-            )
-            deleted_count = len(result.fetchall())
-            await session.commit()
-
-            if deleted_count > 0:
-                logger.info(
-                    f"Startup cleanup: deleted {deleted_count} error_log records "
-                    f"older than {retention_days} days."
-                )
-            else:
-                logger.info(
-                    f"Startup cleanup: no error_log records older than {retention_days} days found."
-                )
-    except Exception as exc:
-        # Table may not exist yet on first run — non-fatal
-        logger.warning(f"Error log cleanup skipped (possibly first run): {exc}")
+        await verify_connected_database(settings)
+    except DatabaseIdentityError as exc:
+        raise StartupCheckError(f"Database identity refused: {exc}") from None
+    except Exception as exc:  # noqa: BLE001 - the connection error text can echo connection details; log the class only
+        raise StartupCheckError(
+            f"Database identity could not be verified (connection failed: {type(exc).__name__})"
+        ) from None
+    logger.info("Connected database name matches the configured database")
 
 
-def _verify_twilio() -> None:
-    """Log whether Twilio credentials can authenticate. Does not send an SMS."""
+def _log_twilio_configuration() -> None:
+    """Report whether Twilio credentials look configured. Local check only: no outbound call is made at startup."""
     from app.config import load_settings
 
-    current = load_settings()
+    try:
+        current = load_settings()
+    except Exception:  # noqa: BLE001 - absent Twilio settings must never crash unrelated startup (no values are logged)
+        logger.warning("Twilio is not configured - SMS login OTP will not work")
+        return
     sid = (current.TWILIO_ACCOUNT_SID or "").strip()
     token = (current.TWILIO_AUTH_TOKEN or "").strip()
-    from_number = (current.TWILIO_SMS_NUMBER or "").strip()
-
     if not sid or not token or not sid.startswith("AC"):
-        logger.warning("Twilio is not configured — SMS login OTP will not work")
-        return
+        logger.warning("Twilio is not configured - SMS login OTP will not work")
+    else:
+        logger.info("Twilio credentials are present (not verified at startup)")
 
-    try:
-        from twilio.rest import Client  # type: ignore
 
-        account = Client(sid, token).api.accounts(sid).fetch()
+def _start_guardian_worker() -> None:
+    """Start the durable guardian-alert worker. Independent of Twilio: it depends only on GUARDIAN_WORKER_ENABLED and
+    GUARDIAN_OUTBOX_POLL_SECONDS (0 or less disables it). Its retention purge is gated by RETENTION_CLEANUP_ENABLED."""
+    from app.services import guardian_outbox
+
+    if not settings.guardian_worker_enabled():
         logger.info(
-            f"Twilio account OK (status={account.status}, type={getattr(account, 'type', 'unknown')})"
+            "Guardian-alert worker is OFF (enabled by default in production only; set GUARDIAN_WORKER_ENABLED=true to run it)"
         )
-        if from_number:
-            logger.info(f"Twilio SMS from-number: {from_number}")
-    except Exception as exc:
-        from app.services.otp_service import _twilio_error_message
-
-        logger.error(
-            f"Twilio authentication failed — SMS login OTP will not work: {_twilio_error_message(exc)}"
-        )
+        return
+    poll = guardian_outbox.poll_seconds_from_env()
+    if poll <= 0:
+        logger.info("Guardian-alert worker disabled (GUARDIAN_OUTBOX_POLL_SECONDS<=0)")
+        return
+    app.state.guardian_worker = asyncio.create_task(guardian_outbox.worker_loop(poll))
+    logger.info("Guardian-alert worker started")
 
 
 @app.on_event("shutdown")
 async def on_shutdown():
     logger.info("SecureShield AI API shutting down.")
+    worker = getattr(app.state, "guardian_worker", None)
+    if worker is not None:
+        worker.cancel()
 
 
 # ── Health endpoints ──────────────────────────────────────────────────────────

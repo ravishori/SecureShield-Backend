@@ -1,7 +1,7 @@
 from __future__ import annotations
 import uuid
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, Dict, List, Optional, Union
 from pydantic import BaseModel, Field
 
 
@@ -24,13 +24,23 @@ class AppEventPayload(BaseModel):
     has_overlay: bool = False
     has_accessibility: bool = False
     first_install_time: Optional[int] = None  # epoch millis
-    client_timestamp: Optional[int] = None  # when event was observed
+    client_timestamp: Optional[int] = None  # when event was observed (epoch millis)
+    # New (optional, so old clients keep working): the device-generated id that makes a retry idempotent, and the time the
+    # event happened (epoch millis; falls back to client_timestamp).
+    client_event_id: Optional[uuid.UUID] = None
+    occurred_at: Optional[int] = None
 
 
 class BatchSyncRequest(BaseModel):
     """Offline-first batch upload: up to 50 events at once."""
 
-    events: List[AppEventPayload] = Field(..., max_length=50)
+    # Each item is validated on its own: a malformed event is REJECTED in the per-event outcomes instead of failing the batch.
+    # (Structural errors - not a list, more than 50 items - are still a 422 for the whole request.)
+    events: List[Union[AppEventPayload, Dict[str, Any]]] = Field(
+        ...,
+        max_length=50,
+        json_schema_extra={"items": {"$ref": "#/components/schemas/AppEventPayload"}},
+    )
 
 
 # ── Outbound (server → device) ────────────────────────────────────────────────
@@ -52,9 +62,30 @@ class AppEventResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class GuardianOutcome(BaseModel):
+    """Independent of the history outcome. queued/sent/already: an alert exists for this event. skipped: not eligible.
+    expired: too old to be worth sending. none: not applicable (duplicate of an event with no alert, rejected)."""
+
+    status: str
+    reason: Optional[str] = None
+
+
+class EventOutcome(BaseModel):
+    index: int  # position in the request, so the device can match outcomes without trusting ids
+    client_event_id: Optional[uuid.UUID] = None
+    status: str  # created | duplicate | rejected
+    id: Optional[uuid.UUID] = None  # server id (created or duplicate)
+    reason: Optional[str] = None  # rejected: invalid_payload | bad_timestamp
+    fields: Optional[List[str]] = (
+        None  # rejected: names of the offending fields (never their values)
+    )
+    guardian: Optional[GuardianOutcome] = None
+
+
 class BatchSyncResponse(BaseModel):
-    synced: int
-    results: List[AppEventResponse]
+    synced: int  # number of events CREATED by this call (unchanged meaning, for old clients)
+    results: List[AppEventResponse]  # the created events (unchanged, for old clients)
+    outcomes: List[EventOutcome] = []  # one per request item, in request order
 
 
 class MonitorHistoryResponse(BaseModel):

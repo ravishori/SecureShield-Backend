@@ -30,6 +30,7 @@ from app.services.log_scrubber import (
     safe_error_text,
 )
 from app.services.logger_service import get_logger
+from app.services.smtp_config import missing_smtp_settings, smtp_configured
 
 logger = get_logger(__name__)
 
@@ -286,8 +287,16 @@ def _otp_email_html(code: str) -> str:
 
 
 def _send_email(email: str, code: str) -> DeliveryResult:
-    """Send OTP via SMTP with a branded dark-themed HTML email."""
+    """Send OTP via SMTP with a branded dark-themed HTML email. Never reports success unless a message was handed to the server."""
     settings = load_settings()
+    missing = missing_smtp_settings(settings)
+    if missing:
+        logger.info(
+            f"OTP e-mail not sent: SMTP is not configured (missing: {', '.join(missing)})"
+        )
+        return DeliveryResult(
+            success=False, method="email", error="SMTP not configured"
+        )
     try:
         html = _otp_email_html(code)
 
@@ -381,10 +390,7 @@ async def deliver_otp(identifier: str, code: str) -> DeliveryResult:
             result = await _send_email_resend(identifier, code)
             if result.success:
                 return result
-        if (
-            delivery_settings.SMTP_FALLBACK_ENABLED
-            and (settings.SMTP_HOST or "").strip()
-        ):
+        if delivery_settings.SMTP_FALLBACK_ENABLED and smtp_configured(settings):
             # smtplib is blocking: keep it off the event loop.
             result = await asyncio.to_thread(_send_email, identifier, code)
             if result.success:

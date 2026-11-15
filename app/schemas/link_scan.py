@@ -3,6 +3,8 @@ from typing import Optional, List, Any
 import uuid
 from datetime import datetime
 
+from app.schemas.scam_verdict import ScamVerdict
+
 
 class LinkScanRequest(BaseModel):
     url: str = Field(..., min_length=3, max_length=2048)
@@ -29,6 +31,8 @@ class LinkScanResponse(BaseModel):
     scan_provider: str
     gsb_threats: Optional[List[Any]] = None
     scanned_at: datetime
+    # Additive and optional (X-1): the shared scam verdict. None when it could not be built; every field above is unchanged.
+    verdict: Optional[ScamVerdict] = None
 
     class Config:
         from_attributes = True

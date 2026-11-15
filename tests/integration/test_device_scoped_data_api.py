@@ -3,6 +3,7 @@
 Regression: these endpoints used to return EVERY user's rows (scans were stored with no owner)."""
 
 import pytest
+from tests.integration.conftest import delete_body
 from sqlalchemy import select
 
 from app.models.app_scan import AppScan
@@ -266,7 +267,7 @@ async def test_erasure_removes_owned_scans(client, make_user, auth_headers, db):
     await client.post(f"{API}/app-scanner/scan", headers=h, json=apps("zed"))
     await client.post(f"{API}/wifi/scan", headers=h, json={"ssid": "gone-net"})
     r = await client.request(
-        "DELETE", f"{API}/auth/me", headers=h, json={"confirm": "DELETE"}
+        "DELETE", f"{API}/auth/me", headers=h, json=await delete_body(h)
     )
     assert r.status_code == 200, r.text
     assert (await db.execute(select(AppScan))).scalars().all() == []

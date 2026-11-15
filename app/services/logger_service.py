@@ -30,6 +30,7 @@ from email.mime.text import MIMEText
 
 from app.delivery_settings import delivery_settings
 from app.services.log_scrubber import MAX_MESSAGE, MAX_TRACEBACK, scrub_obj, scrub_text
+from app.services.smtp_config import smtp_configured
 
 # ---------------------------------------------------------------------------
 # Log directory & rotating file setup
@@ -73,8 +74,12 @@ _executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="mailer")
 def _send_email_sync(subject: str, html_body: str, to_email: str) -> None:
     """Synchronous SMTP send — called from thread executor."""
     from app.config import settings
+    from app.services.smtp_config import smtp_configured
 
     if not to_email:
+        return
+    if not smtp_configured(settings):
+        _root_logger.debug("Error alert e-mail not sent: SMTP is not configured")
         return
     try:
         msg = MIMEMultipart("alternative")
@@ -88,9 +93,10 @@ def _send_email_sync(subject: str, html_body: str, to_email: str) -> None:
             srv.starttls()
             srv.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
             srv.sendmail(settings.SMTP_FROM_EMAIL, to_email, msg.as_string())
-        _root_logger.info(f"Error alert email sent → {to_email}")
+        _root_logger.info("Error alert e-mail sent")
     except Exception as e:
-        _root_logger.error(f"Failed to send error alert email: {e}")
+        # the exception class only: a provider's reply can echo addresses or account details
+        _root_logger.error(f"Failed to send error alert email: {type(e).__name__}")
 
 
 # ---------------------------------------------------------------------------
@@ -204,6 +210,9 @@ async def log_error(
     if (
         send_email
         and delivery_settings.SMTP_FALLBACK_ENABLED  # alert e-mails are SMTP-only
+        and smtp_configured(
+            settings
+        )  # nothing is scheduled without a complete SMTP configuration
         and level in ("ERROR", "CRITICAL")
         and notify_email
     ):

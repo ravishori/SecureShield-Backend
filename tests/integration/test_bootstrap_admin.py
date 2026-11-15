@@ -144,3 +144,99 @@ def test_cli_confirm_must_match_email(capsys):
     )
     assert rc == 2
     assert "does not match" in capsys.readouterr().err
+
+
+# --- F1-C02: verified e-mail ownership is required -------------------------------------------------------------
+@pytest.mark.parametrize("execute", [False, True])
+async def test_unverified_email_is_refused_and_writes_nothing(
+    session_factory, make_user, execute
+):
+    """A legacy row (NULL ``email_verified_at``) must not become an admin, not even as a dry-run plan."""
+    user = await make_user("legacy", email_verified_at=None)
+    with pytest.raises(BootstrapError, match="verified"):
+        await _run(
+            session_factory,
+            email=user.email,
+            date_of_birth=adult_dob(),
+            execute=execute,
+        )
+    assert await _count(session_factory, WarriorProfile) == 0
+    assert await _count(session_factory, WarriorAuditLog) == 0
+
+
+async def test_phone_verification_alone_is_not_enough(session_factory, make_user):
+    user = await make_user(
+        "phoneonly", email_verified_at=None
+    )  # phone verified by default
+    assert user.phone_verified_at is not None
+    with pytest.raises(BootstrapError, match="verified"):
+        await _run(
+            session_factory, email=user.email, date_of_birth=adult_dob(), execute=True
+        )
+    assert await _count(session_factory, WarriorProfile) == 0
+
+
+async def test_unknown_and_unverified_emails_get_the_same_message(
+    session_factory, make_user
+):
+    legacy = await make_user("legacy", email_verified_at=None)
+    msgs = []
+    for email in ("nobody@example.com", legacy.email):
+        with pytest.raises(BootstrapError) as e:
+            await _run(
+                session_factory, email=email, date_of_birth=adult_dob(), execute=False
+            )
+        msgs.append(str(e.value))
+    assert msgs[0] == msgs[1]  # no enumeration through the operator-facing error
+
+
+async def test_verified_email_is_accepted_and_only_that_user_gains_the_role(
+    session_factory, make_user
+):
+    target, bystander = await make_user("t"), await make_user("b")
+    unverified = await make_user("u", email_verified_at=None)
+    await _run(
+        session_factory, email=target.email, date_of_birth=adult_dob(), execute=True
+    )
+    async with session_factory() as s:
+        ids = {p.user_id for p in (await s.execute(select(WarriorProfile))).scalars()}
+    assert ids == {target.id}
+    assert bystander.id not in ids and unverified.id not in ids
+
+
+async def test_rerun_is_idempotent_and_never_promotes_a_second_user(
+    session_factory, make_user
+):
+    target, other = await make_user("t"), await make_user("o")
+    await _run(
+        session_factory, email=target.email, date_of_birth=adult_dob(), execute=True
+    )
+    for who in (target, other):
+        with pytest.raises(BootstrapError):
+            await _run(
+                session_factory,
+                email=who.email,
+                date_of_birth=adult_dob(),
+                execute=True,
+            )
+    assert await _count(session_factory, WarriorProfile) == 1
+    assert await _count(session_factory, WarriorAuditLog) == 1
+
+
+async def test_a_duplicate_address_cannot_exist_so_a_claim_cannot_shadow_a_verified_owner(
+    session_factory, make_user
+):
+    from sqlalchemy.exc import IntegrityError
+
+    owner = await make_user("owner", email="dup-admin@example.com")
+    with pytest.raises(IntegrityError):
+        await make_user(
+            "claimant", email="dup-admin@example.com", email_verified_at=None
+        )
+    await _run(
+        session_factory, email=owner.email, date_of_birth=adult_dob(), execute=True
+    )
+    async with session_factory() as s:
+        assert (
+            await s.execute(select(WarriorProfile))
+        ).scalar_one().user_id == owner.id

@@ -16,6 +16,7 @@ pytestmark = pytest.mark.integration
 
 REGISTER = "/api/v1/auth/register"
 VERIFY = "/api/v1/auth/verify-otp"
+REG_VERIFY = "/api/v1/auth/register/verify"
 SEND = "/api/v1/auth/send-otp"
 REFRESH = "/api/v1/auth/refresh"
 ME = "/api/v1/auth/me"
@@ -52,8 +53,26 @@ def _delivered_code(delivered, identifier):
 
 
 async def _register(client, email):
-    r = await client.post(REGISTER, json={"first_name": "Test", "email": email})
+    r = await client.post(
+        REGISTER,
+        json={
+            "first_name": "Test",
+            "email": email,
+            "consent": {"terms_version": "2026-11-14", "privacy_version": "2026-11-14"},
+        },
+    )
     assert r.status_code == 200, r.text
+
+
+async def _register_and_verify(client, delivered, email):
+    """Register, then prove the e-mail: only now does the account exist."""
+    await _register(client, email)
+    r = await client.post(
+        REG_VERIFY,
+        json={"identifier": email, "code": _delivered_code(delivered, email)},
+    )
+    assert r.status_code == 200, r.text
+    return r
 
 
 async def test_otp_generation_stores_code_with_ttl_and_delivers_same_code(
@@ -75,13 +94,16 @@ async def test_otp_generation_stores_code_with_ttl_and_delivers_same_code(
 async def test_verify_success_returns_tokens_and_burns_otp(client, db, delivered):
     await _register(client, "ok@example.com")
     code = _delivered_code(delivered, "ok@example.com")
-    r = await client.post(VERIFY, json={"identifier": "ok@example.com", "code": code})
+    r = await client.post(
+        REG_VERIFY, json={"identifier": "ok@example.com", "code": code}
+    )
     assert (
         r.status_code == 200 and r.json()["access_token"] and r.json()["refresh_token"]
     )
+    assert r.json()["email_verified"] is True
     # single use
     again = await client.post(
-        VERIFY, json={"identifier": "ok@example.com", "code": code}
+        REG_VERIFY, json={"identifier": "ok@example.com", "code": code}
     )
     assert again.status_code == 400
     # token works and refresh issues a working access token
@@ -98,7 +120,9 @@ async def test_wrong_and_expired_codes_rejected(client, db, delivered, session_f
     real = _delivered_code(delivered, "bad@example.com")
     wrong = "000000" if real != "000000" else "111111"
     assert (
-        await client.post(VERIFY, json={"identifier": "bad@example.com", "code": wrong})
+        await client.post(
+            REG_VERIFY, json={"identifier": "bad@example.com", "code": wrong}
+        )
     ).status_code == 400
     async with session_factory() as s:
         await s.execute(
@@ -108,7 +132,9 @@ async def test_wrong_and_expired_codes_rejected(client, db, delivered, session_f
         )
         await s.commit()
     assert (
-        await client.post(VERIFY, json={"identifier": "bad@example.com", "code": real})
+        await client.post(
+            REG_VERIFY, json={"identifier": "bad@example.com", "code": real}
+        )
     ).status_code == 400
 
 
@@ -119,7 +145,7 @@ async def test_code_for_one_identifier_does_not_work_for_another(client, db, del
     code_b = _delivered_code(delivered, "b@example.com")
     if code_a != code_b:  # random 6-digit codes: only meaningful when they differ
         r = await client.post(
-            VERIFY, json={"identifier": "b@example.com", "code": code_a}
+            REG_VERIFY, json={"identifier": "b@example.com", "code": code_a}
         )
         assert r.status_code == 400
 
@@ -127,7 +153,7 @@ async def test_code_for_one_identifier_does_not_work_for_another(client, db, del
 async def test_delivery_failure_on_login_returns_503_and_leaks_nothing(
     client, db, delivered, monkeypatch
 ):
-    await _register(client, "fail@example.com")
+    await _register_and_verify(client, delivered, "fail@example.com")
 
     async def _down(identifier, code):
         return SimpleNamespace(success=False, error="smtp down", method="none")
@@ -136,7 +162,7 @@ async def test_delivery_failure_on_login_returns_503_and_leaks_nothing(
     r = await client.post(SEND, json={"identifier": "fail@example.com"})
     assert r.status_code == 503
     code = _delivered_code(delivered, "fail@example.com")
-    assert code not in r.text
+    assert code not in r.text and r.json()["detail"]
 
 
 async def test_health_and_ready_execute_a_real_query(client):
@@ -154,13 +180,15 @@ async def test_stored_otp_is_not_the_plaintext_code_and_generation_is_csprng(
     await _register(client, "hash@example.com")
     code = _delivered_code(delivered, "hash@example.com")
     row = await _otp_row(db, "hash@example.com")
-    assert code not in row.code and row.code == oc.hash_code(code)
+    assert code not in row.code and row.code == oc.hash_challenge(
+        code, "email", "hash@example.com", "register"
+    )
     # a different SECRET_KEY must produce a different digest (keyed, not a bare SHA-256)
-    before = oc.hash_code(code)
+    before = oc.hash_challenge(code, "email", "hash@example.com", "register")
     monkeypatch.setattr(
         oc.settings, "SECRET_KEY", "another-secret-key-value-1234567890"
     )
-    assert oc.hash_code(code) != before
+    assert oc.hash_challenge(code, "email", "hash@example.com", "register") != before
 
 
 def test_generated_codes_are_six_digits_and_use_secrets():

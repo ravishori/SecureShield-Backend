@@ -12,13 +12,14 @@ from sqlalchemy import select, text
 
 from app.models.user import OTP
 from app.routers import auth as auth_router
-from app.services.otp_codes import OTP_MAX_ATTEMPTS, hash_code
+from app.services.otp_codes import OTP_MAX_ATTEMPTS, hash_challenge
 
 pytestmark = pytest.mark.integration
 
 REGISTER = "/api/v1/auth/register"
 SEND = "/api/v1/auth/send-otp"
 VERIFY = "/api/v1/auth/verify-otp"
+REG_VERIFY = "/api/v1/auth/register/verify"
 GENERIC = "Invalid or expired OTP. Please request a new one."
 
 
@@ -46,8 +47,9 @@ async def verify(client, identifier, code):
     return await client.post(VERIFY, json={"identifier": identifier, "code": code})
 
 
-async def test_a_new_code_invalidates_the_previous_one(client, delivered):
+async def test_a_new_code_invalidates_the_previous_one(client, delivered, make_user):
     ident = "resend@example.com"
+    await make_user(email=ident)
     assert (await client.post(SEND, json={"identifier": ident})).status_code == 200
     first = last_code(delivered, ident)
     assert (await client.post(SEND, json={"identifier": ident})).status_code == 200
@@ -62,10 +64,14 @@ async def test_registering_again_does_not_leave_older_codes_valid(
     client, delivered, db
 ):
     ident = "reg-old@example.com"
-    await client.post(SEND, json={"identifier": ident})
+    body = {
+        "first_name": "Test",
+        "email": ident,
+        "consent": {"terms_version": "2026-11-14", "privacy_version": "2026-11-14"},
+    }
+    assert (await client.post(REGISTER, json=body)).status_code == 200
     stale = last_code(delivered, ident)
-    r = await client.post(REGISTER, json={"first_name": "Test", "email": ident})
-    assert r.status_code == 200
+    assert (await client.post(REGISTER, json=body)).status_code == 200
     fresh = last_code(delivered, ident)
     open_rows = (
         (
@@ -78,11 +84,39 @@ async def test_registering_again_does_not_leave_older_codes_valid(
     )
     assert len(open_rows) == 1
     if stale != fresh:
-        assert (await verify(client, ident, stale)).status_code == 400
+        r = await client.post(REG_VERIFY, json={"identifier": ident, "code": stale})
+        assert r.status_code == 400
 
 
-async def test_code_is_burned_after_the_attempt_limit(client, delivered, db):
+async def test_resend_for_a_pending_registration_reissues_only_the_register_code(
+    client, delivered, db
+):
+    ident = "pending-resend@example.com"
+    await client.post(
+        REGISTER,
+        json={
+            "first_name": "Test",
+            "email": ident,
+            "consent": {"terms_version": "2026-11-14", "privacy_version": "2026-11-14"},
+        },
+    )
+    first = last_code(delivered, ident)
+    r = await client.post(SEND, json={"identifier": ident})
+    assert r.status_code == 200
+    second = last_code(delivered, ident)
+    rows = (await db.execute(select(OTP).where(OTP.email == ident))).scalars().all()
+    assert {o.purpose for o in rows} == {"register"}
+    assert len([o for o in rows if not o.is_used]) == 1
+    if first != second:
+        stale = await client.post(REG_VERIFY, json={"identifier": ident, "code": first})
+        assert stale.status_code == 400
+    ok = await client.post(REG_VERIFY, json={"identifier": ident, "code": second})
+    assert ok.status_code == 200
+
+
+async def test_code_is_burned_after_the_attempt_limit(client, delivered, db, make_user):
     ident = "burn@example.com"
+    await make_user(email=ident)
     await client.post(SEND, json={"identifier": ident})
     real = last_code(delivered, ident)
     bad = wrong_code(real)
@@ -97,8 +131,11 @@ async def test_code_is_burned_after_the_attempt_limit(client, delivered, db):
     assert row.is_used and row.attempts == OTP_MAX_ATTEMPTS
 
 
-async def test_attempts_below_the_limit_do_not_block_the_right_code(client, delivered):
+async def test_attempts_below_the_limit_do_not_block_the_right_code(
+    client, delivered, make_user
+):
     ident = "below@example.com"
+    await make_user(email=ident)
     await client.post(SEND, json={"identifier": ident})
     real = last_code(delivered, ident)
     for _ in range(OTP_MAX_ATTEMPTS - 1):
@@ -106,8 +143,12 @@ async def test_attempts_below_the_limit_do_not_block_the_right_code(client, deli
     assert (await verify(client, ident, real)).status_code == 200
 
 
-async def test_attempts_are_counted_per_code_and_per_identifier(client, delivered):
+async def test_attempts_are_counted_per_code_and_per_identifier(
+    client, delivered, make_user
+):
     a, b = "iso-a@example.com", "iso-b@example.com"
+    await make_user(email=a)
+    await make_user(email=b)
     await client.post(SEND, json={"identifier": a})
     await client.post(SEND, json={"identifier": b})
     real_b = last_code(delivered, b)
@@ -118,8 +159,9 @@ async def test_attempts_are_counted_per_code_and_per_identifier(client, delivere
     ).status_code == 200  # B is unaffected by A's failures
 
 
-async def test_a_fresh_code_after_burning_works(client, delivered):
+async def test_a_fresh_code_after_burning_works(client, delivered, make_user):
     ident = "again@example.com"
+    await make_user(email=ident)
     await client.post(SEND, json={"identifier": ident})
     for _ in range(OTP_MAX_ATTEMPTS):
         await verify(client, ident, wrong_code(last_code(delivered, ident)))
@@ -128,9 +170,10 @@ async def test_a_fresh_code_after_burning_works(client, delivered):
 
 
 async def test_concurrent_verification_consumes_the_code_exactly_once(
-    client, delivered
+    client, delivered, make_user
 ):
     ident = "race@example.com"
+    await make_user(email=ident)
     await client.post(SEND, json={"identifier": ident})
     code = last_code(delivered, ident)
     results = await asyncio.gather(*[verify(client, ident, code) for _ in range(6)])
@@ -140,9 +183,10 @@ async def test_concurrent_verification_consumes_the_code_exactly_once(
 
 
 async def test_expired_code_is_rejected_and_not_counted_as_open(
-    client, delivered, session_factory
+    client, delivered, session_factory, make_user
 ):
     ident = "late@example.com"
+    await make_user(email=ident)
     await client.post(SEND, json={"identifier": ident})
     code = last_code(delivered, ident)
     async with session_factory() as s:
@@ -158,9 +202,10 @@ async def test_expired_code_is_rejected_and_not_counted_as_open(
 
 
 async def test_failures_look_identical_for_unknown_and_known_identifiers(
-    client, delivered
+    client, delivered, make_user
 ):
     known = "known@example.com"
+    await make_user(email=known)
     await client.post(SEND, json={"identifier": known})
     wrong = await verify(client, known, wrong_code(last_code(delivered, known)))
     unknown = await verify(client, "nobody-here@example.com", "123456")
@@ -180,9 +225,11 @@ async def test_send_otp_answers_the_same_for_registered_and_unknown_identifiers(
 
 
 async def test_send_limit_per_source_applies_across_identifiers(
-    client, delivered, monkeypatch
+    client, delivered, monkeypatch, make_user
 ):
     monkeypatch.setattr(auth_router, "OTP_SEND_IP_LIMIT", 3)
+    for i in range(5):
+        await make_user(email=f"spray{i}@example.com")
     codes = []
     for i in range(5):
         r = await client.post(SEND, json={"identifier": f"spray{i}@example.com"})
@@ -193,23 +240,27 @@ async def test_send_limit_per_source_applies_across_identifiers(
 
 
 async def test_the_code_is_never_in_a_response_or_stored_in_clear(
-    client, delivered, db
+    client, delivered, db, make_user
 ):
     ident = "secret@example.com"
+    await make_user(email=ident)
     r = await client.post(SEND, json={"identifier": ident})
     code = last_code(delivered, ident)
     assert code not in r.text
     row = (await db.execute(select(OTP).where(OTP.email == ident))).scalars().first()
-    assert row.code == hash_code(code) and row.code != code
+    assert (
+        row.code == hash_challenge(code, "email", ident, "login") and row.code != code
+    )
     assert row.attempts == 0 and row.expires_at > datetime.utcnow()
     assert row.expires_at - datetime.utcnow() <= timedelta(minutes=10, seconds=5)
 
 
 async def test_burning_the_newest_code_does_not_bring_an_older_one_back(
-    client, delivered
+    client, delivered, make_user
 ):
     """Needs the explicit invalidation on resend: without it, the older code becomes the newest *open* code again."""
     ident = "resurrect@example.com"
+    await make_user(email=ident)
     await client.post(SEND, json={"identifier": ident})
     first = last_code(delivered, ident)
     await client.post(SEND, json={"identifier": ident})

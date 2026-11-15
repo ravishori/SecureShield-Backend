@@ -11,6 +11,15 @@ from app.models.device import Device
 from app.models.security_report import SecurityReport
 
 pytestmark = pytest.mark.integration
+
+
+@pytest.fixture(autouse=True)
+def _external_ai_on_with_a_fake_provider(monkeypatch):
+    """These tests exercise the AI paths against a RECORDING FAKE provider only (no network); containment tests live in
+    test_ai_containment_api.py."""
+    monkeypatch.setenv("AI_PROCESSING_ENABLED", "true")
+
+
 R = "/api/v1/reports"
 
 

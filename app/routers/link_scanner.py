@@ -20,7 +20,7 @@ import asyncio
 import logging
 from typing import List
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -30,8 +30,20 @@ from app.models.link_scan import LinkScan
 from app.models.user import User
 from app.routers.auth import get_current_user
 from app.schemas.link_scan import LinkScanRequest, LinkScanResponse
+from app.services.link_scan_retention import maybe_purge_expired
+from app.services.url_privacy import (
+    provider_url,
+    redact_url_for_storage,
+    sanitize_threats,
+)
+from app.services.user_rate_limits import user_limit
 from app.services.gsb_service import check_url_gsb, is_configured as gsb_is_configured
-from app.services.threat_analyzer import analyze_url
+from app.services.scam_verdict_adapters import (
+    from_stored_url_scan,
+    from_url_scan,
+    safe_verdict,
+)
+from app.services.threat_analyzer import analyze_url, analyze_url_signals
 from app.services.urlhaus_service import check_url_urlhaus
 from app.config import settings
 
@@ -59,17 +71,27 @@ _INCONCLUSIVE = {
 }
 
 
-@router.post("/scan", response_model=LinkScanResponse)
+@router.post(
+    "/scan",
+    response_model=LinkScanResponse,
+    # BH-1: 10/min and 120/hour per user, checked before any provider call
+    dependencies=[Depends(user_limit("link_scan"))],
+)
 async def scan_link(
     request: LinkScanRequest,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    url = request.url
+    url = request.url  # the full URL lives in memory only: detection below uses it, storage and logs never do
+    stored_url = redact_url_for_storage(url)
+    lookup_url = provider_url(
+        url
+    )  # no user-info, fragment or credential-named parameters leave the server
 
     # ── Providers (concurrent; each degrades to an inconclusive envelope, never raises) ──
     gsb_result, urlhaus_result = await asyncio.gather(
-        check_url_gsb(url), check_url_urlhaus(url)
+        check_url_gsb(lookup_url), check_url_urlhaus(lookup_url)
     )
     gsb_status = gsb_result.get("status")
     urlhaus_status = urlhaus_result.get("status")
@@ -119,13 +141,13 @@ async def scan_link(
 
     scan = LinkScan(
         user_id=current_user.id,
-        url=url,
+        url=stored_url,
         is_phishing=is_phishing,
         is_malicious=is_malicious,
         risk_score=risk_score,
         threat_category=threat_category,
         scan_provider=scan_provider,
-        gsb_threats=gsb_threats,
+        gsb_threats=sanitize_threats(gsb_threats),
     )
     db.add(scan)
 
@@ -141,7 +163,7 @@ async def scan_link(
             ),
             severity=AlertSeverity.critical if is_malicious else AlertSeverity.warning,
             extra_data={
-                "url": url[:200],
+                "url": stored_url[:200],
                 "risk_score": risk_score,
                 "provider": scan_provider,
             },
@@ -150,7 +172,20 @@ async def scan_link(
 
     await db.commit()
     await db.refresh(scan)
-    return scan
+    background_tasks.add_task(
+        maybe_purge_expired
+    )  # BH-2 retention: bounded, at most hourly, after the response
+    # Additive shared verdict: built from the SAME provider results and score that produced the response above.
+    response = LinkScanResponse.model_validate(scan)
+    response.verdict = safe_verdict(
+        from_url_scan,
+        risk_score=risk_score,
+        threat_category=threat_category,
+        signals=analyze_url_signals(url)[4],
+        gsb=gsb_result,
+        urlhaus=urlhaus_result,
+    )
+    return response
 
 
 @router.get("/history", response_model=List[LinkScanResponse])
@@ -164,7 +199,22 @@ async def get_history(
         .order_by(LinkScan.scanned_at.desc())
         .limit(50)
     )
-    return result.scalars().all()
+    out = []
+    for row in result.scalars().all():
+        item = LinkScanResponse.model_validate(row)
+        # rows written before BH-2 may still hold a full URL: never return one
+        item.url = redact_url_for_storage(row.url)
+        item.gsb_threats = sanitize_threats(row.gsb_threats)
+        item.verdict = safe_verdict(
+            from_stored_url_scan,
+            scan_provider=row.scan_provider,
+            is_malicious=bool(row.is_malicious),
+            risk_score=row.risk_score,
+            threat_category=row.threat_category,
+            gsb_threats=row.gsb_threats,
+        )
+        out.append(item)
+    return out
 
 
 @router.get("/providers/status")

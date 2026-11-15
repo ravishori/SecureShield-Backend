@@ -7,6 +7,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
+from tests.integration.conftest import delete_body
 from sqlalchemy import select
 
 from app.models.cyber_warrior import WarriorApplication, WarriorProfile
@@ -31,7 +32,12 @@ def _stub_otp_delivery(monkeypatch):
 
 
 def _register_body(n: int, **over) -> dict:
-    body = {"first_name": "Test", "last_name": "User", "email": f"reg{n}@example.com"}
+    body = {
+        "first_name": "Test",
+        "last_name": "User",
+        "email": f"reg{n}@example.com",
+        "consent": {"terms_version": "2026-11-14", "privacy_version": "2026-11-14"},
+    }
     body.update(over)
     return body
 
@@ -97,12 +103,13 @@ class TestRegisterRateLimit:
     async def test_repeated_registration_of_same_email_is_throttled(self, client):
         body = _register_body(500)
         codes = [(await client.post(REGISTER, json=body)).status_code for _ in range(6)]
-        # 1st creates the account; 2nd-5th hit the uniqueness check (409);
-        # 6th exceeds the per-identifier OTP limit (5/hour) → 429 *before*
-        # any account-existence information is returned.
-        assert codes == [200, 409, 409, 409, 409, 429]
+        # Each repeat refreshes the SAME pending registration (and sends a new code); the 6th exceeds the
+        # per-identifier OTP limit (5/hour) → 429. No account is created by any of them.
+        assert codes == [200, 200, 200, 200, 200, 429]
 
     async def test_throttled_registration_creates_no_user(self, client, db):
+        from app.models.pending_registration import PendingRegistration
+
         body = _register_body(600)
         for _ in range(6):
             await client.post(REGISTER, json=body)
@@ -111,7 +118,18 @@ class TestRegisterRateLimit:
             .scalars()
             .all()
         )
-        assert len(users) == 1
+        pending = (
+            (
+                await db.execute(
+                    select(PendingRegistration).where(
+                        PendingRegistration.email == "reg600@example.com"
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(users) == 0 and len(pending) == 1
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -121,7 +139,7 @@ class TestRegisterRateLimit:
 
 async def _delete_me(client, headers, confirm="DELETE"):
     return await client.request(
-        "DELETE", ME, json={"confirm": confirm}, headers=headers
+        "DELETE", ME, json=await delete_body(headers, confirm), headers=headers
     )
 
 
@@ -202,12 +220,27 @@ class TestAccountDeletion:
             REGISTER, json=_register_body(700, email="comeback@example.com")
         )
         assert r.status_code == 200, r.text
+        # The erased account no longer holds the address; the new sign-up waits for e-mail verification.
         rows = (
             (await db.execute(select(User).where(User.email == "comeback@example.com")))
             .scalars()
             .all()
         )
-        assert len(rows) == 1 and rows[0].id != user.id
+        assert len(rows) == 0
+        from app.models.pending_registration import PendingRegistration
+
+        pending = (
+            (
+                await db.execute(
+                    select(PendingRegistration).where(
+                        PendingRegistration.email == "comeback@example.com"
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(pending) == 1
 
     async def test_deleting_one_account_does_not_touch_another(
         self, client, db, make_user, auth_headers

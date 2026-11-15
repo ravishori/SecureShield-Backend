@@ -13,6 +13,14 @@ from app.models.ai_conversation import AiConversation, ConversationRole
 
 pytestmark = pytest.mark.integration
 
+
+@pytest.fixture(autouse=True)
+def _external_ai_on_with_a_fake_provider(monkeypatch):
+    """These tests exercise the AI paths against a RECORDING FAKE provider only (no network); containment tests live in
+    test_ai_containment_api.py."""
+    monkeypatch.setenv("AI_PROCESSING_ENABLED", "true")
+
+
 CHAT = "/api/v1/ai/chat"
 HIST = "/api/v1/ai/history/{}"
 EMAIL = "/api/v1/ai/generate-complaint-email"

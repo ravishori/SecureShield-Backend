@@ -22,6 +22,7 @@ from app.config import settings
 from app.models.device import Device
 from app.models.user import User
 from app.services.logger_service import get_logger
+from app.services.smtp_config import smtp_configured
 
 logger = get_logger(__name__)
 
@@ -122,6 +123,12 @@ async def send_new_device_alert(
     if not delivery_settings.SMTP_FALLBACK_ENABLED:
         # This alert is SMTP-only; SMTP_FALLBACK_ENABLED=false switches it off (no connection, no credentials used).
         logger.info(f"New-device alert for user {user.id} not sent: SMTP disabled")
+        return
+    if not smtp_configured(settings):
+        # Login must never depend on a mail server: no message is built and no connection is attempted.
+        logger.info(
+            f"New-device alert for user {user.id} not sent: SMTP is not configured"
+        )
         return
 
     timestamp_utc = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
@@ -288,4 +295,6 @@ async def send_new_device_alert(
         )
     except Exception as exc:
         # Never propagate — security alert failure must not break the login flow
-        logger.error(f"Failed to send new-device alert to user {user.id}: {exc}")
+        logger.error(
+            f"Failed to send new-device alert to user {user.id}: {type(exc).__name__}"
+        )

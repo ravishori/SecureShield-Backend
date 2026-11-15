@@ -22,6 +22,7 @@ from app.services.log_scrubber import (
     safe_error_text,
 )
 from app.services.logger_service import get_logger
+from app.services.smtp_config import missing_smtp_settings
 
 logger = get_logger(__name__)
 
@@ -96,7 +97,12 @@ def _send_email_smtp_sync(to: str, subject: str, body: str) -> bool:
     if not delivery_settings.SMTP_FALLBACK_ENABLED:
         return False  # SMTP is switched off (SMTP_FALLBACK_ENABLED=false): Resend is the only e-mail provider
     s = load_settings()
-    if not (s.SMTP_HOST or "").strip():
+    missing = missing_smtp_settings(s)
+    if missing:
+        # Nothing is built and no connection is made with blank credentials. Names only, never values or the recipient.
+        logger.info(
+            f"Notification e-mail not sent: SMTP is not configured (missing: {', '.join(missing)})"
+        )
         return False
     try:
         msg = MIMEText(body, "plain", "utf-8")

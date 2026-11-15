@@ -1,5 +1,16 @@
-from typing import List, Tuple
+from dataclasses import dataclass
+from typing import List, Optional, Tuple
 import re
+
+
+@dataclass(frozen=True)
+class Signal:
+    """One thing a detector actually matched. `code` is a stable identifier (never user content); `weight` is the
+    points the detector added for it (its own scoring, unchanged); `count` is how many times it matched."""
+
+    code: str
+    weight: int
+    count: int = 1
 
 
 # High-risk permissions and their scores
@@ -256,15 +267,19 @@ def get_removal_reason(
     return None
 
 
-def analyze_url(url: str) -> Tuple[bool, bool, float, str]:
+def analyze_url_signals(
+    url: str,
+) -> Tuple[bool, bool, float, Optional[str], List[Signal]]:
     """
-    Returns (is_phishing, is_malicious, risk_score, threat_category)
+    Same detection as :func:`analyze_url`, additionally returning the signals that produced the score.
+    Returns (is_phishing, is_malicious, risk_score, threat_category, signals)
     """
     url_lower = url.lower()
     risk_score = 0.0
     is_phishing = False
     is_malicious = False
     threat_category = None
+    signals: List[Signal] = []
 
     # Check against known scam domains
     for domain in SCAM_DOMAINS:
@@ -272,7 +287,8 @@ def analyze_url(url: str) -> Tuple[bool, bool, float, str]:
             is_malicious = True
             risk_score = 90.0
             threat_category = "known_scam_domain"
-            return is_phishing, is_malicious, risk_score, threat_category
+            signals.append(Signal("known_scam_domain", 90))
+            return is_phishing, is_malicious, risk_score, threat_category, signals
 
     # Check phishing patterns
     for pattern in PHISHING_PATTERNS:
@@ -280,16 +296,19 @@ def analyze_url(url: str) -> Tuple[bool, bool, float, str]:
             is_phishing = True
             risk_score += 70
             threat_category = "phishing"
+            signals.append(Signal("phishing_pattern", 70))
             break
 
     # Check for suspicious URL indicators
     if url_lower.startswith("http://"):
         risk_score += 15
+        signals.append(Signal("insecure_http", 15))
         if not threat_category:
             threat_category = "insecure_http"
 
     if len(url) > 200:
         risk_score += 10
+        signals.append(Signal("long_url", 10))
 
     suspicious_keywords = [
         "verify",
@@ -303,14 +322,19 @@ def analyze_url(url: str) -> Tuple[bool, bool, float, str]:
         "prize",
         "winner",
     ]
+    keyword_hits = 0
     for kw in suspicious_keywords:
         if kw in url_lower:
             risk_score += 5
+            keyword_hits += 1
+    if keyword_hits:
+        signals.append(Signal("suspicious_keyword", 5 * keyword_hits, keyword_hits))
 
     # Check for IP-based URLs (suspicious)
     if re.search(r"https?://\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}", url_lower):
         risk_score += 30
         threat_category = "ip_based_url"
+        signals.append(Signal("ip_based_url", 30))
 
     # Multiple subdomains
     try:
@@ -318,6 +342,7 @@ def analyze_url(url: str) -> Tuple[bool, bool, float, str]:
         subdomain_count = domain_part.count(".")
         if subdomain_count > 3:
             risk_score += 15
+            signals.append(Signal("many_subdomains", 15))
     except Exception:
         pass
 
@@ -331,6 +356,14 @@ def analyze_url(url: str) -> Tuple[bool, bool, float, str]:
     if not threat_category and risk_score > 0:
         threat_category = "suspicious_url"
 
+    return is_phishing, is_malicious, risk_score, threat_category, signals
+
+
+def analyze_url(url: str) -> Tuple[bool, bool, float, str]:
+    """
+    Returns (is_phishing, is_malicious, risk_score, threat_category)
+    """
+    is_phishing, is_malicious, risk_score, threat_category, _ = analyze_url_signals(url)
     return is_phishing, is_malicious, risk_score, threat_category
 
 
@@ -429,28 +462,39 @@ def analyze_scam_call(
     return risk_score, detection_reason
 
 
-def analyze_message_content(text: str) -> Tuple[float, str, List[str]]:
+def analyze_message_signals(
+    text: str,
+) -> Tuple[float, str, List[str], List[Signal]]:
     """
-    Analyzes SMS/message text for scam/phishing content.
-    Returns (risk_score, threat_category, detected_patterns)
+    Same detection as :func:`analyze_message_content`, additionally returning the signals that produced the score.
+    Returns (risk_score, threat_category, detected_patterns, signals)
     """
     text_lower = text.lower()
     risk_score = 0.0
     detected_patterns = []
     threat_category = "safe"
+    signals: List[Signal] = []
 
     # Check scam message patterns
+    pattern_hits = 0
     for pattern in SCAM_MESSAGE_PATTERNS:
         if re.search(pattern, text_lower):
             risk_score += 25
             detected_patterns.append(pattern)
+            pattern_hits += 1
+    if pattern_hits:
+        signals.append(Signal("scam_message_pattern", 25 * pattern_hits, pattern_hits))
 
     # Check for fake job keywords
+    job_hits = 0
     for keyword in FAKE_JOB_KEYWORDS:
         if keyword in text_lower:
             risk_score += 20
+            job_hits += 1
             if "fake_job" not in detected_patterns:
                 detected_patterns.append("fake_job_offer")
+    if job_hits:
+        signals.append(Signal("fake_job_wording", 20 * job_hits, job_hits))
 
     # Check for suspicious links in message
     urls_in_text = re.findall(r"https?://\S+", text)
@@ -459,6 +503,7 @@ def analyze_message_content(text: str) -> Tuple[float, str, List[str]]:
         if is_malicious or url_score > 40:
             risk_score += 30
             detected_patterns.append("malicious_link_in_message")
+            signals.append(Signal("risky_link_in_message", 30))
             break
 
     # Urgency keywords
@@ -475,6 +520,7 @@ def analyze_message_content(text: str) -> Tuple[float, str, List[str]]:
     if urgency_count >= 2:
         risk_score += urgency_count * 5
         detected_patterns.append("high_urgency_language")
+        signals.append(Signal("urgency_language", urgency_count * 5, urgency_count))
 
     # Financial bait
     financial_bait = [
@@ -489,6 +535,7 @@ def analyze_message_content(text: str) -> Tuple[float, str, List[str]]:
     if any(w in text_lower for w in financial_bait):
         risk_score += 15
         detected_patterns.append("financial_bait")
+        signals.append(Signal("financial_bait", 15))
 
     risk_score = min(risk_score, 100.0)
 
@@ -501,23 +548,39 @@ def analyze_message_content(text: str) -> Tuple[float, str, List[str]]:
     else:
         threat_category = "safe"
 
+    return risk_score, threat_category, detected_patterns, signals
+
+
+def analyze_message_content(text: str) -> Tuple[float, str, List[str]]:
+    """
+    Analyzes SMS/message text for scam/phishing content.
+    Returns (risk_score, threat_category, detected_patterns)
+    """
+    risk_score, threat_category, detected_patterns, _ = analyze_message_signals(text)
     return risk_score, threat_category, detected_patterns
 
 
-def analyze_job_offer(text: str) -> Tuple[float, bool, List[str]]:
+def analyze_job_offer_signals(
+    text: str,
+) -> Tuple[float, bool, List[str], List[Signal]]:
     """
-    Analyzes if a job offer text is fraudulent.
-    Returns (risk_score, is_fake, red_flags)
+    Same detection as :func:`analyze_job_offer`, additionally returning the signals that produced the score.
+    Returns (risk_score, is_fake, red_flags, signals)
     """
     text_lower = text.lower()
     risk_score = 0.0
     red_flags = []
+    signals: List[Signal] = []
 
     # Direct fake job indicators
+    phrase_hits = 0
     for keyword in FAKE_JOB_KEYWORDS:
         if keyword in text_lower:
             risk_score += 20
+            phrase_hits += 1
             red_flags.append(f"Suspicious phrase: '{keyword}'")
+    if phrase_hits:
+        signals.append(Signal("job_suspicious_phrase", 20 * phrase_hits, phrase_hits))
 
     # Fee-based red flags
     if any(
@@ -532,6 +595,7 @@ def analyze_job_offer(text: str) -> Tuple[float, bool, List[str]]:
     ):
         risk_score += 35
         red_flags.append("Legitimate jobs never ask for payment upfront")
+        signals.append(Signal("job_upfront_payment", 35))
 
     # Unrealistic income claims
     income_pattern = re.search(
@@ -540,6 +604,7 @@ def analyze_job_offer(text: str) -> Tuple[float, bool, List[str]]:
     if income_pattern:
         risk_score += 20
         red_flags.append("Unrealistic income claim detected")
+        signals.append(Signal("job_unrealistic_income", 20))
 
     # Contact via WhatsApp/Telegram (not professional)
     if (
@@ -550,6 +615,7 @@ def analyze_job_offer(text: str) -> Tuple[float, bool, List[str]]:
         red_flags.append(
             "Legitimate companies use official email, not WhatsApp/Telegram for hiring"
         )
+        signals.append(Signal("job_messaging_app_hiring", 15))
 
     # No company name or vague employer
     if not any(
@@ -558,6 +624,7 @@ def analyze_job_offer(text: str) -> Tuple[float, bool, List[str]]:
     ):
         risk_score += 10
         red_flags.append("No company name mentioned")
+        signals.append(Signal("job_no_company_name", 10))
 
     # Urgency in job posting
     if any(
@@ -566,10 +633,20 @@ def analyze_job_offer(text: str) -> Tuple[float, bool, List[str]]:
     ):
         risk_score += 15
         red_flags.append("Artificial urgency — common fake job tactic")
+        signals.append(Signal("job_artificial_urgency", 15))
 
     risk_score = min(risk_score, 100.0)
     is_fake = risk_score >= 50
 
+    return risk_score, is_fake, red_flags, signals
+
+
+def analyze_job_offer(text: str) -> Tuple[float, bool, List[str]]:
+    """
+    Analyzes if a job offer text is fraudulent.
+    Returns (risk_score, is_fake, red_flags)
+    """
+    risk_score, is_fake, red_flags, _ = analyze_job_offer_signals(text)
     return risk_score, is_fake, red_flags
 
 

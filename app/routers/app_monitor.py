@@ -14,8 +14,10 @@ import uuid
 from datetime import datetime
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from pydantic import ValidationError
 from sqlalchemy import select, func, desc
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -23,54 +25,155 @@ from app.models.user import User
 from app.models.app_install_event import AppInstallEvent
 from app.models.alert import Alert, AlertType, AlertSeverity
 from app.schemas.app_monitor import (
+    AppEventPayload,
+    EventOutcome,
+    GuardianOutcome,
     BatchSyncRequest,
     BatchSyncResponse,
     AppEventResponse,
     MonitorHistoryResponse,
 )
 from app.routers.auth import get_current_user
+from app.middleware.rate_limiter import rate_limiter
+from app.models.elderly_config import ElderlyConfig
+from app.services import guardian_alerts as rules
+from app.services import guardian_outbox
 from app.services.risk_engine import compute_risk
 from app.services.clone_analyzer import analyze_clone
 
 router = APIRouter(prefix="/app-monitor", tags=["app-monitor"])
 
 
+def _ms_to_datetime(ms: int) -> datetime | None:
+    """Epoch milliseconds -> naive UTC. None when implausible (before 2009 or more than a day in the future)."""
+    try:
+        if (
+            ms < 1_230_000_000_000
+            or ms > (datetime.utcnow().timestamp() + 86_400) * 1000
+        ):
+            return None
+        return datetime.utcfromtimestamp(ms / 1000)
+    except (OverflowError, OSError, ValueError):
+        return None
+
+
 @router.post("/sync", response_model=BatchSyncResponse)
 async def batch_sync_events(
     request: BatchSyncRequest,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Offline-first batch sync.  Device queues events locally and uploads
-    when connectivity is available.  Idempotent — duplicates are silently skipped
-    (we check package_name + event_type + first_install_time uniqueness).
-    """
-    saved: List[AppInstallEvent] = []
+    Offline-first batch sync (up to 50 events). SAFE TO RETRY.
 
-    for ev in request.events:
-        # ── Idempotency: the device may re-upload the same queue after a flaky connection ──
-        if ev.first_install_time is not None:
-            dup = (
+    * Idempotent per user: an event carrying ``client_event_id`` is stored at most once (unique index, race-safe). Old clients
+      that send no id are de-duplicated by the event's own observation time when they send one.
+    * ``outcomes`` has one entry per request item, in order: ``created``, ``duplicate`` or ``rejected`` (a malformed event is
+      rejected on its own and never fails the batch). ``synced`` and ``results`` keep their old meaning (created events only).
+    * Each outcome carries an independent ``guardian`` status: the alert outbox is separate from history, so a duplicate or
+      history failure never changes whether a guardian is told, and the other way round.
+    * The whole call is one transaction: a server error rolls everything back, and the retry is safe.
+    """
+    if not rate_limiter.is_allowed(
+        f"app_sync:{current_user.id}", max_hits=60, window_seconds=60
+    ):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many sync requests. Please retry shortly.",
+            headers={"Retry-After": "60"},
+        )
+
+    cfg = (
+        await db.execute(
+            select(ElderlyConfig).where(ElderlyConfig.user_id == current_user.id)
+        )
+    ).scalar_one_or_none()
+    now = datetime.utcnow()
+    saved: List[AppInstallEvent] = []
+    outcomes: List[EventOutcome] = []
+    queued_any = False
+
+    for index, raw in enumerate(request.events):
+        # ── per-event validation ─────────────────────────────────────────────────────────────────────────────────────
+        if isinstance(raw, AppEventPayload):
+            ev = raw
+        else:
+            try:
+                ev = AppEventPayload.model_validate(raw)
+            except ValidationError as exc:
+                fields = sorted(
+                    {str(e["loc"][0]) for e in exc.errors() if e.get("loc")}
+                )
+                cid = None
+                try:
+                    cid = (
+                        uuid.UUID(str(raw.get("client_event_id")))
+                        if raw.get("client_event_id")
+                        else None
+                    )
+                except (ValueError, AttributeError):
+                    cid = None
+                outcomes.append(
+                    EventOutcome(
+                        index=index,
+                        client_event_id=cid,
+                        status="rejected",
+                        reason="invalid_payload",
+                        fields=fields[:10],
+                    )
+                )
+                continue
+
+        occurred_ms = (
+            ev.occurred_at if ev.occurred_at is not None else ev.client_timestamp
+        )
+        occurred = None
+        if occurred_ms is not None:
+            occurred = _ms_to_datetime(occurred_ms)
+            if occurred is None:
+                outcomes.append(
+                    EventOutcome(
+                        index=index,
+                        client_event_id=ev.client_event_id,
+                        status="rejected",
+                        reason="bad_timestamp",
+                        fields=["occurred_at"],
+                    )
+                )
+                continue
+
+        # ── legacy de-duplication for old clients with neither an id nor a timestamp ─────────────────────────────
+        # Only a fresh install can be matched this way. Updates and removals carry the same first-install time every time,
+        # so the old rule silently dropped real second updates; without an id or time they are now kept.
+        if (
+            ev.client_event_id is None
+            and occurred is None
+            and ev.event_type == "installed"
+            and ev.first_install_time is not None
+        ):
+            dup_id = (
                 await db.execute(
                     select(AppInstallEvent.id).where(
                         AppInstallEvent.user_id == current_user.id,
                         AppInstallEvent.package_name == ev.package_name,
-                        AppInstallEvent.event_type == ev.event_type,
+                        AppInstallEvent.event_type == "installed",
                         AppInstallEvent.first_install_time == ev.first_install_time,
                     )
                 )
-            ).first()
-            if dup:
+            ).scalar_one_or_none()
+            if dup_id is not None:
+                outcomes.append(
+                    EventOutcome(
+                        index=index,
+                        status="duplicate",
+                        id=dup_id,
+                        guardian=GuardianOutcome(status="none"),
+                    )
+                )
                 continue
 
-        # ── Clone analysis ────────────────────────────────────────────────────
-        clone = analyze_clone(
-            package_name=ev.package_name,
-            app_name=ev.app_name,
-        )
-
-        # ── Server-side risk refinement ───────────────────────────────────────
+        clone = analyze_clone(package_name=ev.package_name, app_name=ev.app_name)
         risk = compute_risk(
             dangerous_perm_count=ev.perm_count,
             is_unknown_source=ev.is_unknown_source,
@@ -79,10 +182,15 @@ async def batch_sync_events(
             has_overlay=ev.has_overlay,
             has_accessibility=ev.has_accessibility,
         )
+        is_clone = clone.verdict in ("likely_clone", "confirmed_clone")
 
-        # ── Persist ───────────────────────────────────────────────────────────
-        event = AppInstallEvent(
+        # ── atomic insert: the unique indexes decide, so two concurrent retries cannot both create the event ───────
+        new_id = uuid.uuid4()
+        values = dict(
+            id=new_id,
             user_id=current_user.id,
+            client_event_id=ev.client_event_id,
+            occurred_at=occurred,
             package_name=ev.package_name,
             app_name=ev.app_name,
             version_name=ev.version_name,
@@ -97,51 +205,141 @@ async def batch_sync_events(
             risk_level=risk.level,
             risk_tags=risk.tags,
             clone_probability=clone.overall_score,
-            flagged_as_clone=clone.verdict in ("likely_clone", "confirmed_clone"),
+            flagged_as_clone=is_clone,
             clone_target_pkg=clone.target_package,
             has_overlay=ev.has_overlay,
             has_accessibility=ev.has_accessibility,
             first_install_time=ev.first_install_time,
-            synced_at=datetime.utcnow(),
+            synced_at=now,
+            created_at=now,
         )
-        db.add(event)
-
-        # ── Auto-create alert for dangerous events ────────────────────────────
-        if risk.level == "danger" or clone.verdict in (
-            "likely_clone",
-            "confirmed_clone",
-        ):
-            title = (
-                f"⚠️ Fake app detected: {ev.app_name}"
-                if clone.verdict in ("likely_clone", "confirmed_clone")
-                else f"🚨 High-risk app installed: {ev.app_name}"
+        inserted = (
+            await db.execute(
+                pg_insert(AppInstallEvent)
+                .values(**values)
+                .on_conflict_do_nothing()  # either partial unique index
+                .returning(AppInstallEvent.id)
             )
-            alert = Alert(
-                user_id=current_user.id,
-                alert_type=AlertType.app_risk,
-                severity=AlertSeverity.critical
-                if risk.level == "danger"
-                else AlertSeverity.warning,
-                title=title,
-                message="; ".join(risk.tags[:3]) or "Review this app before using it.",
-                extra_data={
-                    "packageName": ev.package_name,
-                    "riskScore": risk.score,
-                    "cloneVerdict": clone.verdict,
-                    "cloneTarget": clone.target_name,
-                },
-                is_read=False,
-            )
-            db.add(alert)
+        ).first()
 
+        if inserted is None:
+            # already stored: find it (by id, or by the legacy occurrence key) and report its independent alert status
+            q = select(AppInstallEvent.id).where(
+                AppInstallEvent.user_id == current_user.id
+            )
+            if ev.client_event_id is not None:
+                q = q.where(AppInstallEvent.client_event_id == ev.client_event_id)
+            else:
+                q = q.where(
+                    AppInstallEvent.client_event_id.is_(None),
+                    AppInstallEvent.package_name == ev.package_name,
+                    AppInstallEvent.event_type == ev.event_type,
+                    AppInstallEvent.occurred_at == occurred,
+                )
+            existing_id = (await db.execute(q)).scalar_one_or_none()
+            g = None
+            if existing_id is not None:
+                st = await guardian_outbox.status_for_event(
+                    db, current_user.id, existing_id
+                )
+                g = GuardianOutcome(status=st) if st else GuardianOutcome(status="none")
+            outcomes.append(
+                EventOutcome(
+                    index=index,
+                    client_event_id=ev.client_event_id,
+                    status="duplicate",
+                    id=existing_id,
+                    guardian=g,
+                )
+            )
+            continue
+
+        event = (
+            await db.execute(
+                select(AppInstallEvent).where(AppInstallEvent.id == new_id)
+            )
+        ).scalar_one()
         saved.append(event)
 
+        # ── auto-create alert for dangerous events (unchanged behaviour) ───────────────────────────────────────────
+        if risk.level == "danger" or is_clone:
+            title = (
+                f"⚠️ Fake app detected: {ev.app_name}"
+                if is_clone
+                else f"🚨 High-risk app installed: {ev.app_name}"
+            )
+            db.add(
+                Alert(
+                    user_id=current_user.id,
+                    alert_type=AlertType.app_risk,
+                    severity=AlertSeverity.critical
+                    if risk.level == "danger"
+                    else AlertSeverity.warning,
+                    title=title,
+                    message="; ".join(risk.tags[:3])
+                    or "Review this app before using it.",
+                    extra_data={
+                        "packageName": ev.package_name,
+                        "riskScore": risk.score,
+                        "cloneVerdict": clone.verdict,
+                        "cloneTarget": clone.target_name,
+                    },
+                    is_read=False,
+                )
+            )
+
+        # ── guardian alert: durable outbox row, independent of everything above ────────────────────────────────────
+        guardian = GuardianOutcome(status="skipped", reason="not_applicable")
+        if ev.event_type != "removed":
+            # Eligibility uses the SERVER-calculated score only; the device-reported score is stored but never trusted.
+            score = risk.score
+            skip = rules.check_eligibility(cfg, score)
+            when = occurred or now
+            if skip:
+                guardian = GuardianOutcome(
+                    status="skipped", reason=rules.REASON_CODES[skip]
+                )
+            elif now - when > guardian_outbox.TTL:
+                guardian = GuardianOutcome(status="expired", reason="too_old")
+            else:
+                _, created = await guardian_outbox.enqueue(
+                    db,
+                    user_id=current_user.id,
+                    event_id=new_id,
+                    dedupe_key=f"evt:{new_id}",
+                    payload={
+                        "app_name": ev.app_name,
+                        "package_name": ev.package_name,
+                        "risk_score": score,
+                        "risk_level": risk.level,
+                        "risk_tags": list(risk.tags)[:10],
+                        "clone_verdict": clone.verdict if is_clone else None,
+                        "occurred_at": when.isoformat(),
+                    },
+                    now=now,
+                )
+                guardian = GuardianOutcome(status="queued" if created else "already")
+                queued_any = queued_any or created
+
+        outcomes.append(
+            EventOutcome(
+                index=index,
+                client_event_id=ev.client_event_id,
+                status="created",
+                id=new_id,
+                guardian=guardian,
+            )
+        )
+
     await db.commit()
-    for e in saved:
-        await db.refresh(e)
+    if queued_any:
+        # best-effort immediate attempt; the periodic worker is the durable path
+        background_tasks.add_task(guardian_outbox.run_once_safe)
 
     return BatchSyncResponse(
-        synced=len(saved), results=[_to_response(e) for e in saved]
+        synced=len(saved),
+        results=[_to_response(e) for e in saved],
+        outcomes=outcomes,
     )
 
 

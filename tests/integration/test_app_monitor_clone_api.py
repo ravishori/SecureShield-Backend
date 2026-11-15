@@ -119,7 +119,16 @@ async def test_sync_validation(client, make_user, auth_headers):
         ev(pkg="p" * 256),
         ev(name=""),
     ):
-        assert (await sync(client, h, bad)).status_code == 422
+        # Stage 2A: a malformed EVENT is rejected on its own (200 + per-event outcome) instead of failing the whole batch
+        r = await sync(client, h, bad)
+        assert r.status_code == 200 and r.json()["synced"] == 0, bad
+        out = r.json()["outcomes"][0]
+        assert (
+            out["status"] == "rejected"
+            and out["reason"] == "invalid_payload"
+            and out["fields"]
+        ), bad
+    # structural errors are still a 422 for the whole request
     assert (
         await sync(client, h, *[ev(f"com.p{i}", "n") for i in range(51)])
     ).status_code == 422

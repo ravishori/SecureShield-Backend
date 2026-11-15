@@ -28,3 +28,19 @@ def hash_code(code: str) -> str:
 def codes_match(stored_hash: str, presented_code: str) -> bool:
     """Constant-time comparison of the stored HMAC with the HMAC of the presented code."""
     return hmac.compare_digest(stored_hash, hash_code(presented_code))
+
+
+def hash_challenge(code: str, kind: str, identifier: str, purpose: str) -> str:
+    """HMAC of a code BOUND to one identifier, one channel and one purpose: the same digits issued for another identifier or
+    purpose hash differently, so a code can never verify anything but the exact challenge it was issued for."""
+    key = hashlib.sha256(f"otp-key:{settings.SECRET_KEY}".encode()).digest()
+    msg = f"v2|{purpose}|{kind}|{identifier}|{code}"
+    return hmac.new(key, msg.encode(), hashlib.sha256).hexdigest()
+
+
+def challenge_matches(
+    stored_hash: str, code: str, kind: str, identifier: str, purpose: str
+) -> bool:
+    return hmac.compare_digest(
+        stored_hash, hash_challenge(code, kind, identifier, purpose)
+    )

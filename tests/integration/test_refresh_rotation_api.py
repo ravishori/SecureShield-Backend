@@ -3,6 +3,7 @@
 from datetime import timedelta
 
 import pytest
+from tests.integration.conftest import delete_body
 from sqlalchemy import select
 
 from app.models.refresh_token import RefreshTokenUse, RevokedTokenFamily
@@ -118,7 +119,10 @@ async def test_deleted_account_cannot_rotate_and_erasure_removes_bookkeeping(
     t0 = create_tokens(str(u.id), u.email)
     assert (await refresh(client, t0["refresh_token"])).status_code == 200
     r = await client.request(
-        "DELETE", "/api/v1/auth/me", headers=auth_headers(u), json={"confirm": "DELETE"}
+        "DELETE",
+        "/api/v1/auth/me",
+        headers=auth_headers(u),
+        json=await delete_body(auth_headers(u)),
     )
     assert r.status_code == 200, r.text
     assert (await db.execute(select(RefreshTokenUse))).scalars().all() == []

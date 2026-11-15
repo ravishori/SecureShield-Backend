@@ -15,6 +15,7 @@ from app.schemas.ai_conversation import (
     ComplaintEmailResponse,
 )
 from app.routers.auth import get_current_user
+from app.services.ai_gate import require_enabled
 from app.services.ai_limits import check_ai_rate
 from app.services.ai_service import chat_with_coach, generate_complaint_email
 
@@ -29,6 +30,7 @@ async def chat(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    require_enabled()  # 503 + X-AI-Status: disabled; nothing is stored or sent
     check_ai_rate(current_user)
     session_id = request.session_id or uuid.uuid4()
 

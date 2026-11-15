@@ -13,6 +13,7 @@ import smtplib
 from types import SimpleNamespace
 
 import pytest
+from tests.integration.conftest import ready_guardian
 
 import app.routers.alerts as alerts_router
 import app.services.notifications as n
@@ -29,7 +30,7 @@ CFG = {
     "guardian_name": "Asha",
     "guardian_phone": PHONE,
     "guardian_email": EMAIL,
-    "alert_threshold": 40,
+    "alert_threshold": 30,
 }
 ALERT = {
     "package_name": "com.bad.app",
@@ -236,7 +237,7 @@ async def test_guardian_alert_failure_end_to_end_logs_no_pii_but_keeps_diagnosti
 ):
     u = await make_user("gl")
     h = auth_headers(u)
-    assert (await client.put(f"{E}/config", headers=h, json=CFG)).status_code == 200
+    await ready_guardian(client, h, **CFG)
     r = await client.post(f"{E}/guardian-alert", headers=h, json=ALERT)
     assert r.status_code == 202
     text = blob(logs, capsys)
@@ -266,14 +267,14 @@ async def test_guardian_alert_success_logs_outcome_without_pii(
     monkeypatch.setattr(n, "send_email", ok_email)
     u = await make_user("gs")
     h = auth_headers(u)
-    await client.put(f"{E}/config", headers=h, json=CFG)
+    await ready_guardian(client, h, **CFG)
     assert (
         await client.post(f"{E}/guardian-alert", headers=h, json=ALERT)
     ).status_code == 202
     text = blob(logs, capsys)
     assert_clean(text)
     assert f"user={u.id}" in text and "sms=ok" in text and "email=ok" in text
-    assert "risk=high" in text and "score=80" in text
+    assert "risk=safe" in text and "score=33" in text  # server-calculated
 
 
 @pytest.mark.security
@@ -287,7 +288,7 @@ async def test_a_channel_that_raises_is_logged_by_class_only(
     monkeypatch.setattr(n, "send_email", boom)
     u = await make_user("gb")
     h = auth_headers(u)
-    await client.put(f"{E}/config", headers=h, json=CFG)
+    await ready_guardian(client, h, **CFG)
     assert (
         await client.post(f"{E}/guardian-alert", headers=h, json=ALERT)
     ).status_code == 202

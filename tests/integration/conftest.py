@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import os
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import AsyncIterator, Callable
 
 import httpx
@@ -46,6 +46,33 @@ def assert_safe_test_database(url: str) -> None:
         parsed = make_url(url)
     except Exception as exc:  # noqa: BLE001
         raise UnsafeTestDatabaseError("TEST_DATABASE_URL is not a valid URL") from exc
+
+    # Effective identity, not just the host text: connection-routing query parameters (?host=, ?port=, ?database= ...), lookalike
+    # or non-ASCII hosts, an empty database and the driver's real connect arguments are all checked (app.db_identity).
+    from app.db_identity import (
+        DatabaseIdentityError,
+        load_production_database_names,
+        load_registry,
+        parse_endpoint,
+    )
+
+    try:
+        endpoint = parse_endpoint(url)
+        registry = load_registry(os.environ.get("PRODUCTION_DATABASE_ENDPOINTS", ""))
+        production_names = load_production_database_names(
+            os.environ.get("PRODUCTION_DATABASE_NAMES", "")
+        )
+    except DatabaseIdentityError as exc:
+        raise UnsafeTestDatabaseError(
+            f"Refusing: TEST_DATABASE_URL identity check failed: {exc}"
+        ) from None
+    if (
+        endpoint.endpoint_id in registry
+        or endpoint.database.lower() in production_names
+    ):
+        raise UnsafeTestDatabaseError(
+            "Refusing: TEST_DATABASE_URL names a production endpoint or production database name."
+        )
 
     host = (parsed.host or "").lower()
     allowed = set(_ALLOWED_HOSTS)
@@ -108,6 +135,12 @@ def test_database_url() -> str:
         "settings.DATABASE_URL differs from TEST_DATABASE_URL — refusing to run"
     )
     assert settings.MIGRATOR_DATABASE_URL == url
+
+    from app.db_identity import validate_identity
+
+    validate_identity(
+        settings
+    )  # ENVIRONMENT=test / DATABASE_ENVIRONMENT=test, loopback, same endpoint for both roles
     return url
 
 
@@ -146,7 +179,11 @@ async def _truncate_all(conn) -> None:
 
 @pytest_asyncio.fixture
 async def db_engine(migrated_database: str, monkeypatch) -> AsyncIterator:
-    engine = create_async_engine(migrated_database, poolclass=NullPool)
+    # A URL without a port must not be redirected by PGPORT in the environment: pin the port like app.database does.
+    connect_args = {} if make_url(migrated_database).port else {"port": 5432}
+    engine = create_async_engine(
+        migrated_database, poolclass=NullPool, connect_args=connect_args
+    )
     factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
     # Repoint every code path that opens its own session (error logger, etc.)
@@ -154,6 +191,12 @@ async def db_engine(migrated_database: str, monkeypatch) -> AsyncIterator:
 
     monkeypatch.setattr(app_db, "engine", engine)
     monkeypatch.setattr(app_db, "AsyncSessionLocal", factory)
+
+    # Read-only: the server we reached must be the configured *_test database (never a tunnel to something else).
+    from app.config import settings as app_settings
+    from app.db_identity import verify_connected_database
+
+    await verify_connected_database(app_settings, engine)
 
     async with engine.begin() as conn:
         await _truncate_all(conn)
@@ -278,12 +321,19 @@ def make_user(session_factory) -> Callable:
     async def _make(label: str = "user", **fields):
         from app.models.user import User
 
+        from datetime import datetime
+
         n = uuid.uuid4().hex[:8]
+        now = datetime.utcnow()
+        # Default: both identifiers VERIFIED (a normal, fully onboarded account). Pass ``email_verified_at=None`` /
+        # ``phone_verified_at=None`` to build legacy or unverified-claim rows.
         user = User(
             email=fields.pop("email", f"{label}.{n}@example.com"),
             phone=fields.pop("phone", f"+9199{int(n, 16) % 10**8:08d}"),
             full_name=fields.pop("full_name", f"{label.title()} {n}"),
             is_active=fields.pop("is_active", True),
+            email_verified_at=fields.pop("email_verified_at", now),
+            phone_verified_at=fields.pop("phone_verified_at", now),
             **fields,
         )
         async with session_factory() as s:
@@ -331,3 +381,85 @@ def make_warrior(session_factory) -> Callable:
         return profile
 
     return _make
+
+
+CONSENT_BODY = {"terms_version": "2026-11-14", "privacy_version": "2026-11-14"}
+
+
+async def delete_body(headers: dict, confirm: str = "DELETE") -> dict:
+    """Request body for ``DELETE /auth/me``: the literal confirmation plus a fresh re-authentication code for the caller
+    (issued straight into the test database; no delivery is involved)."""
+    import jwt
+
+    from app.database import AsyncSessionLocal
+    from app.models.user import User
+    from app.services import identity as idn
+
+    token = headers["Authorization"].split()[1]
+    uid = uuid.UUID(jwt.decode(token, options={"verify_signature": False})["sub"])
+    async with AsyncSessionLocal() as s:
+        user = await s.get(User, uid)
+        channel = idn.reauth_channel(user) if user is not None else None
+        if (
+            channel is None
+        ):  # an already-erased account: the request is meant to be refused anyway
+            return {"confirm": confirm, "code": "000000"}
+        kind, identifier = channel
+        code = await idn.issue_challenge(
+            s,
+            kind=kind,
+            identifier=identifier,
+            purpose=idn.DELETE_ACCOUNT,
+            user_id=user.id,
+        )
+        await s.commit()
+    return {"confirm": confirm, "code": code}
+
+
+def verified_guardian_fields(email=None, phone=None) -> dict:
+    """ElderlyConfig columns for a guardian who was authorised by the account holder and verified on each given channel."""
+    now = datetime.utcnow()
+    out = {"guardian_authorised_at": now, "guardian_notice_version": "2026-11-14"}
+    if email:
+        out.update(
+            guardian_email_verified_at=now, guardian_email_verified_value=email.lower()
+        )
+    if phone:
+        out.update(guardian_phone_verified_at=now, guardian_phone_verified_value=phone)
+    return out
+
+
+async def ready_guardian(client, headers: dict, **cfg) -> dict:
+    """Configure elderly protection the way the app does AND complete the guardian authorisation + verification
+    (the verification code exchange itself is tested in test_guardian_authorisation_api.py)."""
+    import jwt
+    from sqlalchemy import update
+
+    from app.database import AsyncSessionLocal
+    from app.models.elderly_config import ElderlyConfig
+
+    body = {"enabled": True, "alert_threshold": 30, **cfg}
+    has_contact = bool(body.get("guardian_email") or body.get("guardian_phone"))
+    if has_contact:
+        body.update(guardian_authorised=True, guardian_notice_version="2026-11-14")
+    r = await client.put("/api/v1/elderly/config", headers=headers, json=body)
+    assert r.status_code == 200, r.text
+    if has_contact:
+        uid = uuid.UUID(
+            jwt.decode(
+                headers["Authorization"].split()[1], options={"verify_signature": False}
+            )["sub"]
+        )
+        saved = r.json()
+        async with AsyncSessionLocal() as s:
+            await s.execute(
+                update(ElderlyConfig)
+                .where(ElderlyConfig.user_id == uid)
+                .values(
+                    **verified_guardian_fields(
+                        saved["guardian_email"], saved["guardian_phone"]
+                    )
+                )
+            )
+            await s.commit()
+    return r.json()

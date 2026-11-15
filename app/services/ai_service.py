@@ -3,6 +3,7 @@ from typing import AsyncIterator, List, Optional
 
 import anthropic
 from app.config import settings
+from app.services.ai_gate import AIDisabledError, ensure_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -10,6 +11,7 @@ AI_TIMEOUT_SECONDS = 30.0
 
 
 def get_client() -> anthropic.Anthropic:
+    ensure_enabled()  # containment: no client object (and so no provider call) while AI is switched off
     return anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
 
 
@@ -19,6 +21,7 @@ _async_client_singleton: Optional[anthropic.AsyncAnthropic] = None
 
 
 def get_async_client() -> anthropic.AsyncAnthropic:
+    ensure_enabled()
     global _async_client_singleton
     if _async_client_singleton is None:
         _async_client_singleton = anthropic.AsyncAnthropic(
@@ -33,6 +36,7 @@ async def _create_message(**kwargs):
     """Awaitable ``messages.create``. The previous code called the SYNCHRONOUS client inside
     ``async def`` handlers, blocking the whole event loop (every other request) for the full
     duration of each model call."""
+    ensure_enabled()  # the central provider boundary: EVERY external AI call passes through here
     return await get_async_client().messages.create(**kwargs)
 
 
@@ -155,6 +159,8 @@ def _diagnose_ai_error(e: Exception) -> str:
     Deliberately generic: operational details (quota exhausted, bad key, missing key, wrong
     model) are configuration facts for the OPERATOR and must not be shown to end users. They
     are logged server-side by exception type and HTTP status only (never the message text)."""
+    if isinstance(e, AIDisabledError):
+        return "external AI processing is currently disabled"
     msg = str(e).lower()
     if "rate" in msg and "limit" in msg:
         return "the AI service is busy, please try again in a minute"
@@ -198,6 +204,7 @@ async def chat_with_coach(
             reply in this language using its native script. Defaults to
             English when None / "en" / unknown.
     """
+    ensure_enabled()  # the coach has no local fallback: never answer with a canned reply that looks like AI
     try:
         system_prompt = SYSTEM_PROMPT + _language_instruction(language)
 
