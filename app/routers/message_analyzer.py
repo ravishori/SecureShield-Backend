@@ -1,5 +1,6 @@
 import base64
 import json
+import logging
 from datetime import datetime
 from fastapi import APIRouter, Depends, File, UploadFile, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,10 +11,17 @@ from app.database import get_db
 from app.models.user import User
 from app.models.alert import Alert, AlertType, AlertSeverity
 from app.routers.auth import get_current_user
+from app.services.ai_gate import ai_enabled, require_enabled
 from app.services.ai_limits import check_ai_rate
+from app.services.alert_redaction import (
+    redact_message_preview,
+    redact_note,
+    redact_sender,
+)
+from app.services.user_rate_limits import user_limit
 from app.services.threat_analyzer import (
-    analyze_message_content,
-    analyze_job_offer,
+    analyze_message_signals,
+    analyze_job_offer_signals,
     detect_cyberbullying,
 )
 from app.services.ai_service import (
@@ -21,7 +29,15 @@ from app.services.ai_service import (
     analyze_job_offer_ai,
     _create_message,
 )
-from app.services.sms_header_validator import validate_sender
+from app.schemas.scam_verdict import ScamVerdict
+from app.services.scam_verdict_adapters import (
+    from_job_offer,
+    from_message,
+    safe_verdict,
+)
+from app.services.sms_header_validator import validate_sender_safe
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/message", tags=["message-analyzer"])
 
@@ -77,6 +93,12 @@ class SenderValidation(BaseModel):
     tsp_name: Optional[str]
     lsa_code: Optional[str]
     lsa_name: Optional[str]
+    sender_suffix: Optional[str] = (
+        None  # TRAI category letter (S/T/P) stripped to find the registered header
+    )
+    lookup_status: Optional[str] = (
+        None  # ok | unavailable | not_applicable; 'unavailable' is NOT 'unregistered'
+    )
 
 
 class MessageAnalyzeResponse(BaseModel):
@@ -90,6 +112,9 @@ class MessageAnalyzeResponse(BaseModel):
     detected_patterns: List[str]
     sender_validation: Optional[SenderValidation] = None
     analyzed_at: str
+    verdict: Optional[ScamVerdict] = (
+        None  # additive (X-1); built from the pattern analysis, never from an AI result
+    )
 
 
 class JobOfferResponse(BaseModel):
@@ -100,6 +125,9 @@ class JobOfferResponse(BaseModel):
     explanation: str
     action: str
     analyzed_at: str
+    verdict: Optional[ScamVerdict] = (
+        None  # additive (X-1); built from the pattern analysis, never from an AI result
+    )
 
 
 class ScreenshotExtractResponse(BaseModel):
@@ -211,7 +239,12 @@ async def _extract_sms_from_image(
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 
-@router.post("/analyze", response_model=MessageAnalyzeResponse)
+@router.post(
+    "/analyze",
+    response_model=MessageAnalyzeResponse,
+    # BH-1: 20/min and 200/hour per user
+    dependencies=[Depends(user_limit("message_analyze"))],
+)
 async def analyze_message(
     request: MessageAnalyzeRequest,
     current_user: User = Depends(get_current_user),
@@ -219,8 +252,8 @@ async def analyze_message(
 ):
     """Analyze an SMS or text message for scam/phishing content."""
     # Pattern-based analysis (fast)
-    risk_score, threat_category, detected_patterns = analyze_message_content(
-        request.message_text
+    risk_score, threat_category, detected_patterns, msg_signals = (
+        analyze_message_signals(request.message_text)
     )
 
     ai_result: Dict[str, Any] = {
@@ -232,7 +265,8 @@ async def analyze_message(
         "red_flags": detected_patterns,
     }
 
-    if request.use_ai:
+    # While external AI is switched off the deterministic pattern analysis above IS the answer (not a canned "AI unavailable").
+    if request.use_ai and ai_enabled():
         check_ai_rate(current_user)
         ai_result = await analyze_message_safety(request.message_text)
 
@@ -242,8 +276,12 @@ async def analyze_message(
 
     # Validate sender if provided
     sender_validation_data: Optional[SenderValidation] = None
+    sender_verdict: Optional[str] = None
+    registry_down = False
     if request.sender:
-        sv = await validate_sender(request.sender, db)
+        sv = await validate_sender_safe(request.sender, db)
+        registry_down = sv.get("lookup_status") == "unavailable"
+        sender_verdict = str(sv.get("verdict") or "UNKNOWN")
         sender_validation_data = SenderValidation(**sv)
         # Unregistered sender boosts risk
         if sv.get("verdict") == "UNREGISTERED":
@@ -259,26 +297,44 @@ async def analyze_message(
 
     # Create alert if risky
     if combined_risk >= 50:
+        # Redacted HERE, before persistence (1.6D-2): the stored sender and preview never hold OTPs, numbers or link values.
+        stored_sender = redact_sender(request.sender)
         alert = Alert(
             user_id=current_user.id,
             alert_type=AlertType.suspicious_message,
             title="Suspicious Message Detected",
             message=(
-                f"A message from {request.sender or 'unknown sender'} was flagged as potentially dangerous. "
+                f"A message from {stored_sender or 'unknown sender'} was flagged as potentially dangerous. "
                 f"Risk: {ai_result.get('scam_type', 'unknown')}"
             ),
             severity=AlertSeverity.critical
             if combined_risk >= 75
             else AlertSeverity.warning,
             extra_data={
-                "sender": request.sender,
+                "sender": stored_sender,
                 "risk_score": combined_risk,
                 "scam_type": ai_result.get("scam_type"),
-                "message_preview": request.message_text[:100],
+                "message_preview": redact_message_preview(request.message_text),
             },
         )
-        db.add(alert)
-        await db.commit()
+        if registry_down:
+            # The database just failed a registry lookup. Keep the analysis we already have even if the alert cannot be saved
+            # now; the failure is logged (class only) and is NOT hidden when the registry was healthy.
+            try:
+                db.add(alert)
+                await db.commit()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "alert not saved while the sender registry is unavailable (%s)",
+                    type(exc).__name__,
+                )
+                try:
+                    await db.rollback()
+                except Exception:  # noqa: BLE001
+                    pass
+        else:
+            db.add(alert)
+            await db.commit()
 
     all_red_flags = list(set((ai_result.get("red_flags") or []) + detected_patterns))
 
@@ -293,6 +349,13 @@ async def analyze_message(
         detected_patterns=detected_patterns,
         sender_validation=sender_validation_data,
         analyzed_at=datetime.utcnow().isoformat(),
+        # built from the pattern analysis only (never from an AI result) and the sender registry
+        verdict=safe_verdict(
+            from_message,
+            pattern_score=risk_score,
+            signals=msg_signals,
+            sender_verdict=sender_verdict,
+        ),
     )
 
 
@@ -327,6 +390,7 @@ async def extract_from_screenshot(
             status_code=400,
             detail="The file is not a valid image of the declared type.",
         )
+    require_enabled()  # screenshot reading needs the vision provider; there is no local equivalent on the server
     check_ai_rate(current_user)
 
     result = await _extract_sms_from_image(image_bytes, content_type)
@@ -343,7 +407,7 @@ async def validate_sender_id(
     sender = body.sender.strip()
     if not sender:
         raise HTTPException(status_code=400, detail="sender field is required")
-    result = await validate_sender(sender, db)
+    result = await validate_sender_safe(sender, db)
     return result
 
 
@@ -354,7 +418,9 @@ async def check_job_offer(
     db: AsyncSession = Depends(get_db),
 ):
     """Analyze a job offer to determine if it is fraudulent."""
-    risk_score, is_fake_pattern, red_flags = analyze_job_offer(request.job_text)
+    risk_score, is_fake_pattern, red_flags, job_signals = analyze_job_offer_signals(
+        request.job_text
+    )
 
     ai_result: Dict[str, Any] = {
         "is_fake": is_fake_pattern,
@@ -364,7 +430,7 @@ async def check_job_offer(
         "action": "Verify the company through official channels before applying.",
     }
 
-    if request.use_ai:
+    if request.use_ai and ai_enabled():
         check_ai_rate(current_user)
         ai_result = await analyze_job_offer_ai(request.job_text)
 
@@ -396,6 +462,12 @@ async def check_job_offer(
         explanation=ai_result.get("explanation", ""),
         action=ai_result.get("action", ""),
         analyzed_at=datetime.utcnow().isoformat(),
+        verdict=safe_verdict(
+            from_job_offer,
+            pattern_score=risk_score,
+            is_fake=is_fake_pattern,
+            signals=job_signals,
+        ),
     )
 
 
@@ -417,13 +489,13 @@ async def check_bullying(
             title="Cyberbullying Detected",
             message=(
                 f"A message flagged as potentially harmful content. "
-                f"Confidence: {confidence_score:.0f}%. {request.reporter_note or ''}"
+                f"Confidence: {confidence_score:.0f}%. {redact_note(request.reporter_note)}"
             ),
             severity=AlertSeverity.warning,
             extra_data={
                 "confidence_score": confidence_score,
                 "indicators": indicators,
-                "message_preview": request.message_text[:100],
+                "message_preview": redact_message_preview(request.message_text),
             },
         )
         db.add(alert)

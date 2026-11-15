@@ -66,6 +66,6 @@ About **~60-75 developer-days** (was 70-95) for phases 1-3 of [`development-road
 * Android behaviour on a real device in this session (no device attached; an AVD exists but was not started): FLAG_SECURE effect, share sheet, release APK install.
 * A successful signed release build (needs the owner's keystore, which this repository never generates).
 * Any real third-party delivery or API call: Twilio rejects the credentials; no message of any kind was sent.
-* The Docker image build and a Railway deployment of the upgraded dependencies.
+* A Railway (Railpack) build and deployment of the upgraded dependencies on staging (Docker is not an approved deployment path).
 * GitHub CI at the current SHA; Dart vulnerability coverage beyond OSV's pub data; Gradle/AndroidX native dependency advisories.
 * Git-history contents (gitleaks not installed); DPDP legal compliance.

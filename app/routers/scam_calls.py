@@ -9,6 +9,7 @@ from app.models.scam_call import ScamCall
 from app.models.alert import Alert, AlertType, AlertSeverity
 from app.schemas.scam_call import ScamCallReportRequest, ScamCallResponse
 from app.routers.auth import get_current_user
+from app.services.alert_redaction import redact_note, redact_sender
 from app.services.threat_analyzer import analyze_scam_call
 
 router = APIRouter(prefix="/scam-calls", tags=["scam-calls"])
@@ -73,16 +74,20 @@ async def report_scam_call(
     db.add(scam_call)
 
     if risk_score >= 50:
+        # Redacted before persistence (1.6D-3): the alert keeps the kind of caller and the reason, not the number or any
+        # identifier the user typed into the reason. The ScamCall row above is the user's own blocklist record.
+        caller_label = redact_sender(request.caller_number) or "unknown number"
+        reason_text = redact_note(detection_reason)
         alert = Alert(
             user_id=current_user.id,
             alert_type=AlertType.scam_call,
-            title=f"Potential Scam Call: {request.caller_number}",
-            message=f"A call from {request.caller_number} was flagged. Risk score: {risk_score:.0f}/100. {detection_reason}",
+            title=f"Potential Scam Call: {caller_label}",
+            message=f"A call from {caller_label} was flagged. Risk score: {risk_score:.0f}/100. {reason_text}",
             severity=AlertSeverity.critical
             if risk_score >= 70
             else AlertSeverity.warning,
             extra_data={
-                "caller_number": request.caller_number,
+                "caller_number": caller_label,
                 "risk_score": risk_score,
             },
         )

@@ -12,6 +12,8 @@ from app.models.user import User
 from app.models.community_scam import CommunityScamReport, ScamType
 from app.models.alert import Alert, AlertType, AlertSeverity
 from app.routers.auth import get_current_user
+from app.services.alert_redaction import redact_sender
+from app.services.url_privacy import redact_url_for_storage
 
 router = APIRouter(prefix="/community-scams", tags=["community-scams"])
 
@@ -55,7 +57,7 @@ async def report_scam(
         title=request.title,
         description=request.description,
         phone_number=request.phone_number,
-        url=request.url,
+        url=redact_url_for_storage(request.url) if request.url else None,
         city=request.city,
         pincode=request.pincode,
     )
@@ -77,10 +79,11 @@ async def report_scam(
                 user_id=current_user.id,
                 alert_type=AlertType.community_scam,
                 title="Community Scam Alert Verified",
-                message=f"Phone {request.phone_number} has been reported as a scam {report_count + 1} times in your community.",
+                message=f"Phone {redact_sender(request.phone_number)} has been reported as a scam {report_count + 1} times in your community.",
                 severity=AlertSeverity.critical,
                 extra_data={
-                    "phone": request.phone_number,
+                    # masked before persistence (1.6D-3); the full number lives only in the community report row itself
+                    "phone": redact_sender(request.phone_number),
                     "report_count": report_count + 1,
                 },
             )

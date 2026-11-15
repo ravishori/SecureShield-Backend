@@ -29,7 +29,7 @@ Architecture note 2026-11-13: deployment is Docker-free (Railway native Python);
 
 | Control | Weight | Credit | Note |
 |---|---|---|---|
-| Image, start command, `/health` `/ready` `/version` | 2 | 1.0 | `Dockerfile`, `.railway/railway.ts` |
+| Build, start command, `/health` `/ready` `/version` | 2 | 1.0 | `.railway/railway.ts` (Railpack; the `Dockerfile` is an unused artefact) |
 | Migrations as a controlled pre-deploy step | 2 | 0.9 | `alembic upgrade head` pre-deploy; single head verified |
 | Production database provisioned and migrated | 3 | 0.5 | Neon done/validated; no cutover; Railway production not created |
 | Git-based deployment connected | 2 | 0 | CLI uploads only |
@@ -61,4 +61,4 @@ rehearsed and validated database migration, a guarded migration toolkit, clean s
 Retention periods (FG-034); whether to keep SMS/call-log features given Play policy; per-person admin identities vs shared token; Neon vs Railway as the
 production database; whether the Cyber Warriors programme and the client-only detectors ship in v1.
 7. Create the first superadmin with `python -m app.cli.admin_accounts create`, enrol MFA, then set `ADMIN_LEGACY_TOKEN_ENABLED=false` (owner/ops).
-8. Rebuild the local virtual environment from the new `requirements.txt`, and verify the Docker build and a Railway deploy of the upgraded stack (ops).
+8. Rebuild the local virtual environment from the new `requirements.txt`, and verify the Railway (Railpack) build and deploy of the upgraded stack on staging (ops). Docker is not an approved deployment path.

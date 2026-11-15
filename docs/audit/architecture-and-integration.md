@@ -22,7 +22,7 @@ Android app (Flutter 3 / Dart, Riverpod, GoRouter, Dio)  ──HTTPS──►  F
 | Config | `pydantic-settings` (`app/config.py`; admin-account settings in `app/admin_settings.py`: `ADMIN_LEGACY_TOKEN_ENABLED`, token/session lifetimes, lockout); `.env` values win over process environment; production startup refuses placeholder `SECRET_KEY`/`ADMIN_TOKEN`, empty CORS, missing `TRUSTED_PROXIES` when `TRUST_PROXY_TLS=true` |
 | Database access | `app/database.py` builds the async engine (`hide_parameters=True`); runtime URL and migrator URL are separate settings; Neon pooled/direct handling is in the **uncommitted** connection fix (see below) |
 | Storage | uploads on local disk (`UPLOAD_DIR`), served only through owner-checked routes; optional AES-GCM at rest (`FILE_ENCRYPTION_KEY(S)`) |
-| Deployment (declared) | `Dockerfile` (python:3.11-slim, uvicorn with `--proxy-headers --forwarded-allow-ips`), `.railway/railway.ts` (1 replica, healthcheck `/health`, pre-deploy `alembic upgrade head`, volume `/app/uploads`) |
+| Deployment (declared) | **Railway Railpack** (approved build path; Docker is not an approved deployment builder, owner decision 2026-11-13; a `Dockerfile` remains in the repository as an unused artefact), `.railway/railway.ts` (`RAILPACK` builder, 1 replica, healthcheck `/health`, pre-deploy `alembic upgrade head`, volume `/app/uploads`) |
 | Client | 160 Dart files, 48 screens, 37 feature folders; central `DioClient` (JWT attach, single-flight refresh, connection re-detection); `AppConfig` resolves the base URL (`--dart-define=API_BASE_URL` pins it) |
 
 ## Verified end-to-end traces (UI -> state -> API -> router -> service -> model -> provider)

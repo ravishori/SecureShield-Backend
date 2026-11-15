@@ -9,6 +9,7 @@ from app.models.wifi_scan import WifiScan
 from app.models.alert import Alert, AlertType, AlertSeverity
 from app.schemas.wifi_scan import WifiScanRequest, WifiScanResponse
 from app.routers.auth import get_current_user
+from app.services.alert_redaction import redact_note
 from app.services.threat_analyzer import analyze_wifi
 
 router = APIRouter(prefix="/wifi", tags=["wifi"])
@@ -48,10 +49,13 @@ async def scan_wifi(
             user_id=current_user.id,
             device_id=None,  # device_id optional on alerts too
             alert_type=AlertType.wifi_unsafe,
-            title=f"Unsafe Wi-Fi: {request.ssid or 'Unknown'}",
-            message=f"The Wi-Fi network '{request.ssid}' may be unsafe. Reasons: {', '.join(risk_reasons)}",
+            title=f"Unsafe Wi-Fi: {redact_note(request.ssid) or 'Unknown'}",
+            message=f"The Wi-Fi network '{redact_note(request.ssid)}' may be unsafe. Reasons: {', '.join(risk_reasons)}",
             severity=AlertSeverity.warning,
-            extra_data={"ssid": request.ssid, "risk_level": risk_level},
+            extra_data={
+                "ssid": redact_note(request.ssid) or None,
+                "risk_level": risk_level,
+            },
         )
         db.add(alert)
 

@@ -1,0 +1,501 @@
+{
+ "urls": [
+  {
+   "in": "http://fakebank.com/login",
+   "out": [
+    false,
+    true,
+    90.0,
+    "known_scam_domain"
+   ]
+  },
+  {
+   "in": "https://prizewinner.tk",
+   "out": [
+    false,
+    true,
+    90.0,
+    "known_scam_domain"
+   ]
+  },
+  {
+   "in": "http://paypa1.example/login",
+   "out": [
+    true,
+    true,
+    90.0,
+    "phishing"
+   ]
+  },
+  {
+   "in": "https://g00gle.example.org/x",
+   "out": [
+    true,
+    true,
+    70.0,
+    "phishing"
+   ]
+  },
+  {
+   "in": "http://example.com",
+   "out": [
+    false,
+    false,
+    15.0,
+    "insecure_http"
+   ]
+  },
+  {
+   "in": "https://example.com",
+   "out": [
+    false,
+    false,
+    0.0,
+    null
+   ]
+  },
+  {
+   "in": "https://example.com/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "out": [
+    false,
+    false,
+    10.0,
+    "suspicious_url"
+   ]
+  },
+  {
+   "in": "http://192.168.4.4/login/verify",
+   "out": [
+    true,
+    false,
+    55.0,
+    "ip_based_url"
+   ]
+  },
+  {
+   "in": "https://10.0.0.1:8080/",
+   "out": [
+    false,
+    false,
+    30.0,
+    "ip_based_url"
+   ]
+  },
+  {
+   "in": "https://a.b.c.d.e.example.com/verify",
+   "out": [
+    false,
+    false,
+    20.0,
+    "suspicious_url"
+   ]
+  },
+  {
+   "in": "https://secure-login-bank-update.example.net/kyc/otp/reward/prize/winner",
+   "out": [
+    true,
+    false,
+    45.0,
+    "suspicious_url"
+   ]
+  },
+  {
+   "in": "http://bank-verify-otp.example/winner",
+   "out": [
+    false,
+    false,
+    35.0,
+    "insecure_http"
+   ]
+  },
+  {
+   "in": "https://www.google.com",
+   "out": [
+    false,
+    false,
+    0.0,
+    null
+   ]
+  },
+  {
+   "in": "ftp://example.com/file",
+   "out": [
+    false,
+    false,
+    0.0,
+    null
+   ]
+  },
+  {
+   "in": "x.y",
+   "out": [
+    false,
+    false,
+    0.0,
+    null
+   ]
+  },
+  {
+   "in": "HTTP://EXAMPLE.COM/LOGIN",
+   "out": [
+    false,
+    false,
+    20.0,
+    "insecure_http"
+   ]
+  },
+  {
+   "in": "https://kycupdate.xyz/a",
+   "out": [
+    false,
+    true,
+    90.0,
+    "known_scam_domain"
+   ]
+  },
+  {
+   "in": "http://sbicard-verify.com",
+   "out": [
+    false,
+    true,
+    90.0,
+    "known_scam_domain"
+   ]
+  },
+  {
+   "in": "https://example.com/verify?otp=1&update=2",
+   "out": [
+    false,
+    false,
+    15.0,
+    "suspicious_url"
+   ]
+  },
+  {
+   "in": "http://1.2.3.4",
+   "out": [
+    true,
+    false,
+    45.0,
+    "ip_based_url"
+   ]
+  },
+  {
+   "in": "https://shop.example.co.in/offers",
+   "out": [
+    false,
+    false,
+    0.0,
+    null
+   ]
+  },
+  {
+   "in": "http://login.secure.verify.update.example.com/bank",
+   "out": [
+    true,
+    false,
+    55.0,
+    "insecure_http"
+   ]
+  }
+ ],
+ "messages": [
+  {
+   "in": "See you at lunch",
+   "out": [
+    0.0,
+    "safe",
+    []
+   ]
+  },
+  {
+   "in": "",
+   "out": [
+    0.0,
+    "safe",
+    []
+   ]
+  },
+  {
+   "in": "x",
+   "out": [
+    0.0,
+    "safe",
+    []
+   ]
+  },
+  {
+   "in": "Congratulations you have won the prize click here",
+   "out": [
+    40.0,
+    "suspicious_message",
+    [
+     "congratulations.*won.*prize",
+     "financial_bait"
+    ]
+   ]
+  },
+  {
+   "in": "URGENT: your SBI KYC has expired. Click http://bit.ly/abc123 now and share your OTP or account will be blocked",
+   "out": [
+    50.0,
+    "suspicious_message",
+    [
+     "malicious_link_in_message",
+     "high_urgency_language"
+    ]
+   ]
+  },
+  {
+   "in": "Your account blocked click the link",
+   "out": [
+    25.0,
+    "potentially_suspicious",
+    [
+     "your.*account.*blocked.*click"
+    ]
+   ]
+  },
+  {
+   "in": "urgent kyc update link",
+   "out": [
+    25.0,
+    "potentially_suspicious",
+    [
+     "urgent.*kyc.*update.*link"
+    ]
+   ]
+  },
+  {
+   "in": "OTP share immediately",
+   "out": [
+    25.0,
+    "potentially_suspicious",
+    [
+     "otp.*share.*immediately"
+    ]
+   ]
+  },
+  {
+   "in": "bank suspended verify now",
+   "out": [
+    35.0,
+    "potentially_suspicious",
+    [
+     "bank.*suspended.*verify.*now",
+     "high_urgency_language"
+    ]
+   ]
+  },
+  {
+   "in": "free recharge click this link",
+   "out": [
+    25.0,
+    "potentially_suspicious",
+    [
+     "free.*recharge.*click.*link"
+    ]
+   ]
+  },
+  {
+   "in": "emi due pay now link",
+   "out": [
+    25.0,
+    "potentially_suspicious",
+    [
+     "emi.*due.*pay.*now.*link"
+    ]
+   ]
+  },
+  {
+   "in": "income tax notice call this number",
+   "out": [
+    25.0,
+    "potentially_suspicious",
+    [
+     "income.*tax.*notice.*call"
+    ]
+   ]
+  },
+  {
+   "in": "Work from home earn 5000 daily payment guaranteed income",
+   "out": [
+    60.0,
+    "suspicious_message",
+    [
+     "fake_job_offer",
+     "fake_job_offer",
+     "fake_job_offer"
+    ]
+   ]
+  },
+  {
+   "in": "You won a lottery prize reward cashback refund",
+   "out": [
+    15.0,
+    "safe",
+    [
+     "financial_bait"
+    ]
+   ]
+  },
+  {
+   "in": "Urgent: action required immediately, expires now",
+   "out": [
+    25.0,
+    "potentially_suspicious",
+    [
+     "high_urgency_language"
+    ]
+   ]
+  },
+  {
+   "in": "Visit https://example.com/info for details",
+   "out": [
+    0.0,
+    "safe",
+    []
+   ]
+  },
+  {
+   "in": "Click http://fakebank.com/login to verify",
+   "out": [
+    30.0,
+    "potentially_suspicious",
+    [
+     "malicious_link_in_message"
+    ]
+   ]
+  },
+  {
+   "in": "Lucky draw winner! urgent, immediately claim the reward",
+   "out": [
+    25.0,
+    "potentially_suspicious",
+    [
+     "high_urgency_language",
+     "financial_bait"
+    ]
+   ]
+  },
+  {
+   "in": "Hello, lunch tomorrow?",
+   "out": [
+    0.0,
+    "safe",
+    []
+   ]
+  },
+  {
+   "in": "Your parcel is delayed. Pay 50 rs now: http://192.168.1.5/pay",
+   "out": [
+    30.0,
+    "potentially_suspicious",
+    [
+     "malicious_link_in_message"
+    ]
+   ]
+  }
+ ],
+ "jobs": [
+  {
+   "in": "",
+   "out": [
+    10.0,
+    false,
+    [
+     "No company name mentioned"
+    ]
+   ]
+  },
+  {
+   "in": "Software engineer at Acme Pvt Ltd, apply via company portal. Salary range disclosed.",
+   "out": [
+    0.0,
+    false,
+    []
+   ]
+  },
+  {
+   "in": "Work from home earn 50000 per month. Pay registration fee 500 and send details on whatsapp. Apply today only",
+   "out": [
+    95.0,
+    true,
+    [
+     "Suspicious phrase: 'work from home earn'",
+     "Legitimate jobs never ask for payment upfront",
+     "Legitimate companies use official email, not WhatsApp/Telegram for hiring",
+     "No company name mentioned",
+     "Artificial urgency — common fake job tactic"
+    ]
+   ]
+  },
+  {
+   "in": "Urgent hiring! guaranteed income, daily payment, no experience required earn money",
+   "out": [
+    75.0,
+    true,
+    [
+     "Suspicious phrase: 'guaranteed income'",
+     "Suspicious phrase: 'no experience required earn'",
+     "Suspicious phrase: 'daily payment'",
+     "Artificial urgency — common fake job tactic"
+    ]
+   ]
+  },
+  {
+   "in": "Join our company as an analyst. Limited seats available",
+   "out": [
+    15.0,
+    false,
+    [
+     "Artificial urgency — common fake job tactic"
+    ]
+   ]
+  },
+  {
+   "in": "Training fee required. Telegram us to apply. Earn 1000 rs daily",
+   "out": [
+    100.0,
+    true,
+    [
+     "Suspicious phrase: 'training fee required'",
+     "Legitimate jobs never ask for payment upfront",
+     "Unrealistic income claim detected",
+     "Legitimate companies use official email, not WhatsApp/Telegram for hiring",
+     "No company name mentioned"
+    ]
+   ]
+  },
+  {
+   "in": "Teacher needed at a limited organization, apply at our website",
+   "out": [
+    0.0,
+    false,
+    []
+   ]
+  },
+  {
+   "in": "weekly salary guaranteed deposit advance payment",
+   "out": [
+    65.0,
+    true,
+    [
+     "Suspicious phrase: 'weekly salary guaranteed'",
+     "Legitimate jobs never ask for payment upfront",
+     "No company name mentioned"
+    ]
+   ]
+  },
+  {
+   "in": "Immediate joining company inc llp",
+   "out": [
+    15.0,
+    false,
+    [
+     "Artificial urgency — common fake job tactic"
+    ]
+   ]
+  }
+ ]
+}
