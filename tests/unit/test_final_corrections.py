@@ -382,3 +382,26 @@ class TestIntegrationHarnessIdentity:
         for host in ("localhost", "127.0.0.1", "[::1]"):
             guard(f"postgresql+asyncpg://u:p@{host}:5432/secureshield_cw_test")
         guard("postgresql+asyncpg://u:p@localhost/secureshield_cw_test?ssl=disable")
+
+
+class _LeakedPolicy(asyncio.DefaultEventLoopPolicy):
+    """Stands in for uvloop's policy, which a real uvicorn server installs process-wide on Linux."""
+
+
+class TestUnitLoopPolicy:
+    """Two sequential tests: the first leaks a loop policy (as an earlier uvicorn test does), the second proves that the guard
+    fixture isolated it. The guard patches ``asyncio.BaseEventLoop``, which uvloop's compiled loop would bypass."""
+
+    def test_1_a_test_that_leaks_a_loop_policy(self, _no_database_connections):
+        assert type(asyncio.new_event_loop()).__module__.split(".")[0] == "asyncio"
+        asyncio.set_event_loop_policy(_LeakedPolicy())  # deliberately not restored here
+
+    def test_2_the_next_test_runs_on_the_standard_policy_again(
+        self, _no_database_connections
+    ):
+        assert type(asyncio.get_event_loop_policy()) is not _LeakedPolicy
+        loop = asyncio.new_event_loop()
+        try:
+            assert type(loop).__module__.split(".")[0] == "asyncio"
+        finally:
+            loop.close()

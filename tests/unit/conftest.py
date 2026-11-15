@@ -61,6 +61,12 @@ def _no_database_connections(monkeypatch):
     import asyncpg
     import asyncpg.connection
 
+    # Run every unit test on the standard asyncio loop. An earlier test can leave a different loop policy installed process-wide
+    # (a real uvicorn server on Linux installs uvloop's), and the loop-level patches below cannot patch uvloop's compiled loop:
+    # the guard would then silently not apply. Whatever was installed is put back afterwards.
+    previous_policy = asyncio.get_event_loop_policy()
+    asyncio.set_event_loop_policy(asyncio.DefaultEventLoopPolicy())
+
     monkeypatch.setattr("app.db_identity.verify_connected_database", refuse)
     monkeypatch.setattr(asyncpg, "connect", refuse_connect)
     monkeypatch.setattr(asyncpg.connection, "connect", refuse_connect)
@@ -106,7 +112,10 @@ def _no_database_connections(monkeypatch):
     monkeypatch.setattr(asyncio.BaseEventLoop, "create_connection", create_connection)
     monkeypatch.setattr(asyncio.BaseEventLoop, "sock_connect", sock_connect)
 
-    yield attempts
+    try:
+        yield attempts
+    finally:
+        asyncio.set_event_loop_policy(previous_policy)
     assert not attempts, f"database connection attempts during a unit test: {attempts}"
 
 

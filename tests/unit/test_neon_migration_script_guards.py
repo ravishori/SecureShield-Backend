@@ -7,16 +7,30 @@ and fake environments. No connection can be opened (see tests/unit/conftest.py).
 import ast
 import asyncio
 import importlib.util
+import os
 import sys
 from pathlib import Path
 
 import pytest
 
-pytestmark = [pytest.mark.unit, pytest.mark.security]
-
 SCRIPTS_DIR = (
     Path(__file__).resolve().parents[3] / "docs" / "neon-migration" / "scripts"
 )
+# The scripts live in the PROJECT-level docs folder, which is a different repository from this one, so a clean checkout of the
+# backend (CI) cannot contain them. The guards are still verified wherever the folder exists. Set REQUIRE_NEON_SCRIPT_TESTS=1
+# (for a full local run) to make a missing folder a hard failure instead of a skip, so the coverage cannot silently disappear.
+SCRIPTS_AVAILABLE = SCRIPTS_DIR.is_dir()
+SCRIPTS_REQUIRED = os.environ.get("REQUIRE_NEON_SCRIPT_TESTS") == "1"
+
+pytestmark = [
+    pytest.mark.unit,
+    pytest.mark.security,
+    pytest.mark.skipif(
+        not SCRIPTS_AVAILABLE and not SCRIPTS_REQUIRED,
+        reason="docs/neon-migration/scripts is outside this repository (project-level docs); "
+        "set REQUIRE_NEON_SCRIPT_TESTS=1 to fail instead of skip",
+    ),
+]
 ALL = sorted(p.name for p in SCRIPTS_DIR.glob("*.py"))
 NO_CONNECTION = {
     "classify.py",

@@ -542,10 +542,13 @@ def test_missing_database_configuration_fails_safely_in_a_fresh_process(drop, ex
     assert "SENTINEL" not in out.stderr
 
 
-def test_a_missing_test_url_skips_integration_tests_and_never_falls_back():
+def test_a_missing_test_url_skips_integration_tests_and_never_falls_back(monkeypatch):
     from tests.integration import conftest as harness
 
-    assert harness._test_url() is None  # the unit run has no TEST_DATABASE_URL
+    # Hermetic: CI (and a developer running the whole suite) legitimately has TEST_DATABASE_URL set; this test is about the
+    # case where it is not, so it removes it for its own duration only.
+    monkeypatch.delenv("TEST_DATABASE_URL", raising=False)
+    assert harness._test_url() is None
     markers = []
 
     class Item:

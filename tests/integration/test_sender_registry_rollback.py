@@ -4,8 +4,10 @@ Deliberately does NOT use the integration harness fixtures (``migrated_database`
 upgrade head`` and TRUNCATEs every table. This module:
 
 * needs ``TEST_DATABASE_URL`` in the process environment (otherwise the tests are skipped by tests/integration/conftest.py);
-* refuses unless the URL is loopback, port 5432 and the database is exactly ``secureshield_test``, and then confirms it again with
-  ``SELECT current_database()`` before touching anything;
+* runs ONLY against an explicitly authorised, dedicated database: loopback host, an authorised port and an authorised database name
+  (default: ``secureshield_test`` on 5432; another disposable ``*_test`` database such as a CI service container must be authorised
+  on purpose with ROLLBACK_TEST_ALLOWED_DATABASES / ROLLBACK_TEST_ALLOWED_PORTS). Anything else is SKIPPED before any connection is
+  opened, and the module then confirms the identity again with ``SELECT current_database()`` before touching anything;
 * never migrates, truncates, deletes or drops: every write happens inside ONE outer transaction that is rolled back at the end,
   and the per-table row counts and Alembic revision are compared before and after;
 * never prints the URL or any credential.
@@ -32,7 +34,19 @@ from app.services import sms_header_validator as v
 
 pytestmark = pytest.mark.integration
 
-EXPECTED_DB = "secureshield_test"
+# Explicit authorisation. The defaults name the dedicated local test database only; a name must also end in "_test".
+ALLOWED_DATABASES = {
+    name.strip()
+    for name in os.environ.get(
+        "ROLLBACK_TEST_ALLOWED_DATABASES", "secureshield_test"
+    ).split(",")
+    if name.strip().endswith("_test")
+}
+ALLOWED_PORTS = {
+    int(port)
+    for port in os.environ.get("ROLLBACK_TEST_ALLOWED_PORTS", "5432").split(",")
+    if port.strip().isdigit()
+}
 LOOPBACK = {"localhost", "127.0.0.1", "::1"}
 FIXTURE_ROWS = [
     ("RBTST1", "ROLLBACK FIXTURE BANK ONE"),
@@ -52,12 +66,17 @@ def _target_url() -> str:
     try:
         ep = parse_endpoint(url)
     except DatabaseIdentityError as exc:
-        pytest.fail(f"refusing: TEST_DATABASE_URL failed the identity check: {exc}")
-    assert ep.host in LOOPBACK, "refusing: the test database host is not loopback"
-    assert (ep.port or 5432) == 5432, "refusing: the test database port is not 5432"
-    assert ep.database == EXPECTED_DB, (
-        f"refusing: database name must be exactly {EXPECTED_DB}"
-    )
+        pytest.skip(f"not run: TEST_DATABASE_URL failed the identity check ({exc})")
+    if ep.host not in LOOPBACK:
+        pytest.skip("not run: the test database host is not loopback")
+    if (ep.port or 5432) not in ALLOWED_PORTS:
+        pytest.skip(
+            f"not run: port {ep.port or 5432} is not authorised for this module"
+        )
+    if ep.database not in ALLOWED_DATABASES:
+        pytest.skip(
+            f"not run: database {ep.database!r} is not authorised for this module (authorised: {sorted(ALLOWED_DATABASES)})"
+        )
     return url
 
 
@@ -84,12 +103,13 @@ async def ctx():
     engine = create_async_engine(url, poolclass=NullPool)
     async with engine.connect() as conn:
         # --- identity, read-only, before anything else ---
+        # A mismatch here would mean the URL did not lead where it said: fail loudly (read-only queries so far).
         assert (
             await conn.execute(text("select current_database()"))
-        ).scalar_one() == EXPECTED_DB
+        ).scalar_one() in ALLOWED_DATABASES
         assert (
             await conn.execute(text("select inet_server_port()"))
-        ).scalar_one() == 5432
+        ).scalar_one() in ALLOWED_PORTS
         revision = (
             await conn.execute(text("select version_num from alembic_version"))
         ).scalar_one()
@@ -162,10 +182,10 @@ async def alert_count(ctx) -> int:
 async def test_target_identity_is_the_isolated_test_database(ctx):
     assert (
         await ctx.conn.execute(text("select current_database()"))
-    ).scalar_one() == EXPECTED_DB
+    ).scalar_one() in ALLOWED_DATABASES
     assert (
         await ctx.conn.execute(text("select inet_server_port()"))
-    ).scalar_one() == 5432
+    ).scalar_one() in ALLOWED_PORTS
     assert ctx.revision  # read-only revision was readable
     assert (
         await ctx.conn.execute(

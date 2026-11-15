@@ -13,13 +13,14 @@ import smtplib
 from types import SimpleNamespace
 
 import pytest
-from tests.integration.conftest import ready_guardian
+from tests.integration.conftest import drain_guardian_outbox, ready_guardian
 
 import app.routers.alerts as alerts_router
 import app.services.notifications as n
 from app.services.log_scrubber import mask_email_for_log, mask_phone_for_log
 
-pytestmark = pytest.mark.integration
+# quiet_worker: the endpoint only enqueues; delivery (and its log lines) come from drain_guardian_outbox().
+pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("quiet_worker")]
 
 API = "/api/v1"
 E = f"{API}/elderly"
@@ -240,6 +241,9 @@ async def test_guardian_alert_failure_end_to_end_logs_no_pii_but_keeps_diagnosti
     await ready_guardian(client, h, **CFG)
     r = await client.post(f"{E}/guardian-alert", headers=h, json=ALERT)
     assert r.status_code == 202
+    await (
+        drain_guardian_outbox()
+    )  # the worker delivers (against faked providers) and logs the outcome
     text = blob(logs, capsys)
     token = h["Authorization"].split()[-1]
     assert_clean(text, token)
@@ -271,6 +275,7 @@ async def test_guardian_alert_success_logs_outcome_without_pii(
     assert (
         await client.post(f"{E}/guardian-alert", headers=h, json=ALERT)
     ).status_code == 202
+    await drain_guardian_outbox()
     text = blob(logs, capsys)
     assert_clean(text)
     assert f"user={u.id}" in text and "sms=ok" in text and "email=ok" in text
@@ -292,6 +297,7 @@ async def test_a_channel_that_raises_is_logged_by_class_only(
     assert (
         await client.post(f"{E}/guardian-alert", headers=h, json=ALERT)
     ).status_code == 202
+    await drain_guardian_outbox()
     text = blob(logs, capsys)
     assert_clean(text, "SECRET-BODY", "gateway rejected")
     assert "RuntimeError" in text and f"user={u.id}" in text

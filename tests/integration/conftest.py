@@ -463,3 +463,42 @@ async def ready_guardian(client, headers: dict, **cfg) -> dict:
             )
             await s.commit()
     return r.json()
+
+
+# ---------------------------------------------------------------------------
+# Guardian alert outbox: enqueueing (HTTP 202) is tested separately from delivery (the worker)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def quiet_worker(monkeypatch):
+    """The request path must only ENQUEUE. ``run_once_safe`` is the best-effort immediate attempt scheduled after a request; it is
+    disabled here (it also does nothing outside production unless GUARDIAN_WORKER_ENABLED is set), so a test never depends on it.
+    Delivery is exercised explicitly with ``drain_guardian_outbox`` and mocked SMS/e-mail providers: no real message is sent."""
+    from app.services import guardian_outbox
+
+    async def _noop():
+        return None
+
+    monkeypatch.setattr(guardian_outbox, "run_once_safe", _noop)
+
+
+async def drain_guardian_outbox(limit: int = 10) -> dict:
+    """Run the delivery worker once, in its own session, against the (harness-repointed) test database."""
+    import app.database as app_db
+    from app.services import guardian_outbox
+
+    async with app_db.AsyncSessionLocal() as session:
+        return await guardian_outbox.run_once(session, limit=limit)
+
+
+async def outbox_rows() -> list:
+    """Every guardian outbox row (status, user id), for asserting what the request path queued."""
+    import app.database as app_db
+    from sqlalchemy import select
+
+    from app.models.guardian_outbox import GuardianAlertOutbox
+
+    async with app_db.AsyncSessionLocal() as session:
+        rows = (await session.execute(select(GuardianAlertOutbox))).scalars().all()
+        return [(r.status, r.user_id) for r in rows]

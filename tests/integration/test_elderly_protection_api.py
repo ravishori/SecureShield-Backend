@@ -5,9 +5,15 @@ import re
 import pytest
 
 import app.routers.elderly_protection as elderly
-from tests.integration.conftest import ready_guardian
+from app.services.guardian_outbox import PENDING, SENT
+from tests.integration.conftest import (
+    drain_guardian_outbox,
+    outbox_rows,
+    ready_guardian,
+)
 
-pytestmark = pytest.mark.integration
+# quiet_worker: the request path only ENQUEUES (HTTP 202); delivery is exercised explicitly with drain_guardian_outbox().
+pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("quiet_worker")]
 E = "/api/v1/elderly"
 
 CFG = {
@@ -115,6 +121,10 @@ async def test_alert_is_delivered_by_sms_and_email_with_sanitised_content(
         f"{E}/guardian-alert", headers=h, json={**ALERT, "app_name": "Bad\r\nApp"}
     )
     assert r.status_code == 202 and r.json()["status"] == "queued"
+    # enqueueing is independent of delivery: the request sent nothing and left exactly one pending outbox row
+    assert sent == {"sms": [], "email": []}
+    assert [status for status, _ in await outbox_rows()] == [PENDING]
+    assert await drain_guardian_outbox() == {SENT: 1}
     (phone, body), (to, subject, ebody) = sent["sms"][0], sent["email"][0]
     assert (
         phone == "+919800000000"
@@ -153,6 +163,8 @@ async def test_channels_are_independent_and_failures_do_not_break_the_request(
     assert (
         await client.post(f"{E}/guardian-alert", headers=h, json=ALERT)
     ).status_code == 202
+    assert calls == []  # the request path never calls a provider
+    await drain_guardian_outbox()
     assert calls == ["sms", "email"]  # the email channel still ran after SMS failed
 
 
@@ -214,6 +226,10 @@ async def test_guardian_alerts_are_rate_limited_per_user(
         for i in range(12)
     ]
     assert codes[:10] == [202] * 10 and codes[10:] == [429, 429]
+    assert (
+        len(await outbox_rows()) == 10 and sent["sms"] == []
+    )  # queued, nothing delivered yet
+    await drain_guardian_outbox()
     assert len(sent["sms"]) == 10
     other = auth_headers(await make_user("other"))
     await ready_guardian(client, other, **CFG)
@@ -257,3 +273,29 @@ async def test_delivery_logs_never_contain_guardian_contact_or_message(
         and "asha@example.com" not in blob.lower()
         and "Bad App" not in blob
     )
+
+
+async def test_request_path_only_enqueues_and_never_touches_a_provider(
+    client, make_user, auth_headers, monkeypatch
+):
+    """HTTP 202 means "queued", whatever the providers do: the request path must not call SMS or e-mail at all, and a provider
+    that fails during the later delivery run leaves the alert queued for a retry instead of losing it."""
+    calls = []
+
+    async def exploding(*args, **kwargs):
+        calls.append("called")
+        raise RuntimeError("provider down")
+
+    monkeypatch.setattr(elderly.notifications, "send_sms", exploding)
+    monkeypatch.setattr(elderly.notifications, "send_email", exploding)
+    h = auth_headers(await make_user("q"))
+    await ready_guardian(client, h, **CFG)
+    r = await client.post(f"{E}/guardian-alert", headers=h, json=ALERT)
+    assert r.status_code == 202 and r.json() == {"status": "queued"}
+    assert calls == []  # nothing was attempted while serving the request
+    assert [status for status, _ in await outbox_rows()] == [PENDING]
+    await drain_guardian_outbox()  # delivery now fails on both channels
+    assert len(calls) == 2
+    assert [status for status, _ in await outbox_rows()] == [
+        PENDING
+    ]  # kept for a retry, not dropped

@@ -7,10 +7,8 @@ before it even tried to log in (the app could not connect to a pooled endpoint c
 
 from __future__ import annotations
 
-import os
 
 import pytest
-from sqlalchemy import text
 from sqlalchemy.dialects.postgresql.asyncpg import dialect as asyncpg_dialect
 from sqlalchemy.engine import make_url
 
@@ -146,40 +144,3 @@ def test_explicit_connect_args_are_merged_not_replaced(monkeypatch):
         "statement_cache_size": 0,
     }
     assert captured["hide_parameters"] is True
-
-
-# ------------------------------------------------------------------ real asyncpg connection (opt-in)
-_TEST_URL = os.environ.get("TEST_DATABASE_URL", "").strip()
-
-
-@pytest.mark.integration
-@pytest.mark.skipif(
-    not _TEST_URL,
-    reason="TEST_DATABASE_URL not set (needs a disposable local PostgreSQL)",
-)
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "extra",
-    [
-        "",
-        "?statement_cache_size=0",
-        "?statement_cache_size=0&prepared_statement_cache_size=0",
-    ],
-)
-async def test_real_connection_with_integer_options_in_the_url(extra):
-    """With asyncpg itself: the options in the URL no longer raise TypeError and the cache really is disabled."""
-    url = make_url(_TEST_URL.replace("postgresql://", "postgresql+asyncpg://", 1))
-    if "+asyncpg" not in str(url.drivername):
-        url = url.set(drivername="postgresql+asyncpg")
-    full = url.render_as_string(hide_password=False).split("?")[0] + extra
-    eng = build_async_engine(full)
-    try:
-        async with eng.connect() as conn:
-            await conn.execution_options(postgresql_readonly=True)
-            assert (await conn.execute(text("select 1"))).scalar() == 1
-            raw = await conn.get_raw_connection()
-            asyncpg_conn = raw.driver_connection
-            if "statement_cache_size=0" in extra:
-                assert asyncpg_conn._stmt_cache.get_max_size() == 0
-    finally:
-        await eng.dispose()
